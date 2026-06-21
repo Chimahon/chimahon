@@ -72,6 +72,7 @@ class SyncPreferences(
             // SY <--
             // Chimahon -->
             novels = preferenceStore.getBoolean("sync_novels", true).get(),
+            sourceNovelLibrary = preferenceStore.getBoolean("sync_source_novel_library", true).get(),
             // Chimahon <--
             animeEntries = preferenceStore.getBoolean("anime_entries", true).get(),
         )
@@ -95,6 +96,7 @@ class SyncPreferences(
         // SY <--
         // Chimahon -->
         preferenceStore.getBoolean("sync_novels", true).set(syncSettings.novels)
+        preferenceStore.getBoolean("sync_source_novel_library", true).set(syncSettings.sourceNovelLibrary)
         // Chimahon <--
         preferenceStore.getBoolean("anime_entries", true).set(syncSettings.animeEntries)
     }

@@ -12,9 +12,14 @@ import com.canopus.chimareader.data.BookStorage
 import com.canopus.chimareader.data.NovelCategory
 import com.canopus.chimareader.data.NovelCategoryStorage
 import eu.kanade.presentation.library.components.LibraryToolbarTitle
+import tachiyomi.domain.novel.model.Novel
+import tachiyomi.domain.novel.repository.NovelRepository
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -30,10 +35,21 @@ class NovelLibraryScreenModel(
     private val app: Application = Injekt.get(),
     private val categoryStorage: NovelCategoryStorage = Injekt.get(),
     private val libraryPreferences: NovelLibraryPreferences = Injekt.get(),
+    private val novelRepository: NovelRepository = Injekt.get(),
 ) : StateScreenModel<NovelLibraryScreenModel.State>(State()) {
+
+    private val _searchQuery = MutableStateFlow<String?>(null)
 
     init {
         loadLibrary()
+
+        screenModelScope.launch {
+            _searchQuery
+                .debounce(250)
+                .collect { query ->
+                    mutableState.update { it.copy(searchQuery = query) }
+                }
+        }
 
         libraryPreferences.showHiddenCategories().changes()
             .onEach { showHiddenCategories ->
@@ -46,19 +62,21 @@ class NovelLibraryScreenModel(
         screenModelScope.launch {
             val categories = categoryStorage.loadAllCategories()
             val books = BookStorage.loadAllBooks(app)
+            val sourceNovels = novelRepository.getFavorites()
             
             mutableState.update { 
                 it.copy(
                     isLoading = false,
                     categories = categories.toImmutableList(),
-                    books = books.toImmutableList()
+                    books = books.toImmutableList(),
+                    sourceNovels = sourceNovels.toImmutableList(),
                 )
             }
         }
     }
 
     fun search(query: String?) {
-        mutableState.update { it.copy(searchQuery = query) }
+        _searchQuery.value = query
     }
 
     fun updateActiveCategoryIndex(index: Int) {
@@ -83,13 +101,18 @@ class NovelLibraryScreenModel(
 
     fun selectAll() {
         mutableState.update { state ->
-            state.copy(selection = state.books.map { it.id }.toImmutableList())
+            val allIds = state.displayedCategories.flatMap { cat ->
+                state.getItemsForCategory(cat).map { it.id }
+            }.toImmutableList()
+            state.copy(selection = allIds)
         }
     }
 
     fun invertSelection() {
         mutableState.update { state ->
-            val allIds = state.books.map { it.id }.toSet()
+            val allIds = state.displayedCategories.flatMap { cat ->
+                state.getItemsForCategory(cat).map { it.id }
+            }.toSet()
             val newSelection = allIds.minus(state.selection).toList().toImmutableList()
             state.copy(selection = newSelection)
         }
@@ -98,8 +121,12 @@ class NovelLibraryScreenModel(
     fun deleteSelected() {
         screenModelScope.launch {
             val state = mutableState.value
-            state.selection.forEach { bookId ->
-                BookStorage.deleteBook(app, bookId)
+            val selected = state.selection.toSet()
+            state.books.filter { it.id in selected }.forEach { book ->
+                BookStorage.deleteBook(app, book.id)
+            }
+            state.sourceNovels.filter { sourceNovelLibraryItemId(it.id) in selected }.forEach { novel ->
+                novelRepository.deleteNovel(novel.id)
             }
             clearSelection()
             loadLibrary()
@@ -131,7 +158,7 @@ class NovelLibraryScreenModel(
             val state = mutableState.value
             state.selection.forEach { bookId ->
                 val bookDir = BookStorage.getBookDirectory(app, bookId)
-                // Delete statistics file ΓÇö BookStorage.save will recreate it fresh on next read
+                // Delete statistics file — BookStorage.save will recreate it fresh on next read
                 val statsFile = java.io.File(bookDir, com.canopus.chimareader.data.FileNames.statistics)
                 if (statsFile.exists()) statsFile.delete()
                 // Also delete bookmark so reading position resets
@@ -144,21 +171,21 @@ class NovelLibraryScreenModel(
 
     fun showChangeCategoryDialog() {
         val s = mutableState.value
-        val selectedBooks = s.books.filter { it.id in s.selection.toSet() }
+        val selectedLocalBooks = s.books.filter { it.id in s.selection.toSet() }
         val userCategories = s.categories.filterNot { it.isSystemCategory }
 
-        val commonCategoryIds = if (selectedBooks.isEmpty()) {
+        val commonCategoryIds = if (selectedLocalBooks.isEmpty()) {
             emptySet()
         } else {
-            selectedBooks.map { it.categoryIds.toSet() }
+            selectedLocalBooks.map { it.categoryIds.toSet() }
                 .reduce { set1, set2 -> set1.intersect(set2) }
         }
         val commonCategories = userCategories.filter { it.id in commonCategoryIds }
 
-        val mixCategoryIds = if (selectedBooks.isEmpty()) {
+        val mixCategoryIds = if (selectedLocalBooks.isEmpty()) {
             emptySet()
         } else {
-            selectedBooks.flatMap { it.categoryIds }.distinct().toSet() - commonCategoryIds
+            selectedLocalBooks.flatMap { it.categoryIds }.distinct().toSet() - commonCategoryIds
         }
         val mixCategories = userCategories.filter { it.id in mixCategoryIds }
 
@@ -178,7 +205,7 @@ class NovelLibraryScreenModel(
         }.toImmutableList()
 
         mutableState.update {
-            it.copy(dialog = Dialog.ChangeCategory(selectedBooks.toImmutableList(), preselected))
+            it.copy(dialog = Dialog.ChangeCategory(selectedLocalBooks.toImmutableList(), preselected))
         }
     }
 
@@ -269,6 +296,7 @@ class NovelLibraryScreenModel(
         val isLoading: Boolean = true,
         val categories: ImmutableList<NovelCategory> = persistentListOf(),
         val books: ImmutableList<BookMetadata> = persistentListOf(),
+        val sourceNovels: ImmutableList<Novel> = persistentListOf(),
         val searchQuery: String? = null,
         val selection: ImmutableList<String> = persistentListOf(),
         val activeCategoryIndex: Int = 0,
@@ -280,12 +308,12 @@ class NovelLibraryScreenModel(
         val showHiddenCategories: Boolean = false,
     ) {
         val hasActiveFilters: Boolean = false
-        val isLibraryEmpty: Boolean = books.isEmpty()
+        val isLibraryEmpty: Boolean = books.isEmpty() && sourceNovels.isEmpty()
         val selectionMode: Boolean = selection.isNotEmpty()
 
         val displayedCategories: List<NovelCategory>
             get() = categories.filterNot {
-                it.isSystemCategory && getBooksForCategory(it).isEmpty()
+                it.isSystemCategory && getItemsForCategory(it).isEmpty()
             }.filterNot {
                 it.hidden && !showHiddenCategories
             }
@@ -296,34 +324,31 @@ class NovelLibraryScreenModel(
         val activeCategory: NovelCategory?
             get() = displayedCategories.getOrNull(coercedActiveCategoryIndex)
 
-        fun getBooksForCategory(category: NovelCategory): List<BookMetadata> {
-            val filteredBooks = if (searchQuery.isNullOrBlank()) {
-                books
-            } else {
-                books.filter { it.title?.contains(searchQuery, ignoreCase = true) == true }
-            }
-            
+        fun getItemsForCategory(category: NovelCategory): List<NovelLibraryItem> {
+            val query = searchQuery
+            val localItems = books
+                .filter { query == null || it.title?.contains(query, ignoreCase = true) == true }
+                .map { NovelLibraryItem.LocalBook(it) }
+            val sourceItems = sourceNovels
+                .filter { query == null || it.title.contains(query, ignoreCase = true) }
+                .map { NovelLibraryItem.SourceNovel(it) }
+
             val knownCategoryIds = categories.map { it.id }.toSet()
-            val categoryBooks = filteredBooks.filter {
-                val bookCategoryIds = it.normalizedCategoryIds(knownCategoryIds)
-                if (category.isSystemCategory) {
-                    bookCategoryIds.isEmpty() || bookCategoryIds.contains(NovelCategory.UNCATEGORIZED_ID)
-                } else {
-                    bookCategoryIds.contains(category.id)
+            val allItems = (localItems + sourceItems).filter { item ->
+                when (item) {
+                    is NovelLibraryItem.LocalBook -> {
+                        val ids = item.metadata.normalizedCategoryIds(knownCategoryIds)
+                        if (category.isSystemCategory) {
+                            ids.isEmpty() || ids.contains(NovelCategory.UNCATEGORIZED_ID)
+                        } else {
+                            ids.contains(category.id)
+                        }
+                    }
+                    is NovelLibraryItem.SourceNovel -> category.isSystemCategory
                 }
             }
-            
-            val comparator = when (sortMode) {
-                SortMode.Alphabetical -> compareBy<BookMetadata>({ it.title?.lowercase() ?: "" }, { it.id })
-                SortMode.DateAdded -> compareBy<BookMetadata>({ it.dateAdded }, { it.title?.lowercase() ?: "" }, { it.id })
-                SortMode.LastRead -> compareBy<BookMetadata>({ it.lastAccess }, { it.title?.lowercase() ?: "" }, { it.id })
-            }
-
-            return if (sortDescending) {
-                categoryBooks.sortedWith(comparator.reversed())
-            } else {
-                categoryBooks.sortedWith(comparator)
-            }
+            val comparator = compareBy<NovelLibraryItem>({ it.title.lowercase() }, { it.id })
+            return if (sortDescending) allItems.sortedWith(comparator.reversed()) else allItems.sortedWith(comparator)
         }
 
         private fun BookMetadata.normalizedCategoryIds(knownCategoryIds: Set<String>): List<String> {
@@ -340,7 +365,7 @@ class NovelLibraryScreenModel(
         }
 
         fun getItemCountForCategory(category: NovelCategory): Int {
-            return getBooksForCategory(category).size
+            return getItemsForCategory(category).size
         }
 
         fun getToolbarTitle(
@@ -359,7 +384,7 @@ class NovelLibraryScreenModel(
             val count = when {
                 !showCount -> null
                 !showTabs && category != null -> getItemCountForCategory(category)
-                else -> books.size
+                else -> books.size + sourceNovels.size
             }
             return LibraryToolbarTitle(title, count)
         }
@@ -416,6 +441,7 @@ class NovelLibraryScreenModel(
     fun getRandomBookForCurrentCategory(): BookMetadata? {
         val s = mutableState.value
         val category = s.activeCategory ?: return null
-        return s.getBooksForCategory(category).randomOrNull()
+        val items = s.getItemsForCategory(category)
+        return items.filterIsInstance<NovelLibraryItem.LocalBook>().randomOrNull()?.metadata
     }
 }

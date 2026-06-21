@@ -3,8 +3,14 @@ package eu.kanade.tachiyomi.extension
 import android.content.Context
 import android.graphics.drawable.Drawable
 import androidx.core.content.ContextCompat
+import chimahon.novel.model.NovelServer
+import chimahon.novel.model.NovelServerStorage
+import chimahon.novel.model.NovelServerType
+import chimahon.source.kavita.KavitaSource
+import chimahon.source.komga.KomgaSource
 import eu.kanade.domain.extension.interactor.TrustExtension
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.extension.api.ExtensionApi
 import eu.kanade.tachiyomi.extension.api.ExtensionUpdateNotifier
@@ -28,9 +34,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
@@ -51,6 +60,7 @@ class ExtensionManager(
     private val context: Context,
     private val preferences: SourcePreferences = Injekt.get(),
     private val trustExtension: TrustExtension = Injekt.get(),
+    private val serverStorage: NovelServerStorage = Injekt.get(),
 ) {
 
     val scope = CoroutineScope(SupervisorJob())
@@ -85,6 +95,7 @@ class ExtensionManager(
 
     init {
         initExtensions()
+        initBuiltInServerExtensions()
         ExtensionInstallReceiver(InstallationListener()).register(context)
     }
 
@@ -107,10 +118,17 @@ class ExtensionManager(
     }
 
     fun getAppIconForSource(sourceId: Long): Drawable? {
-        val pkgName = getExtensionPackage(sourceId)
+        val extension = installedExtensionsFlow.value.find { extension ->
+            extension.sources.any { it.id == sourceId }
+        }
+        extension?.icon?.let { return it }
+
+        val pkgName = extension?.pkgName
         if (pkgName != null) {
+            val packageInfo = ExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)
+                ?: return null
             return iconMap[pkgName] ?: iconMap.getOrPut(pkgName) {
-                ExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!
+                packageInfo.applicationInfo!!
                     .loadIcon(context.packageManager)
             }
         }
@@ -156,6 +174,54 @@ class ExtensionManager(
         // SY <--
 
         _isInitialized.value = true
+    }
+
+    private fun initBuiltInServerExtensions() {
+        scope.launch {
+            serverStorage.getAllServers()
+                .map { servers ->
+                    servers
+                        .filter { it.enabled }
+                        .mapNotNull { it.toBuiltInExtension() }
+                        .associateBy { it.pkgName }
+                }
+                .collectLatest { builtInExtensions ->
+                    installedExtensionMapFlow.update { installedExtensions ->
+                        installedExtensions
+                            .filterKeys { !it.isBuiltInExtensionPackage() } + builtInExtensions
+                    }
+                    updatePendingUpdatesCount()
+                }
+        }
+    }
+
+    private fun NovelServer.toBuiltInExtension(): Extension.Installed? {
+        val (source, typeName, iconRes) = when (type) {
+            NovelServerType.KOMGA -> Triple(KomgaSource(this), "Komga", R.drawable.brand_komga)
+            NovelServerType.KAVITA -> Triple(KavitaSource(this), "Kavita", R.drawable.brand_kavita)
+            NovelServerType.OPDS -> return null
+        }
+
+        return Extension.Installed(
+            name = "$typeName: $name",
+            pkgName = builtInPackageName(type, id),
+            versionName = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE.toLong(),
+            libVersion = ExtensionLoader.LIB_VERSION_MAX,
+            lang = source.lang,
+            isNsfw = false,
+            signatureHash = "$BUILT_IN_SIGNATURE_HASH:${type.name.lowercase(Locale.ROOT)}",
+            repoName = BUILT_IN_REPO_NAME,
+            pkgFactory = null,
+            sources = listOf(source),
+            icon = ContextCompat.getDrawable(context, iconRes),
+            hasUpdate = false,
+            isObsolete = false,
+            isShared = false,
+            isBuiltIn = true,
+            repoUrl = null,
+            isRedundant = false,
+        )
     }
 
     // EXH -->
@@ -246,6 +312,10 @@ class ExtensionManager(
         val installedExtensionsMap = installedExtensionMapFlow.value.toMutableMap()
         var changed = false
         for ((pkgName, extension) in installedExtensionsMap) {
+            if (extension.isBuiltIn) {
+                continue
+            }
+
             val availableExt = availableExtensions.find {
                 // KMK -->
                 it.signatureHash == extension.signatureHash &&
@@ -309,6 +379,10 @@ class ExtensionManager(
      * @param extension The extension to be updated.
      */
     fun updateExtension(extension: Extension.Installed): Flow<InstallStep> {
+        if (extension.isBuiltIn) {
+            return emptyFlow()
+        }
+
         val availableExt = availableExtensionMapFlow.value[
             extension.pkgName +
                 // KMK -->
@@ -319,6 +393,10 @@ class ExtensionManager(
     }
 
     fun cancelInstallUpdateExtension(extension: Extension) {
+        if (extension is Extension.Installed && extension.isBuiltIn) {
+            return
+        }
+
         installer.cancelInstall(
             extension.pkgName +
                 // KMK -->
@@ -346,6 +424,10 @@ class ExtensionManager(
      * @param extension The extension to uninstall.
      */
     fun uninstallExtension(extension: Extension) {
+        if (extension is Extension.Installed && extension.isBuiltIn) {
+            return
+        }
+
         installer.uninstallApk(extension.pkgName)
     }
 
@@ -452,7 +534,7 @@ class ExtensionManager(
 
     private fun Extension.Installed.updateExists(availableExtension: Extension.Available? = null): Boolean {
         val availableExt = availableExtension
-            ?: availableExtensionMapFlow.value[pkgName]
+            ?: availableExtensionMapFlow.value["$pkgName:$signatureHash"]
             ?: return false
 
         return (availableExt.versionCode > versionCode || availableExt.libVersion > libVersion)
@@ -470,5 +552,32 @@ class ExtensionManager(
 
     private fun <T : Extension> StateFlow<Map<String, T>>.mapExtensions(scope: CoroutineScope): StateFlow<List<T>> {
         return map { it.values.toList() }.stateIn(scope, SharingStarted.Lazily, value.values.toList())
+    }
+
+    private fun builtInPackageName(type: NovelServerType, serverId: String): String {
+        return "$BUILT_IN_PACKAGE_PREFIX.${type.name.lowercase(Locale.ROOT)}.${serverId.toPackagePart()}"
+    }
+
+    private fun String.isBuiltInExtensionPackage(): Boolean {
+        return startsWith(BUILT_IN_PACKAGE_PREFIX)
+    }
+
+    private fun String.toPackagePart(): String {
+        val packagePart = lowercase(Locale.ROOT)
+            .map { char -> if (char.isLetterOrDigit()) char else '_' }
+            .joinToString("")
+            .ifBlank { "server" }
+
+        return if (packagePart.first().isLetter() || packagePart.first() == '_') {
+            packagePart
+        } else {
+            "server_$packagePart"
+        }
+    }
+
+    private companion object {
+        const val BUILT_IN_PACKAGE_PREFIX = "app.chimahon.builtin"
+        const val BUILT_IN_REPO_NAME = "Built-in"
+        const val BUILT_IN_SIGNATURE_HASH = "chimahon-builtin"
     }
 }

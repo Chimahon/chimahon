@@ -1,0 +1,129 @@
+CREATE TABLE novels(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    source INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT,
+    author TEXT,
+    description TEXT,
+    genre TEXT,
+    status INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT,
+    favorite INTEGER NOT NULL DEFAULT 0,
+    last_update INTEGER NOT NULL DEFAULT 0,
+    next_update INTEGER NOT NULL DEFAULT 0,
+    initialized INTEGER NOT NULL DEFAULT 0,
+    cover_last_modified INTEGER NOT NULL DEFAULT 0,
+    date_added INTEGER NOT NULL DEFAULT 0,
+    total_chapters INTEGER NOT NULL DEFAULT 0,
+    last_modified_at INTEGER NOT NULL DEFAULT 0,
+    favorite_modified_at INTEGER,
+    fetch_interval INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 0,
+    notes TEXT NOT NULL DEFAULT ""
+);
+
+CREATE INDEX novel_library_index ON novels(favorite) WHERE favorite = 1;
+CREATE INDEX novel_url_index ON novels(url);
+CREATE INDEX novel_source_index ON novels(source);
+CREATE UNIQUE INDEX novel_source_url_unique ON novels(source, url);
+
+CREATE TRIGGER update_novel_last_favorited_at
+AFTER UPDATE OF favorite ON novels
+BEGIN
+  UPDATE novels
+  SET favorite_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER update_novel_last_modified_at
+AFTER UPDATE ON novels
+FOR EACH ROW
+BEGIN
+  UPDATE novels
+  SET last_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER update_novel_version AFTER UPDATE ON novels
+BEGIN
+    UPDATE novels SET version = version + 1
+    WHERE _id = new._id AND (
+        new.url != old.url OR
+        new.description != old.description OR
+        new.favorite != old.favorite OR
+        new.title != old.title OR
+        new.thumbnail_url != old.thumbnail_url
+    );
+END;
+
+getNovelById:
+SELECT *
+FROM novels
+WHERE _id = :id;
+
+getNovelByUrlAndSource:
+SELECT *
+FROM novels
+WHERE url = :url
+AND source = :source
+LIMIT 1;
+
+getFavorites:
+SELECT *
+FROM novels
+WHERE favorite = 1;
+
+getAllNovels:
+SELECT *
+FROM novels;
+
+getAllNovelsBySource:
+SELECT *
+FROM novels
+WHERE source = :sourceId;
+
+insert:
+INSERT INTO novels(source, url, title, artist, author, description, genre, status, thumbnail_url, favorite, last_update, next_update, initialized, cover_last_modified, date_added, total_chapters, last_modified_at, version, notes)
+VALUES (:source, :url, :title, :artist, :author, :description, :genre, :status, :thumbnailUrl, :favorite, :lastUpdate, :nextUpdate, :initialized, :coverLastModified, :dateAdded, :totalChapters, 0, :version, :notes);
+
+update:
+UPDATE novels SET
+    source = coalesce(:source, source),
+    url = coalesce(:url, url),
+    title = coalesce(:title, title),
+    artist = coalesce(:artist, artist),
+    author = coalesce(:author, author),
+    description = coalesce(:description, description),
+    genre = coalesce(:genre, genre),
+    status = coalesce(:status, status),
+    thumbnail_url = coalesce(:thumbnailUrl, thumbnail_url),
+    favorite = coalesce(:favorite, favorite),
+    last_update = coalesce(:lastUpdate, last_update),
+    next_update = coalesce(:nextUpdate, next_update),
+    initialized = coalesce(:initialized, initialized),
+    cover_last_modified = coalesce(:coverLastModified, cover_last_modified),
+    date_added = coalesce(:dateAdded, date_added),
+    total_chapters = coalesce(:totalChapters, total_chapters),
+    fetch_interval = coalesce(:fetchInterval, fetch_interval),
+    version = coalesce(:version, version),
+    notes = coalesce(:notes, notes)
+WHERE _id = :novelId;
+
+deleteById:
+DELETE FROM novels WHERE _id = :id;
+
+selectLastInsertedRowId:
+SELECT last_insert_rowid();
+
+getSourceIdsWithFavorites:
+SELECT source, count(*) AS novel_count
+FROM novels
+WHERE favorite = 1
+GROUP BY source;
+
+getFavoritesBySourceId:
+SELECT *
+FROM novels
+WHERE favorite = 1
+AND source = :sourceId;

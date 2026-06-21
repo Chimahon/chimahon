@@ -21,6 +21,7 @@ kotlin {
 
 dependencies {
     implementation(projects.sourceApi)
+    implementation(projects.sourceApiNovel)
     implementation(projects.core.common)
 
     implementation(platform(kotlinx.coroutines.bom))

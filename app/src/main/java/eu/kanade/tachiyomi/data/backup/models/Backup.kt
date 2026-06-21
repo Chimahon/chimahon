@@ -58,6 +58,7 @@ data class Backup(
     // Chimahon -->
     @ProtoNumber(700) var backupNovels: List<BackupNovel> = emptyList(),
     @ProtoNumber(701) var backupNovelCategories: List<BackupNovelCategory> = emptyList(),
+    @ProtoNumber(702) var backupSourceNovels: List<BackupSourceNovel> = emptyList(),
     @ProtoNumber(710) var backupMangaStats: List<com.canopus.chimareader.data.MangaStats> = emptyList(),
     @ProtoNumber(711) var backupAnkiStats: List<com.canopus.chimareader.data.AnkiStats> = emptyList(),
     // Chimahon <--

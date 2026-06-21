@@ -1,0 +1,99 @@
+CREATE TABLE novel_chapters(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    novel_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    name TEXT NOT NULL,
+    scanlator TEXT,
+    read INTEGER NOT NULL DEFAULT 0,
+    bookmark INTEGER NOT NULL DEFAULT 0,
+    last_page_read INTEGER NOT NULL DEFAULT 0,
+    chapter_number REAL NOT NULL DEFAULT 0,
+    source_order INTEGER NOT NULL DEFAULT 0,
+    date_fetch INTEGER NOT NULL DEFAULT 0,
+    date_upload INTEGER NOT NULL DEFAULT 0,
+    last_modified_at INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(novel_id) REFERENCES novels(_id) ON DELETE CASCADE
+);
+
+CREATE INDEX novel_chapters_novel_id_index ON novel_chapters(novel_id);
+CREATE INDEX novel_chapters_unread_by_novel_index ON novel_chapters(novel_id, read) WHERE read = 0;
+CREATE UNIQUE INDEX novel_chapters_novel_url_unique ON novel_chapters(novel_id, url);
+
+CREATE TRIGGER update_novel_chapter_last_modified
+AFTER UPDATE ON novel_chapters
+FOR EACH ROW
+BEGIN
+  UPDATE novel_chapters
+  SET last_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER update_novel_chapter_and_novel_version AFTER UPDATE ON novel_chapters
+WHEN (
+    new.read != old.read OR
+    new.bookmark != old.bookmark OR
+    new.last_page_read != old.last_page_read
+)
+BEGIN
+    UPDATE novel_chapters SET version = version + 1
+    WHERE _id = new._id;
+
+    UPDATE novels SET version = version + 1
+    WHERE _id = new.novel_id;
+END;
+
+getChapterById:
+SELECT *
+FROM novel_chapters
+WHERE _id = :id;
+
+getChaptersByNovelId:
+SELECT *
+FROM novel_chapters
+WHERE novel_id = :novelId
+ORDER BY source_order ASC;
+
+getChapterByUrlAndNovelId:
+SELECT *
+FROM novel_chapters
+WHERE url = :chapterUrl
+AND novel_id = :novelId;
+
+getUnreadChaptersByNovelId:
+SELECT *
+FROM novel_chapters
+WHERE novel_id = :novelId AND read = 0;
+
+insert:
+INSERT INTO novel_chapters(novel_id, url, name, scanlator, read, bookmark, last_page_read, chapter_number, source_order, date_fetch, date_upload, last_modified_at, version)
+VALUES (:novelId, :url, :name, :scanlator, :read, :bookmark, :lastPageRead, :chapterNumber, :sourceOrder, :dateFetch, :dateUpload, 0, :version);
+
+update:
+UPDATE novel_chapters
+SET novel_id = coalesce(:novelId, novel_id),
+    url = coalesce(:url, url),
+    name = coalesce(:name, name),
+    scanlator = coalesce(:scanlator, scanlator),
+    read = coalesce(:read, read),
+    bookmark = coalesce(:bookmark, bookmark),
+    last_page_read = coalesce(:lastPageRead, last_page_read),
+    chapter_number = coalesce(:chapterNumber, chapter_number),
+    source_order = coalesce(:sourceOrder, source_order),
+    date_fetch = coalesce(:dateFetch, date_fetch),
+    date_upload = coalesce(:dateUpload, date_upload),
+    version = coalesce(:version, version)
+WHERE _id = :chapterId;
+
+deleteById:
+DELETE FROM novel_chapters WHERE _id = :id;
+
+deleteChaptersByNovelId:
+DELETE FROM novel_chapters WHERE novel_id = :novelId;
+
+removeChaptersWithNoNovel:
+DELETE FROM novel_chapters
+WHERE novel_id NOT IN (SELECT _id FROM novels);
+
+selectLastInsertedRowId:
+SELECT last_insert_rowid();

@@ -18,11 +18,14 @@ import eu.kanade.tachiyomi.data.backup.models.BackupNovelCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSavedSearch
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
+import eu.kanade.tachiyomi.data.backup.models.BackupSourceNovel
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import logcat.LogPriority
 import logcat.logcat
+import kotlin.math.max
+import kotlin.math.min
 
 @Serializable
 data class SyncData(
@@ -107,6 +110,10 @@ abstract class SyncService(
             remoteSyncData.backup?.backupNovelCategories ?: emptyList(),
             mergedNovelCategoriesList,
         )
+        val mergedSourceNovelsList = mergeSourceNovelLists(
+            localSyncData.backup?.backupSourceNovels,
+            remoteSyncData.backup?.backupSourceNovels,
+        )
         // Chimahon <--
 
         // Create the merged Backup object
@@ -129,6 +136,7 @@ abstract class SyncService(
             // Chimahon -->
             backupNovels = mergedNovelsList,
             backupNovelCategories = mergedNovelCategoriesList,
+            backupSourceNovels = mergedSourceNovelsList,
             // Chimahon <--
         )
 
@@ -843,6 +851,58 @@ abstract class SyncService(
 
     private fun categoryKey(name: String): String {
         return name.trim().lowercase()
+    }
+
+    private fun mergeSourceNovelLists(
+        localNovelList: List<BackupSourceNovel>?,
+        remoteNovelList: List<BackupSourceNovel>?,
+    ): List<BackupSourceNovel> {
+        val localNovelMap = localNovelList.orEmpty()
+            .groupBy { sourceNovelKey(it) }
+            .mapValues { (_, duplicates) -> duplicates.reduce(::mergeSourceNovelData) }
+        val remoteNovelMap = remoteNovelList.orEmpty()
+            .groupBy { sourceNovelKey(it) }
+            .mapValues { (_, duplicates) -> duplicates.reduce(::mergeSourceNovelData) }
+
+        return (localNovelMap.keys + remoteNovelMap.keys).distinct().mapNotNull { key ->
+            val local = localNovelMap[key]
+            val remote = remoteNovelMap[key]
+            when {
+                local != null && remote == null -> local
+                local == null && remote != null -> remote
+                local != null && remote != null -> mergeSourceNovelData(local, remote)
+                else -> null
+            }
+        }
+    }
+
+    private fun mergeSourceNovelData(first: BackupSourceNovel, second: BackupSourceNovel): BackupSourceNovel {
+        val latest = when {
+            first.version != second.version -> if (first.version > second.version) first else second
+            else -> if (first.lastModifiedAt >= second.lastModifiedAt) first else second
+        }
+        return latest.copy(
+            favorite = first.favorite || second.favorite,
+            dateAdded = minNonZero(first.dateAdded, second.dateAdded),
+            lastUpdate = max(first.lastUpdate, second.lastUpdate),
+            nextUpdate = max(first.nextUpdate, second.nextUpdate),
+            coverLastModified = max(first.coverLastModified, second.coverLastModified),
+            totalChapters = max(first.totalChapters, second.totalChapters),
+            version = max(first.version, second.version),
+            chapters = mergeChapters(first.chapters, second.chapters),
+        )
+    }
+
+    private fun sourceNovelKey(novel: BackupSourceNovel): String {
+        return "${novel.source}|${novel.url}"
+    }
+
+    private fun minNonZero(first: Long, second: Long): Long {
+        return when {
+            first <= 0L -> second
+            second <= 0L -> first
+            else -> min(first, second)
+        }
     }
     // Chimahon <--
 }

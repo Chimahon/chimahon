@@ -148,6 +148,9 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         Injekt.importModule(SYDomainModule())
         // SY <--
 
+        // Chimahon: initialize novel extension manager (loads JS sources from repos)
+        uy.kohesive.injekt.Injekt.get<chimahon.novel.extension.NovelExtensionManager>().initialize()
+
         setupExhLogging() // EXH logging
         if (!LogcatLogger.isInstalled) {
             val minLogPriority = when {

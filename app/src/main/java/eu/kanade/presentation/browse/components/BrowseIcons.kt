@@ -127,16 +127,22 @@ fun ExtensionIcon(
 @Composable
 private fun Extension.getIcon(density: Int = DisplayMetrics.DENSITY_DEFAULT): State<Result<ImageBitmap>> {
     val context = LocalContext.current
+    val extension = this
     return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, this) {
         withIOContext {
             value = try {
-                val appInfo = ExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!
-                val appResources = context.packageManager.getResourcesForApplication(appInfo)
-                Result.Success(
-                    appResources.getDrawableForDensity(appInfo.icon, density, null)!!
-                        .toBitmap()
-                        .asImageBitmap(),
-                )
+                val inMemoryIcon = (extension as? Extension.Installed)?.icon
+                if (inMemoryIcon != null) {
+                    Result.Success(inMemoryIcon.toBitmap().asImageBitmap())
+                } else {
+                    val appInfo = ExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!
+                    val appResources = context.packageManager.getResourcesForApplication(appInfo)
+                    Result.Success(
+                        appResources.getDrawableForDensity(appInfo.icon, density, null)!!
+                            .toBitmap()
+                            .asImageBitmap(),
+                    )
+                }
             } catch (e: Exception) {
                 Result.Error
             }

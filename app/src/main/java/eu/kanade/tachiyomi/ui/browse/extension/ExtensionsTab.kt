@@ -77,6 +77,15 @@ fun extensionsTab(
                 onLongClickItem = { extension ->
                     when (extension) {
                         is Extension.Available -> extensionsScreenModel.installExtension(extension)
+                        is Extension.Installed -> {
+                            if (!extension.isBuiltIn) {
+                                if (context.isPackageInstalled(extension.pkgName)) {
+                                    extensionsScreenModel.uninstallExtension(extension)
+                                } else {
+                                    privateExtensionToUninstall = extension
+                                }
+                            }
+                        }
                         else -> {
                             if (context.isPackageInstalled(extension.pkgName)) {
                                 extensionsScreenModel.uninstallExtension(extension)

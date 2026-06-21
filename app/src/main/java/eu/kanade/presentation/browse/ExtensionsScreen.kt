@@ -427,7 +427,7 @@ private fun ExtensionItemContent(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (extension is Extension.Installed && !extension.isShared) {
+                if (extension is Extension.Installed && !extension.isShared && !extension.isBuiltIn) {
                     if (hasAlreadyShownAnElement) DotSeparatorNoSpaceText()
                     Text(
                         text = stringResource(MR.strings.ext_installer_private),
@@ -631,6 +631,7 @@ private fun ExtensionItemContentPreview() {
         hasUpdate = false,
         isObsolete = false,
         isShared = false,
+        isBuiltIn = false,
         isRedundant = false,
     )
     val extUntrusted = Extension.Untrusted(
