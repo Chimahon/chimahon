@@ -131,7 +131,7 @@ internal class IReaderNovelSource(
         description = description.ifBlank { null },
         genre = genres.joinToString(", ").ifBlank { null },
         status = status.toInt(),
-        thumbnail_url = cover.ifBlank { null },
+        thumbnail_url = cover.ifBlank { null }?.let { runtime.resolveUrl(it, baseUrl) ?: it },
     )
 
     private fun SNNovel.toMangaInfo(): MangaInfo = MangaInfo(
