@@ -192,6 +192,7 @@ internal class IReaderNovelSource(
                     items.add(ContentItem.Image(dataUrl))
                 }
                 is MovieUrl,
+                is PageUrl,
                 is Subtitle,
                 -> Unit
             }

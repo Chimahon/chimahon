@@ -31,9 +31,9 @@ internal class IReaderRuntime(
     private val cookiesStorage: CookiesStorage = AcceptAllCookiesStorage()
     private val cookiePreferences = IReaderPreferenceStore(preferenceStore, "runtime")
     private val webViewCookieJar = WebViewCookieJar(cookiesStorage)
-    private val cookieSynchronizer = CookieSynchronizer(webViewCookieJar, cookiesStorage)
+    private val cookieSynchronizer = CookieSynchronizer(webViewCookieJar)
     private val webViewManager = WebViewManger(appContext)
-    private val browserEngine = BrowserEngine(webViewManager, webViewCookieJar, cookieSynchronizer)
+    private val browserEngine = BrowserEngine(webViewManager, webViewCookieJar)
 
     private val httpClients = HttpClients(
         context = appContext,
@@ -43,10 +43,6 @@ internal class IReaderRuntime(
         preferencesStore = cookiePreferences,
         webViewManager = webViewManager,
     )
-
-    init {
-        webViewCookieJar.setCookieSynchronizer(cookieSynchronizer)
-    }
 
     fun dependencies(packageName: String): Dependencies {
         return Dependencies(
@@ -58,7 +54,7 @@ internal class IReaderRuntime(
     suspend fun fetch(url: String, baseUrl: String?): FetchResult? {
         val absoluteUrl = resolveUrl(url, baseUrl) ?: return null
         return browserMutex.withLock {
-            val result = browserEngine.fetch(absoluteUrl)
+            val result = httpClients.browser.fetch(absoluteUrl)
             result.takeIf { it.isSuccess && it.responseBody.isNotBlank() }
                 ?.let { FetchResult(absoluteUrl, it.responseBody) }
         }
