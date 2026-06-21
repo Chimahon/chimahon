@@ -16,7 +16,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import java.io.File
 import java.security.MessageDigest
 import kotlin.math.abs
@@ -25,6 +28,9 @@ object SourceChapterBookBuilder {
 
     private const val CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
     private const val CACHE_MAX_ENTRIES = 50
+    private const val CACHE_MANIFEST_FILE = "source_chapter_cache.json"
+    private const val CACHE_MANIFEST_VERSION = 1
+    private val buildLocks = mutableMapOf<String, Mutex>()
 
     private val SAFELIST = Safelist.relaxed()
         .addTags("ruby", "rt", "rp", "sup", "sub")
@@ -34,14 +40,16 @@ object SourceChapterBookBuilder {
         .addProtocols("img", "src", "http", "https", "data")
         .addProtocols("a", "href", "http", "https", "mailto")
 
-    fun cleanUpOldCache(context: Context) {
+    fun cleanUpOldCache(context: Context, keepBookId: String? = null) {
         val cacheDir = BookStorage.getBooksDirectory(context)
         if (!cacheDir.exists()) return
         val entries = cacheDir.listFiles()?.filter { it.name.startsWith("src_") }?.toList() ?: return
         if (entries.size <= CACHE_MAX_ENTRIES) return
+        val deleteCount = entries.size - CACHE_MAX_ENTRIES
         val toDelete = entries
+            .filterNot { it.name == keepBookId }
             .sortedBy { it.lastModified() }
-            .take(entries.size - CACHE_MAX_ENTRIES)
+            .take(deleteCount)
         for (dir in toDelete) {
             dir.deleteRecursively()
         }
@@ -84,21 +92,55 @@ object SourceChapterBookBuilder {
         chapter: SNChapter,
     ): File {
         val bookId = bookId(source, novel)
+        return buildLock(bookId).withLock {
+            buildSingleChapterLocked(context, source, novel, chapter, bookId)
+        }
+    }
+
+    private suspend fun buildSingleChapterLocked(
+        context: Context,
+        source: NovelSource,
+        novel: SNNovel,
+        chapter: SNChapter,
+        bookId: String,
+    ): File {
+        cleanUpOldCache(context, bookId)
+        val chapters = listOf(chapter)
+        val existingCache = loadExistingCache(context, bookId, source, novel)
+        if (existingCache?.matchesExactly(chapters) == true) {
+            saveMetadata(existingCache.bookDir, bookId, novel, source)
+            saveStartBookmark(existingCache.bookDir, 0)
+            existingCache.bookDir.setLastModified(System.currentTimeMillis())
+            return existingCache.bookDir
+        }
+
         val bookDir = prepareTempBookDirectory(context, bookId)
         val contentDir = File(bookDir, CONTENT_DIR).apply { mkdirs() }
+        copyReaderState(existingCache?.bookDir, bookDir)
 
-        val content = source.getChapterContent(chapter)
-        val xhtmlContent = chapterContentToXhtml(content)
         val generatedChapter = GeneratedChapter(
             id = "chapter_0",
             href = "chapter_0.xhtml",
             title = chapter.name,
         )
+        val cacheKey = chapter.cacheKey()
+        val cachedFile = existingCache?.chapterFile(cacheKey)
+        if (cachedFile != null) {
+            cachedFile.copyTo(File(contentDir, generatedChapter.href), overwrite = true)
+        } else {
+            val content = source.getChapterContent(chapter)
+            File(contentDir, generatedChapter.href).writeText(chapterContentToXhtml(content), Charsets.UTF_8)
+        }
 
-        File(contentDir, generatedChapter.href).writeText(xhtmlContent, Charsets.UTF_8)
         writeEpubPackage(bookDir, source, novel, listOf(generatedChapter))
-
         saveMetadata(bookDir, bookId, novel, source)
+        saveCacheManifest(
+            bookDir = bookDir,
+            source = source,
+            novel = novel,
+            entries = listOf(CachedChapter(cacheKey, generatedChapter.href, chapter.name)),
+        )
+        saveStartBookmark(bookDir, 0)
         return commitBookDirectory(context, bookId, bookDir)
     }
 
@@ -110,10 +152,31 @@ object SourceChapterBookBuilder {
         startChapterIndex: Int = 0,
     ): File {
         val bookId = bookId(source, novel)
+        return buildLock(bookId).withLock {
+            buildLocked(context, source, novel, chapters, startChapterIndex, bookId)
+        }
+    }
+
+    private suspend fun buildLocked(
+        context: Context,
+        source: NovelSource,
+        novel: SNNovel,
+        chapters: List<SNChapter>,
+        startChapterIndex: Int,
+        bookId: String,
+    ): File {
+        cleanUpOldCache(context, bookId)
+        val existingCache = loadExistingCache(context, bookId, source, novel)
+        if (existingCache?.matchesExactly(chapters) == true) {
+            saveMetadata(existingCache.bookDir, bookId, novel, source)
+            saveStartBookmark(existingCache.bookDir, startChapterIndex)
+            existingCache.bookDir.setLastModified(System.currentTimeMillis())
+            return existingCache.bookDir
+        }
+
         val bookDir = prepareTempBookDirectory(context, bookId)
         val contentDir = File(bookDir, CONTENT_DIR).apply { mkdirs() }
-
-        cleanUpOldCache(context)
+        copyReaderState(existingCache?.bookDir, bookDir)
 
         val semaphore = Semaphore(4)
         val fetchOrder = chapters.indices.sortedWith(
@@ -128,6 +191,16 @@ object SourceChapterBookBuilder {
                     try {
                         val id = "chapter_$index"
                         val href = "$id.xhtml"
+                        val cacheKey = chapter.cacheKey()
+                        val cachedFile = existingCache?.chapterFile(cacheKey)
+                        if (cachedFile != null) {
+                            cachedFile.copyTo(File(contentDir, href), overwrite = true)
+                            return@async index to GeneratedChapterResult(
+                                chapter = GeneratedChapter(id = id, href = href, title = chapter.name),
+                                cacheKey = cacheKey,
+                                cacheable = true,
+                            )
+                        }
                         val result = runCatching {
                             val content = source.getChapterContent(chapter)
                             chapterContentToXhtml(content)
@@ -135,12 +208,20 @@ object SourceChapterBookBuilder {
                         index to result.fold(
                             onSuccess = { xhtml ->
                                 File(contentDir, href).writeText(xhtml, Charsets.UTF_8)
-                                GeneratedChapter(id = id, href = href, title = chapter.name)
+                                GeneratedChapterResult(
+                                    chapter = GeneratedChapter(id = id, href = href, title = chapter.name),
+                                    cacheKey = cacheKey,
+                                    cacheable = true,
+                                )
                             },
                             onFailure = { error ->
                                 if (index == startChapterIndex) throw error
                                 File(contentDir, href).writeText(buildErrorChapterXhtml(chapter, error), Charsets.UTF_8)
-                                GeneratedChapter(id = id, href = href, title = chapter.name)
+                                GeneratedChapterResult(
+                                    chapter = GeneratedChapter(id = id, href = href, title = chapter.name),
+                                    cacheKey = cacheKey,
+                                    cacheable = false,
+                                )
                             },
                         )
                     } finally {
@@ -150,25 +231,133 @@ object SourceChapterBookBuilder {
             }
             deferred.awaitAll().toMap()
         }
-        val generatedChapters = chapters.indices.mapNotNull { generatedByIndex[it] }
+        val generatedResults = chapters.indices.mapNotNull { generatedByIndex[it] }
+        val generatedChapters = generatedResults.map { it.chapter }
 
         writeEpubPackage(bookDir, source, novel, generatedChapters)
         saveMetadata(bookDir, bookId, novel, source)
+        saveCacheManifest(
+            bookDir = bookDir,
+            source = source,
+            novel = novel,
+            entries = generatedResults
+                .filter { it.cacheable }
+                .map { CachedChapter(it.cacheKey, it.chapter.href, it.chapter.title) },
+        )
 
-        if (startChapterIndex in chapters.indices) {
-            BookStorage.save(
-                Bookmark(
-                    chapterIndex = startChapterIndex,
-                    progress = 0.0,
-                    characterCount = 0,
-                    lastModified = System.currentTimeMillis(),
-                ),
-                bookDir,
-                FileNames.bookmark,
-            )
-        }
+        saveStartBookmark(bookDir, startChapterIndex.takeIf { it in chapters.indices })
 
         return commitBookDirectory(context, bookId, bookDir)
+    }
+
+    private fun buildLock(bookId: String): Mutex = synchronized(buildLocks) {
+        buildLocks.getOrPut(bookId) { Mutex() }
+    }
+
+    private fun loadExistingCache(
+        context: Context,
+        bookId: String,
+        source: NovelSource,
+        novel: SNNovel,
+    ): ExistingCache? {
+        val bookDir = BookStorage.getBookDirectory(context, bookId)
+        if (!bookDir.isDirectory) return null
+        if (System.currentTimeMillis() - bookDir.lastModified() > CACHE_MAX_AGE_MS) {
+            return ExistingCache(bookDir, emptyMap(), 0)
+        }
+
+        val manifest = BookStorage.load<SourceBookCacheManifest>(bookDir, CACHE_MANIFEST_FILE)
+            ?: return ExistingCache(bookDir, emptyMap(), 0)
+        if (
+            manifest.version != CACHE_MANIFEST_VERSION ||
+            manifest.sourceId != source.id ||
+            manifest.novelKey != novel.cacheKey()
+        ) {
+            return ExistingCache(bookDir, emptyMap(), 0)
+        }
+        return ExistingCache(
+            bookDir = bookDir,
+            chaptersByKey = manifest.chapters.associateBy { it.cacheKey },
+            entryCount = manifest.chapters.size,
+        )
+    }
+
+    private fun ExistingCache.matchesExactly(chapters: List<SNChapter>): Boolean {
+        if (
+            chapters.isEmpty() ||
+            entryCount != chapters.size ||
+            chaptersByKey.size != chapters.size ||
+            !hasValidPackage()
+        ) {
+            return false
+        }
+        return chapters.withIndex().all { (index, chapter) ->
+            val entry = chaptersByKey[chapter.cacheKey()] ?: return@all false
+            entry.href == "chapter_$index.xhtml" &&
+                entry.title == chapter.name &&
+                chapterFile(entry.cacheKey) != null
+        }
+    }
+
+    private fun ExistingCache.hasValidPackage(): Boolean {
+        return File(bookDir, "mimetype").isFile &&
+            File(bookDir, "META-INF/container.xml").isFile &&
+            File(bookDir, "$CONTENT_DIR/content.opf").isFile &&
+            File(bookDir, "$CONTENT_DIR/nav.xhtml").isFile
+    }
+
+    private fun ExistingCache.chapterFile(cacheKey: String): File? {
+        val entry = chaptersByKey[cacheKey] ?: return null
+        if (!entry.href.matches(CHAPTER_FILE_REGEX)) return null
+        return File(bookDir, "$CONTENT_DIR/${entry.href}")
+            .takeIf { it.isFile && it.length() > 0L }
+    }
+
+    private fun copyReaderState(existingBookDir: File?, destination: File) {
+        existingBookDir
+            ?.listFiles()
+            ?.filter { file ->
+                file.isFile &&
+                    file.extension.equals("json", ignoreCase = true) &&
+                    (
+                        file.name == FileNames.statistics ||
+                            file.name.startsWith(TTU_STATISTICS_PREFIX)
+                        )
+            }
+            ?.forEach { file ->
+                file.copyTo(File(destination, file.name), overwrite = true)
+            }
+    }
+
+    private fun saveStartBookmark(bookDir: File, chapterIndex: Int?) {
+        if (chapterIndex == null) return
+        BookStorage.save(
+            Bookmark(
+                chapterIndex = chapterIndex,
+                progress = 0.0,
+                characterCount = 0,
+                lastModified = System.currentTimeMillis(),
+            ),
+            bookDir,
+            FileNames.bookmark,
+        )
+    }
+
+    private fun saveCacheManifest(
+        bookDir: File,
+        source: NovelSource,
+        novel: SNNovel,
+        entries: List<CachedChapter>,
+    ) {
+        BookStorage.save(
+            SourceBookCacheManifest(
+                sourceId = source.id,
+                novelKey = novel.cacheKey(),
+                chapters = entries,
+            ),
+            bookDir,
+            CACHE_MANIFEST_FILE,
+        )
     }
 
     private fun prepareTempBookDirectory(context: Context, bookId: String): File {
@@ -300,7 +489,7 @@ $entries
     }
 
     private fun chapterContentToXhtml(content: ChapterContent): String = when (content) {
-        is ChapterContent.Text -> buildChapterXhtml(content.fullText())
+        is ChapterContent.Text -> buildChapterXhtml(content.text)
         is ChapterContent.Html -> buildHtmlChapterXhtml(content.html)
         is ChapterContent.Images -> buildImageChapterXhtml(content.urls)
         is ChapterContent.Mixed -> buildMixedChapterXhtml(content.items)
@@ -351,6 +540,11 @@ $images
             when (item) {
                 is ContentItem.Text -> item.text.escapeXml()
                 is ContentItem.Image -> """<div style="text-align:center;"><img src="${item.url.escapeUrl()}" style="max-width:100%;height:auto;"/></div>"""
+                is ContentItem.Html -> item.html
+                is ContentItem.Images -> item.urls.joinToString("") { url ->
+                    """<div style="text-align:center;"><img src="${url.escapeUrl()}" style="max-width:100%;height:auto;"/></div>"""
+                }
+                is ContentItem.Mixed -> buildMixedChapterXhtml(item.items)
             }
         }
         return """<?xml version="1.0" encoding="utf-8"?>
@@ -369,11 +563,48 @@ $body
             .joinToString("") { "%02x".format(it) }
     }
 
+    private fun SNNovel.cacheKey(): String = url.trim().ifBlank { title.trim() }
+
+    private fun SNChapter.cacheKey(): String {
+        val stableUrl = url.trim()
+        if (stableUrl.isNotBlank()) return "url:$stableUrl"
+        return "fallback:${"$name|$chapter_number|$date_upload|${scanlator.orEmpty()}".sha256()}"
+    }
+
     private data class GeneratedChapter(
         val id: String,
         val href: String,
         val title: String,
     )
 
+    private data class GeneratedChapterResult(
+        val chapter: GeneratedChapter,
+        val cacheKey: String,
+        val cacheable: Boolean,
+    )
+
+    private data class ExistingCache(
+        val bookDir: File,
+        val chaptersByKey: Map<String, CachedChapter>,
+        val entryCount: Int,
+    )
+
+    @Serializable
+    private data class SourceBookCacheManifest(
+        val version: Int = CACHE_MANIFEST_VERSION,
+        val sourceId: Long,
+        val novelKey: String,
+        val chapters: List<CachedChapter>,
+    )
+
+    @Serializable
+    private data class CachedChapter(
+        val cacheKey: String,
+        val href: String,
+        val title: String,
+    )
+
     private const val CONTENT_DIR = "OEBPS"
+    private const val TTU_STATISTICS_PREFIX = "statistics_1_6_"
+    private val CHAPTER_FILE_REGEX = Regex("""chapter_\d+\.xhtml""")
 }

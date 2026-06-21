@@ -1,6 +1,5 @@
 package chimahon.novel.manager
 
-import chimahon.novel.extension.NovelExtensionManager
 import chimahon.novel.model.NovelServer
 import chimahon.novel.model.NovelServerStorage
 import chimahon.novel.model.NovelServerType
@@ -14,7 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -25,7 +23,6 @@ data class NovelSourceWithServer(
 
 class NovelSourceManager(
     private val serverStorage: NovelServerStorage,
-    private val extensionManager: NovelExtensionManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val allSourcesFlow = MutableStateFlow<Map<Long, NovelsPageSource>>(emptyMap())
@@ -34,10 +31,7 @@ class NovelSourceManager(
 
     init {
         scope.launch {
-            combine(
-                serverStorage.getAllServers(),
-                extensionManager.loadedNovelSources,
-            ) { servers, extensionSources ->
+            serverStorage.getAllServers().collect { servers ->
                 val merged = mutableMapOf<Long, NovelsPageSource>()
                 for (server in servers.filter { it.enabled }) {
                     val source = createSource(server) ?: continue
@@ -45,13 +39,6 @@ class NovelSourceManager(
                         merged[source.id] = source
                     }
                 }
-                for (source in extensionSources) {
-                    if (source is NovelsPageSource) {
-                        merged[source.id] = source
-                    }
-                }
-                merged
-            }.collect { merged ->
                 allSourcesFlow.value = merged
             }
         }
@@ -63,10 +50,6 @@ class NovelSourceManager(
 
     fun getCatalogueSources(): List<NovelsPageSource> {
         return allSourcesFlow.value.values.toList()
-    }
-
-    fun getExtensionSources(): List<NovelSource> {
-        return extensionManager.loadedNovelSources.value
     }
 
     fun getEntriesFlow(): Flow<List<NovelSourceWithServer>> {

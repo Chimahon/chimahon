@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.manager.NovelSourceManager
-import chimahon.novel.extension.NovelExtensionManager
 import chimahon.novel.ui.servers.NovelServerConfigScreen
 import cafe.adriel.voyager.core.screen.Screen
 import eu.kanade.presentation.components.TabContent
@@ -43,9 +42,7 @@ import uy.kohesive.injekt.api.get
 fun Screen.novelSourcesTab(): TabContent {
     val navigator = LocalNavigator.currentOrThrow
     val sourceManager = remember { Injekt.get<NovelSourceManager>() }
-    val extensionManager = remember { Injekt.get<NovelExtensionManager>() }
     val entries by sourceManager.getEntriesFlow().collectAsState(initial = emptyList())
-    val extensionSources by extensionManager.loadedNovelSources.collectAsState()
 
     return TabContent(
         titleRes = MR.strings.novel_singular,
@@ -128,50 +125,7 @@ fun Screen.novelSourcesTab(): TabContent {
                     }
                 }
 
-                if (extensionSources.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Extension Sources",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-
-                    items(extensionSources.size) { index ->
-                        val source = extensionSources[index]
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    navigator.push(BrowseNovelSourceScreen(null, source))
-                                }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Extension,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = source.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                                Text(
-                                    text = source.lang,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        HorizontalDivider()
-                    }
-                }
-
-                if (entries.isEmpty() && extensionSources.isEmpty()) {
+                if (entries.isEmpty()) {
                     item {
                         Column(
                             modifier = Modifier

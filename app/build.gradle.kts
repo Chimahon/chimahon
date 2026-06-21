@@ -225,7 +225,7 @@ dependencies {
     implementation(projects.core.common)
     implementation(projects.coreMetadata)
     implementation(projects.sourceApi)
-    implementation(projects.sourceApiNovel)
+    implementation("io.github.ireaderorg:source-api:1.5.1")
     implementation(projects.sourceLocal)
     implementation(projects.data)
     implementation(projects.domain)
