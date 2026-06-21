@@ -21,7 +21,7 @@ val Source.icon: ImageBitmap?
 val Source.installedExtension: Extension.Installed?
     get() {
         return Injekt.get<ExtensionManager>()
-            .installedExtensionsFlow
+            .installedMangaExtensionsFlow
             .value
             .find { ext -> ext.sources.any { it.id == id } }
     }

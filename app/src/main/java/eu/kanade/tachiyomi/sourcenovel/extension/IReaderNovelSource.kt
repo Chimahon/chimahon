@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.sourcenovel.extension
 
+import eu.kanade.tachiyomi.extension.ireader.IReaderRuntime
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.sourcenovel.HttpNovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
@@ -10,6 +11,8 @@ import eu.kanade.tachiyomi.sourcenovel.model.NovelPage
 import eu.kanade.tachiyomi.sourcenovel.model.SNChapter
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import ireader.core.source.CatalogSource
+import ireader.core.source.HttpSource
+import ireader.core.source.model.Command
 import ireader.core.source.model.Filter
 import ireader.core.source.model.ImageBase64
 import ireader.core.source.model.ImageUrl
@@ -17,10 +20,16 @@ import ireader.core.source.model.PageUrl
 import ireader.core.source.model.Listing
 import ireader.core.source.model.MangaInfo
 import ireader.core.source.model.MangasPageInfo
+import ireader.core.source.model.MovieUrl
+import ireader.core.source.model.Subtitle
 
-class IReaderNovelSource(
+internal class IReaderNovelSource(
     val catalogSource: CatalogSource,
+    private val runtime: IReaderRuntime,
 ) : NovelsPageSource, HttpNovelSource {
+
+    private val baseUrl: String?
+        get() = (catalogSource as? HttpSource)?.baseUrl
 
     override val id: Long get() = catalogSource.id
     override val name: String get() = catalogSource.name
@@ -30,25 +39,28 @@ class IReaderNovelSource(
     // -- HttpNovelSource --
 
     override fun getNovelUrl(novel: SNNovel): String? {
-        return novel.url.takeIf { it.startsWith("http") }
+        return runtime.resolveUrl(novel.url, baseUrl)
     }
 
     override fun getChapterUrl(chapter: SNChapter): String? {
-        return chapter.url.takeIf { it.startsWith("http") }
+        return runtime.resolveUrl(chapter.url, baseUrl)
     }
 
     // -- NovelsPageSource --
 
     override suspend fun getPopularNovels(page: Int): NovelPage {
-        val listing = findListing(catalogSource.getListings(), "Popular")
+        val listings = catalogSource.getListings()
+        val listing = findListing(listings, "Popular")
+            ?: listings.firstOrNull()
             ?: return NovelPage(emptyList(), false)
         return catalogSource.getMangaList(listing, page).toNovelPage()
     }
 
     override suspend fun getLatestUpdates(page: Int): NovelPage {
-        val listing = findListing(catalogSource.getListings(), "Latest")
+        val listings = catalogSource.getListings()
+        val listing = findListing(listings, "Latest")
         if (listing == null) {
-            val pop = findListing(catalogSource.getListings(), "Popular")
+            val pop = findListing(listings, "Popular") ?: listings.firstOrNull()
             if (pop != null) return catalogSource.getMangaList(pop, page).toNovelPage()
             return NovelPage(emptyList(), false)
         }
@@ -72,23 +84,41 @@ class IReaderNovelSource(
     override suspend fun getNovelDetails(novel: SNNovel): SNNovel {
         return catalogSource.getMangaDetails(
             novel.toMangaInfo(),
-            emptyList(),
+            detailFetchCommands(novel.url),
         ).toSNNovel()
     }
 
     override suspend fun getChapterList(novel: SNNovel): List<SNChapter> {
         return catalogSource.getChapterList(
             novel.toMangaInfo(),
-            emptyList(),
+            chapterFetchCommands(novel.url),
         ).map { it.toSNChapter() }
     }
 
     override suspend fun getChapterContent(chapter: SNChapter): ChapterContent {
         val pages = catalogSource.getPageList(
             chapter.toChapterInfo(),
-            emptyList(),
+            contentFetchCommands(chapter.url),
         )
         return pages.toChapterContent()
+    }
+
+    private suspend fun detailFetchCommands(url: String): List<Command<*>> {
+        if (catalogSource.getCommands().none { it is Command.Detail.Fetch }) return emptyList()
+        val fetched = runtime.fetch(url, baseUrl) ?: return emptyList()
+        return listOf(Command.Detail.Fetch(fetched.url, fetched.html))
+    }
+
+    private suspend fun chapterFetchCommands(url: String): List<Command<*>> {
+        if (catalogSource.getCommands().none { it is Command.Chapter.Fetch }) return emptyList()
+        val fetched = runtime.fetch(url, baseUrl) ?: return emptyList()
+        return listOf(Command.Chapter.Fetch(fetched.url, fetched.html))
+    }
+
+    private suspend fun contentFetchCommands(url: String): List<Command<*>> {
+        if (catalogSource.getCommands().none { it is Command.Content.Fetch }) return emptyList()
+        val fetched = runtime.fetch(url, baseUrl) ?: return emptyList()
+        return listOf(Command.Content.Fetch(fetched.url, fetched.html))
     }
 
     // -- Model mapping --
@@ -132,28 +162,38 @@ class IReaderNovelSource(
             scanlator = scanlator ?: "",
         )
 
-    private fun List<ireader.core.source.model.Page>.toChapterContent(): ChapterContent {
+    private suspend fun List<ireader.core.source.model.Page>.toChapterContent(): ChapterContent {
         val textParts = mutableListOf<String>()
         val imageUrls = mutableListOf<String>()
         val items = mutableListOf<ContentItem>()
 
         for (page in this) {
-            when (page) {
+            val resolvedPage = if (page is PageUrl) {
+                val httpSource = catalogSource as? HttpSource ?: continue
+                runCatching { httpSource.getPage(page) }.getOrNull() ?: continue
+            } else {
+                page
+            }
+            when (resolvedPage) {
                 is ireader.core.source.model.Text -> {
-                    textParts.add(page.text)
-                    items.add(ContentItem.Text(page.text))
+                    textParts.add(resolvedPage.text)
+                    items.add(ContentItem.Text(resolvedPage.text))
                 }
                 is ImageUrl -> {
-                    imageUrls.add(page.url)
-                    items.add(ContentItem.Image(page.url))
+                    val url = runtime.resolveUrl(resolvedPage.url, baseUrl) ?: resolvedPage.url
+                    imageUrls.add(url)
+                    items.add(ContentItem.Image(url))
                 }
-                is ImageBase64 -> { /* skip — can't render inline */ }
-                is PageUrl -> {
-                    imageUrls.add(page.url)
-                    items.add(ContentItem.Image(page.url))
+                is ImageBase64 -> {
+                    val dataUrl = resolvedPage.data
+                        .takeIf { it.startsWith("data:image/", ignoreCase = true) }
+                        ?: "data:image/png;base64,${resolvedPage.data}"
+                    imageUrls.add(dataUrl)
+                    items.add(ContentItem.Image(dataUrl))
                 }
-                // ponytail: MovieUrl/Subtitle irrelevant for novels
-                else -> {}
+                is MovieUrl,
+                is Subtitle,
+                -> Unit
             }
         }
 

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -82,16 +83,30 @@ class ExtensionManager(
 
     private val installedExtensionMapFlow = MutableStateFlow(emptyMap<String, Extension.Installed>())
     val installedExtensionsFlow = installedExtensionMapFlow.mapExtensions(scope)
+    val installedMangaExtensionsFlow = installedExtensionsFlow
+        .map { extensions -> extensions.filter { it.contentType == Extension.ContentType.MANGA } }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Lazily, emptyList())
+    val installedNovelExtensionsFlow = installedExtensionsFlow
+        .map { extensions -> extensions.filter { it.contentType == Extension.ContentType.NOVEL } }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Lazily, emptyList())
 
     private val availableExtensionMapFlow = MutableStateFlow(emptyMap<String, Extension.Available>())
 
     // SY -->
     val availableExtensionsFlow = availableExtensionMapFlow.map { it.filterNotBlacklisted().values.toList() }
         .stateIn(scope, SharingStarted.Lazily, availableExtensionMapFlow.value.values.toList())
+    val availableNovelExtensionsFlow = availableExtensionsFlow
+        .map { extensions -> extensions.filter { it.contentType == Extension.ContentType.NOVEL } }
+        .stateIn(scope, SharingStarted.Lazily, emptyList())
     // SY <--
 
     private val untrustedExtensionMapFlow = MutableStateFlow(emptyMap<String, Extension.Untrusted>())
     val untrustedExtensionsFlow = untrustedExtensionMapFlow.mapExtensions(scope)
+    val untrustedNovelExtensionsFlow = untrustedExtensionsFlow
+        .map { extensions -> extensions.filter { it.contentType == Extension.ContentType.NOVEL } }
+        .stateIn(scope, SharingStarted.Lazily, emptyList())
 
     init {
         initExtensions()
@@ -211,7 +226,7 @@ class ExtensionManager(
             lang = source.lang,
             isNsfw = false,
             signatureHash = "$BUILT_IN_SIGNATURE_HASH:${type.name.lowercase(Locale.ROOT)}",
-            repoName = BUILT_IN_REPO_NAME,
+            storeName = BUILT_IN_REPO_NAME,
             pkgFactory = null,
             sources = listOf(source),
             icon = ContextCompat.getDrawable(context, iconRes),
@@ -219,7 +234,6 @@ class ExtensionManager(
             isObsolete = false,
             isShared = false,
             isBuiltIn = true,
-            repoUrl = null,
             isRedundant = false,
         )
     }

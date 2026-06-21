@@ -43,6 +43,9 @@ fun Screen.novelSourcesTab(): TabContent {
     val navigator = LocalNavigator.currentOrThrow
     val sourceManager = remember { Injekt.get<NovelSourceManager>() }
     val entries by sourceManager.getEntriesFlow().collectAsState(initial = emptyList())
+    val catalogueSources by sourceManager.catalogueSources.collectAsState(initial = emptyList())
+    val serverSourceIds = entries.mapTo(mutableSetOf()) { it.source.id }
+    val extensionSources = catalogueSources.filterNot { it.id in serverSourceIds }
 
     return TabContent(
         titleRes = MR.strings.novel_singular,
@@ -125,7 +128,49 @@ fun Screen.novelSourcesTab(): TabContent {
                     }
                 }
 
-                if (entries.isEmpty()) {
+                if (extensionSources.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Extension Sources",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+
+                    items(extensionSources, key = { "novel-extension-${it.id}" }) { source ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    navigator.push(BrowseNovelSourceScreen(null, source))
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Extension,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text(
+                                    text = source.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    text = source.lang,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                    }
+                }
+
+                if (entries.isEmpty() && extensionSources.isEmpty()) {
                     item {
                         Column(
                             modifier = Modifier

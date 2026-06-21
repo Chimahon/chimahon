@@ -6,6 +6,7 @@ import chimahon.novel.model.NovelServerType
 import chimahon.novel.source.opds.OpdsSource
 import chimahon.source.kavita.KavitaNovelSource
 import chimahon.source.komga.KomgaNovelSource
+import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -23,6 +25,7 @@ data class NovelSourceWithServer(
 
 class NovelSourceManager(
     private val serverStorage: NovelServerStorage,
+    private val extensionManager: ExtensionManager,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val allSourcesFlow = MutableStateFlow<Map<Long, NovelsPageSource>>(emptyMap())
@@ -31,7 +34,10 @@ class NovelSourceManager(
 
     init {
         scope.launch {
-            serverStorage.getAllServers().collect { servers ->
+            combine(
+                serverStorage.getAllServers(),
+                extensionManager.installedNovelExtensionsFlow,
+            ) { servers, extensions ->
                 val merged = mutableMapOf<Long, NovelsPageSource>()
                 for (server in servers.filter { it.enabled }) {
                     val source = createSource(server) ?: continue
@@ -39,7 +45,13 @@ class NovelSourceManager(
                         merged[source.id] = source
                     }
                 }
-                allSourcesFlow.value = merged
+                extensions
+                    .flatMap { it.novelSources }
+                    .filterIsInstance<NovelsPageSource>()
+                    .forEach { source -> merged[source.id] = source }
+                merged
+            }.collect { sources ->
+                allSourcesFlow.value = sources
             }
         }
     }
