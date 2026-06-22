@@ -100,6 +100,18 @@ fun ExtensionIcon(
             )
         }
         is Extension.Installed -> {
+            val inMemoryIcon = extension.icon
+            if (inMemoryIcon != null) {
+                val bitmap = remember(inMemoryIcon) {
+                    inMemoryIcon.toBitmap().asImageBitmap()
+                }
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = null,
+                    modifier = modifier,
+                )
+                return
+            }
             val icon by extension.getIcon(density)
             when (icon) {
                 is Result.Loading -> Box(modifier = modifier)
@@ -127,11 +139,11 @@ fun ExtensionIcon(
 @Composable
 private fun Extension.getIcon(density: Int = DisplayMetrics.DENSITY_DEFAULT): State<Result<ImageBitmap>> {
     val context = LocalContext.current
-    val extension = this
-    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, this) {
+    val stableKey = "${pkgName}:${signatureHash}"
+    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, stableKey) {
         withIOContext {
             value = try {
-                val inMemoryIcon = (extension as? Extension.Installed)?.icon
+                val inMemoryIcon = (this@getIcon as? Extension.Installed)?.icon
                 if (inMemoryIcon != null) {
                     Result.Success(inMemoryIcon.toBitmap().asImageBitmap())
                 } else {
@@ -206,7 +218,8 @@ fun AnimeExtensionIcon(
 @Composable
 private fun AnimeExtension.getIcon(density: Int = DisplayMetrics.DENSITY_DEFAULT): State<Result<ImageBitmap>> {
     val context = LocalContext.current
-    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, this) {
+    val stableKey = "${pkgName}:${signatureHash}"
+    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, stableKey) {
         withIOContext {
             value = try {
                 val appInfo = AnimeExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!

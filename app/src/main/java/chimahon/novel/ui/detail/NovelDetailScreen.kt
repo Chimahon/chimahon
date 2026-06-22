@@ -6,10 +6,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -36,7 +40,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,6 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -86,31 +96,35 @@ import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.PullRefresh
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.stringResource
-import tachiyomi.presentation.core.screens.EmptyScreen
 import tachiyomi.presentation.core.screens.LoadingScreen
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 data class NovelDetailScreen(
     private val novel: SNNovel,
-    private val source: NovelSource,
+    private val sourceId: Long,
 ) : Screen() {
 
     companion object {
         fun fromSourceId(novel: SNNovel, sourceId: Long): NovelDetailScreen? {
-            val sourceManager = Injekt.get<chimahon.novel.manager.NovelSourceManager>()
-            val source = sourceManager.getNovelSource(sourceId) ?: return null
-            return NovelDetailScreen(novel, source)
+            return NovelDetailScreen(novel, sourceId)
         }
     }
 
     @Composable
     override fun Content() {
+        val sourceManager = remember { Injekt.get<chimahon.novel.manager.NovelSourceManager>() }
+        val sources by sourceManager.catalogueSources.collectAsState(initial = emptyList())
+        val source = remember(sources, sourceId) { sources.find { it.id == sourceId } }
+        if (source == null) {
+            LoadingScreen()
+            return
+        }
         val navigator = LocalNavigator.currentOrThrow
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
         val haptic = LocalHapticFeedback.current
-        val screenModel = rememberScreenModel { NovelDetailScreenModel(novel, source) }
+        val screenModel = rememberScreenModel { NovelDetailScreenModel(novel, sourceId) }
         val state by screenModel.state.collectAsState()
         val lifecycleOwner = LocalLifecycleOwner.current
         DisposableEffect(lifecycleOwner) {
@@ -234,10 +248,6 @@ data class NovelDetailScreen(
         ) { contentPadding ->
             when {
                 state.isLoading -> LoadingScreen(modifier = Modifier.padding(contentPadding))
-                state.error != null -> EmptyScreen(
-                    message = state.error ?: "Error",
-                    modifier = Modifier.padding(contentPadding),
-                )
                 else -> {
                     PullRefresh(
                         refreshing = state.isRefreshingData,
@@ -254,12 +264,33 @@ data class NovelDetailScreen(
                                 NovelHeader(
                                     novel = state.novel,
                                     source = source,
-                                    isFavorite = state.isFavorite,
-                                    onToggleFavorite = screenModel::toggleFavorite,
                                     onSourceClick = if (source is NovelsPageSource) {
-                                        { navigator.push(BrowseNovelSourceScreen(null, source)) }
+                                        { navigator.push(BrowseNovelSourceScreen(null, sourceId)) }
                                     } else {
                                         null
+                                    },
+                                )
+                            }
+
+                            item(key = "novel_action_row") {
+                                NovelActionRow(
+                                    isFavorite = state.isFavorite,
+                                    onToggleFavorite = screenModel::toggleFavorite,
+                                    onWebViewClick = {
+                                        val httpSource = source as? HttpNovelSource
+                                        if (httpSource != null) {
+                                            runCatching { httpSource.getNovelUrl(state.novel) }
+                                                .getOrNull()
+                                                ?.takeIf { it.isNotBlank() }
+                                                ?.let { url ->
+                                                    navigator.push(
+                                                        WebViewScreen(
+                                                            url = url,
+                                                            initialTitle = state.novel.title,
+                                                        ),
+                                                    )
+                                                }
+                                        }
                                     },
                                 )
                             }
@@ -272,7 +303,7 @@ data class NovelDetailScreen(
                                         Text(
                                             text = description,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            maxLines = if (expanded) Int.MAX_VALUE else 3,
+                                            maxLines = if (expanded) Int.MAX_VALUE else 4,
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                         if (description.length > 150) {
@@ -287,15 +318,58 @@ data class NovelDetailScreen(
                                 }
                             }
 
+                            val genres = state.novel.genre
+                            if (!genres.isNullOrBlank()) {
+                                item(key = "novel_genres") {
+                                    val genreList = genres.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                                    FlowRow(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        genreList.forEach { genre ->
+                                            Surface(
+                                                shape = RoundedCornerShape(16.dp),
+                                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                            ) {
+                                                Text(
+                                                    text = genre,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            state.detailError?.takeIf { it.isNotBlank() }?.let { error ->
+                                item(key = "novel_detail_error") {
+                                    Text(
+                                        text = error,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                            }
+
                             item(key = "novel_chapter_header") {
-                                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
                                     Text(
                                         text = "Chapters (${chapters.size})",
                                         style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onBackground,
                                     )
-                                    Spacer(Modifier.height(4.dp))
-                                    HorizontalDivider()
                                 }
+                                HorizontalDivider()
                             }
 
                             if (chapters.isEmpty()) {
@@ -305,9 +379,13 @@ data class NovelDetailScreen(
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Text(
-                                            text = "No chapters",
+                                            text = state.chapterError?.takeIf { it.isNotBlank() } ?: "No chapters",
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = if (state.chapterError != null) {
+                                                MaterialTheme.colorScheme.error
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
                                         )
                                     }
                                 }
@@ -363,109 +441,159 @@ data class NovelDetailScreen(
 private fun NovelHeader(
     novel: SNNovel,
     source: NovelSource,
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit,
     onSourceClick: (() -> Unit)?,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box {
-            val thumbnailUrl = novel.thumbnail_url
+        Box(modifier = Modifier.fillMaxWidth()) {
+        val thumbnailUrl = novel.thumbnail_url
+        val bgColor = MaterialTheme.colorScheme.background
+        val tintColor = MaterialTheme.colorScheme.surfaceTint.copy(alpha = 0.4f)
+        if (!thumbnailUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(thumbnailUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    bgColor,
+                                ),
+                                startY = size.height / 2,
+                            ),
+                        )
+                    }
+                    .background(tintColor)
+                    .blur(7.dp)
+                    .alpha(0.2f),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
             if (!thumbnailUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
+                MangaCover.Book(
+                    data = ImageRequest.Builder(LocalContext.current)
                         .data(thumbnailUrl)
                         .crossfade(true)
                         .build(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .matchParentSize()
-                        .blur(7.dp)
-                        .alpha(0.2f),
+                        .width(120.dp)
+                        .aspectRatio(2f / 3f),
+                    contentDescription = novel.title,
                 )
+                Spacer(Modifier.width(16.dp))
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                if (!thumbnailUrl.isNullOrBlank()) {
-                    MangaCover.Book(
-                        data = ImageRequest.Builder(LocalContext.current)
-                            .data(thumbnailUrl)
-                            .crossfade(true)
-                            .build(),
-                        modifier = Modifier
-                            .width(96.dp)
-                            .aspectRatio(2f / 3f),
-                        contentDescription = novel.title,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = novel.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                val author = novel.author
+                if (!author.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        text = novel.title,
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = author,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    val author = novel.author
-                    if (!author.isNullOrBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = author,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    val statusText = when (novel.status) {
-                        SNNovel.ONGOING -> "Ongoing"
-                        SNNovel.COMPLETED -> "Completed"
-                        SNNovel.LICENSED -> "Licensed"
-                        SNNovel.PUBLISHING_FINISHED -> "Publishing Finished"
-                        SNNovel.CANCELLED -> "Cancelled"
-                        SNNovel.ON_HIATUS -> "On Hiatus"
-                        else -> "Unknown"
-                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                val statusText = when (novel.status) {
+                    SNNovel.ONGOING -> "Ongoing"
+                    SNNovel.COMPLETED -> "Completed"
+                    SNNovel.LICENSED -> "Licensed"
+                    SNNovel.PUBLISHING_FINISHED -> "Publishing Finished"
+                    SNNovel.CANCELLED -> "Cancelled"
+                    SNNovel.ON_HIATUS -> "On Hiatus"
+                    else -> "Unknown"
+                }
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
                     Text(
                         text = statusText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = source.name,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = if (onSourceClick != null) {
-                            Modifier.clickable(onClick = onSourceClick)
-                        } else {
-                            Modifier
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                 }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = source.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = if (onSourceClick != null) {
+                        Modifier.clickable(onClick = onSourceClick)
+                    } else {
+                        Modifier
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
 
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = onToggleFavorite,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFavorite) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                    ),
-                ) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (isFavorite) "In Library" else "Add to Library")
-                }
+@Composable
+private fun NovelActionRow(
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
+    onWebViewClick: (() -> Unit)?,
+) {
+    val defaultActionButtonColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    Row(
+        modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Button(
+            onClick = onToggleFavorite,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isFavorite) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+            ),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Icon(
+                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(if (isFavorite) "In Library" else "Add to Library")
+        }
+        if (onWebViewClick != null) {
+            OutlinedButton(
+                onClick = onWebViewClick,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Public,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("Web View")
             }
         }
     }

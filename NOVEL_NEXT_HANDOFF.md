@@ -1,12 +1,12 @@
 # Novel Integration Handoff
 
-Updated: 2026-06-21
+Updated: 2026-06-22
 
 ## Current baseline
 
 - Repo: `F:\sohil\github\mihon`
 - Branch: `novel-wired`
-- HEAD: `905ddf15a1` (`feat: expand novel model interfaces, add IReaderNovelSource adapter, fix remaining compilation errors`)
+- HEAD: `356cf88d1d` (`fix: register Context in AppModule for Injekt resolution; resolve relative cover URLs in IReaderNovelSource`)
 - IReader source API reference: `C:\tmp\IReader`
 - IReader extension reference: `C:\tmp\IReader-extensions`
 - Published dependency: `io.github.ireaderorg:source-api:1.5.1`
@@ -65,12 +65,17 @@ Use Mihon's existing `ExtensionManager`, installer, receiver, trust model, updat
   - cookie storage/synchronization
 - Browser fetches are serialized with a mutex. IReader's Android browser implementation performs WebView work on `Dispatchers.Main`.
 - Relative URLs are resolved against the source's `HttpSource.baseUrl`.
+- Browser fetches now synchronize cookies before and after navigation and pass the WebView's final redirected URL to the Fetch command.
 - Source preferences are persisted through Mihon's existing preference store under per-package namespaces.
-- `IReaderNovelSource` now supplies real HTML to:
+- `IReaderNovelSource` follows IReader's normal request order: call the extension natively with no commands first, then supply browser HTML through these commands only when the native result fails or is empty:
   - `Command.Detail.Fetch`
   - `Command.Chapter.Fetch`
   - `Command.Content.Fetch`
-- Commands are supplied only when the source declares the corresponding command.
+- This avoids forcing every extension request through WebView, which can return different HTML, trigger avoidable 404s, or replace stable relative source keys with absolute browser URLs.
+- Commands are still supplied only when the source declares the corresponding command.
+- Detail mapping preserves the original stable novel key and retains existing fields when a parser returns blanks.
+- If both native content parsing and browser fallback return no usable pages, the adapter now reports an error instead of generating and caching a blank reader chapter.
+- IReader extension network/parsing calls run on `Dispatchers.IO`; only the source-api WebView and cookie synchronization are moved to `Dispatchers.Main`.
 - `PageUrl` is resolved through IReader `HttpSource.getPage()` before conversion when supported.
 - `ImageBase64` is converted to an image data URL and passed through the same image-container pipeline as large remote images.
 - IReader `MovieUrl` and `Subtitle` pages are explicitly ignored by the novel adapter; the stale `ponytail:` catch-all comment was removed.
@@ -83,6 +88,17 @@ Use Mihon's existing `ExtensionManager`, installer, receiver, trust model, updat
 - The existing Novel Sources tab now renders a separate “Extension Sources” section and opens the existing `BrowseNovelSourceScreen`.
 - Manga's `AndroidSourceManager`, source-to-extension lookup, and global-search extension filter now consume an explicit `installedMangaExtensionsFlow`.
 - Novel extensions therefore cannot enter or trigger rebuilds in the manga source registry.
+
+### Novel detail screen behavior
+
+- Compared Chimahon's novel detail flow against IReader's `BookDetailViewModel`, `GetBookDetail`, and summary/header components.
+- The selected novel is now displayed immediately while remote metadata and chapters refresh, matching IReader's existing-book-first behavior.
+- Metadata and chapter requests are handled independently:
+  - chapter failure no longer discards successfully fetched title, author, cover, status, description, or genres;
+  - detail failure no longer prevents the chapter request from running;
+  - failures are shown inline in the relevant detail/chapter section instead of replacing the whole screen.
+- Genres returned by IReader extensions are now rendered on the detail screen; they were previously mapped into `SNNovel.genre` but never displayed.
+- Cancellation is rethrown instead of being converted into a source failure during detail refresh.
 
 ### Manga regression audit
 
@@ -123,11 +139,32 @@ Use Mihon's existing `ExtensionManager`, installer, receiver, trust model, updat
 - Static API inspection against `C:\tmp\IReader` is complete for the runtime types used here.
 - Compile exposed that `C:\tmp\IReader` master had moved beyond published `1.5.1`; runtime construction was corrected against IReader commit `1a6a203`, where `packageVersion = "1.5.1"`.
 
+## Japanese extension runtime findings
+
+- The current `C:\tmp\IReader-extensions` clone contains only two Japanese (`jp`) lib-2 extensions:
+  - Kakuyomu
+  - Syosetu
+- The user asked to ignore Syosetu and use Kakuyomu as the Japanese runtime target.
+- Kakuyomu was checked against the live site on 2026-06-22:
+  - ranking selectors still find works;
+  - detail data is still present in `script#__NEXT_DATA__` / `__APOLLO_STATE__`;
+  - episode records are present for chapter parsing;
+  - chapter text still uses `.widget-episodeBody`.
+- Kakuyomu should therefore exercise details, chapter listing, and reader text with the existing adapter.
+- Missing thumbnails in Japanese browse results are not automatically an adapter regression:
+  - both Japanese extensions explicitly return `cover = ""` from their custom ranking-list parsers;
+  - Kakuyomu supplies `adminCoverImageUrl` on detail/search data, so its cover is expected to appear after detail loading rather than in every ranking card.
+- The user-provided crash log came from APK commit `efe63e0920`. It predates `356cf88d1d`, which registers `Context` for the novel detail bookmark sync and resolves relative IReader covers. A new APK is required before those two fixes can be runtime-tested.
+
 ## Remaining work
 
-1. Improve extension details behavior for novel extensions only if necessary; do not create source-preference UI unless a real IReader APK contract supports it.
+1. Runtime-test the native-first/browser-fallback behavior with Kakuyomu using an APK built after the current working-tree changes.
+   - Confirm the selected title appears immediately.
+   - Confirm Kakuyomu author, cover, status, description, genres, and chapters update independently.
+   - Confirm a chapter error leaves metadata visible.
 2. Verify `PageUrl` behavior against a real extension that returns indirection pages.
-3. Runtime test with at least one real lib-2 APK should cover:
+3. Audit cover requests for IReader sources that require custom headers/referrers; do not alter manga's cover fetch path.
+4. Runtime test with at least one real lib-2 APK should cover:
    - repo listing and icon
    - private/system install
    - trust/update matching

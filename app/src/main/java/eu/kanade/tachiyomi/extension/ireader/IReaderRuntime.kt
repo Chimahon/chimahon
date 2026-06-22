@@ -4,7 +4,6 @@ import android.content.Context
 import io.ktor.client.plugins.cookies.CookiesStorage
 import ireader.core.http.AcceptAllCookiesStorage
 import ireader.core.http.BrowserEngine
-import ireader.core.http.CookieSynchronizer
 import ireader.core.http.HttpClients
 import ireader.core.http.WebViewCookieJar
 import ireader.core.http.WebViewManger
@@ -12,10 +11,12 @@ import ireader.core.prefs.Preference
 import ireader.core.prefs.PreferenceStore
 import ireader.core.source.Dependencies
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
@@ -31,7 +32,6 @@ internal class IReaderRuntime(
     private val cookiesStorage: CookiesStorage = AcceptAllCookiesStorage()
     private val cookiePreferences = IReaderPreferenceStore(preferenceStore, "runtime")
     private val webViewCookieJar = WebViewCookieJar(cookiesStorage)
-    private val cookieSynchronizer = CookieSynchronizer(webViewCookieJar)
     private val webViewManager = WebViewManger(appContext)
     private val browserEngine = BrowserEngine(webViewManager, webViewCookieJar)
 
@@ -54,9 +54,18 @@ internal class IReaderRuntime(
     suspend fun fetch(url: String, baseUrl: String?): FetchResult? {
         val absoluteUrl = resolveUrl(url, baseUrl) ?: return null
         return browserMutex.withLock {
+            withContext(Dispatchers.Main.immediate) {
+                httpClients.cookieSynchronizer.syncToWebView(absoluteUrl)
+            }
             val result = httpClients.browser.fetch(absoluteUrl)
+            val finalUrl = withContext(Dispatchers.Main.immediate) {
+                webViewManager.webView?.url
+            }?.takeIf { it.isNotBlank() } ?: absoluteUrl
+            withContext(Dispatchers.Main.immediate) {
+                httpClients.cookieSynchronizer.syncFromWebView(finalUrl)
+            }
             result.takeIf { it.isSuccess && it.responseBody.isNotBlank() }
-                ?.let { FetchResult(absoluteUrl, it.responseBody) }
+                ?.let { FetchResult(finalUrl, it.responseBody) }
         }
     }
 

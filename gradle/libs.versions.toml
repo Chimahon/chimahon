@@ -23,6 +23,8 @@ media = "1.7.1"
 truetypeparser = "2.1.4"
 chimahon-ffmpeg = "v8.1.1.4"
 litert = "2.1.6"
+ktor = "3.3.2"
+ksoup = "0.2.6"
 
 [libraries]
 desugar = "com.android.tools:desugar_jdk_libs_nio:2.1.5"
@@ -43,6 +45,12 @@ datastore-preferences = { module = "androidx.datastore:datastore-preferences", v
 quickjs-android = { group = "com.github.zhanghai.quickjs-java", name = "quickjs-android", version = "547f5b1597" }
 
 jsoup = "org.jsoup:jsoup:1.22.2"
+
+ksoup = { module = "io.github.ireaderorg:ksoup", version.ref = "ksoup" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 
 newpipe-extractor = { module = "com.github.TeamNewPipe:NewPipeExtractor", version.ref = "newpipe-extractor" }
 

@@ -41,8 +41,10 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import chimahon.novel.model.NovelServer
+import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.ui.detail.NovelDetailScreen
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import eu.kanade.presentation.library.components.CommonMangaItemDefaults
 import eu.kanade.presentation.library.components.MangaComfortableGridItem
 import eu.kanade.presentation.library.components.MangaCompactGridItem
@@ -62,13 +64,20 @@ import tachiyomi.presentation.core.screens.LoadingScreen
 import tachiyomi.presentation.core.util.plus
 
 data class BrowseNovelSourceScreen(
-    private val server: NovelServer?,
-    private val source: NovelSource,
+    private val serverId: String?,
+    private val sourceId: Long,
 ) : Screen() {
 
     @Composable
     override fun Content() {
-        val screenModel = rememberScreenModel { BrowseNovelSourceScreenModel(source) }
+        val sourceManager = remember { Injekt.get<chimahon.novel.manager.NovelSourceManager>() }
+        val sources by sourceManager.catalogueSources.collectAsState(initial = emptyList())
+        val source = remember(sources, sourceId) { sources.find { it.id == sourceId } }
+        if (source == null) {
+            LoadingScreen()
+            return
+        }
+        val screenModel = rememberScreenModel { BrowseNovelSourceScreenModel(sourceId) }
         val state by screenModel.state.collectAsState()
 
         val navigator = LocalNavigator.currentOrThrow
@@ -140,7 +149,7 @@ data class BrowseNovelSourceScreen(
                 columns = screenModel.getColumnsPreference(LocalConfiguration.current.orientation),
                 displayMode = screenModel.displayMode,
                 contentPadding = paddingValues,
-                onNovelClick = { navigator.push(NovelDetailScreen(it, source)) },
+                onNovelClick = { navigator.push(NovelDetailScreen(it, sourceId)) },
                 onLoadMore = screenModel::loadNextPage,
             )
         }

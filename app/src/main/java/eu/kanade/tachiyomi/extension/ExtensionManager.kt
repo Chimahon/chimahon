@@ -134,7 +134,8 @@ class ExtensionManager(
 
     fun getAppIconForSource(sourceId: Long): Drawable? {
         val extension = installedExtensionsFlow.value.find { extension ->
-            extension.sources.any { it.id == sourceId }
+            extension.sources.any { it.id == sourceId } ||
+                extension.novelSources.any { it.id == sourceId }
         }
         extension?.icon?.let { return it }
 

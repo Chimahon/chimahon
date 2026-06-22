@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.sourcenovel.model
 
+import java.io.Serializable
+
 data class SNNovel(
     var url: String = "",
     var title: String = "",
@@ -16,7 +18,7 @@ data class SNNovel(
     var lastUpdate: Long = 0,
     var viewerFlags: Long = 0,
     var chapterFlags: Long = 0,
-) {
+) : Serializable {
     val thumbnailUrl get() = thumbnail_url
     val init get() = initialized
 

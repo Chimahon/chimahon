@@ -59,11 +59,14 @@
     <string name="imported_n_books_with_errors">Imported %1$d books (%2$d failed)</string>
     <string name="action_reset_reading_progress">Reset reading progress</string>
     <string name="backup_option_novels">Novel progress &amp; stats</string>
+    <string name="backup_option_source_novel_library">Novel library</string>
+    <string name="novel_servers">Novel Servers</string>
     <string name="label_stats">Statistics</string>
     <string name="action_manga_stats">Statistics</string>
     <string name="label_migration">Migrate</string>
     <string name="label_extensions">Extensions</string>
     <string name="label_anime_extensions">Anime Extensions</string>
+    <string name="label_novel_extensions">Novel Extensions</string>
     <string name="label_anime_sources">Anime Sources</string>
     <string name="label_extension_info">Extension info</string>
     <string name="label_help">Help</string>

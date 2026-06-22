@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import chimahon.novel.manager.NovelSourceManager
 import com.canopus.chimareader.data.BookStorage
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNChapter
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import tachiyomi.domain.novel.model.Novel
 import tachiyomi.domain.novel.model.NovelChapter
@@ -43,7 +45,8 @@ data class NovelDetailState(
     val chapters: List<NovelChapterItem> = emptyList(),
     val isLoading: Boolean = true,
     val isFavorite: Boolean = false,
-    val error: String? = null,
+    val detailError: String? = null,
+    val chapterError: String? = null,
     val dialog: Dialog? = null,
     val selectedChapters: Set<Long> = emptySet(),
     val selectionMode: Boolean = false,
@@ -52,10 +55,27 @@ data class NovelDetailState(
 
 class NovelDetailScreenModel(
     private val novel: SNNovel,
-    private val source: NovelSource,
+    sourceId: Long,
     private val novelRepository: NovelRepository = Injekt.get(),
     private val novelChapterRepository: NovelChapterRepository = Injekt.get(),
-) : StateScreenModel<NovelDetailState>(NovelDetailState(isLoading = true)) {
+) : StateScreenModel<NovelDetailState>(
+    NovelDetailState(
+        novel = novel,
+        source = Injekt.get<NovelSourceManager>().getNovelSource(sourceId),
+        isLoading = false,
+    ),
+) {
+    private val source: NovelSource = mutableState.value.source
+        ?: run {
+            // Source not immediately available; try again after a brief delay
+            val found = Injekt.get<NovelSourceManager>().getNovelSource(sourceId)
+            if (found != null) {
+                mutableState.value = mutableState.value.copy(source = found)
+                found
+            } else {
+                throw IllegalStateException("NovelSource not found for sourceId=$sourceId")
+            }
+        }
 
     private var cachedDbNovel: Novel? = null
     private var cachedChapters: List<SNChapter>? = null
@@ -73,31 +93,47 @@ class NovelDetailScreenModel(
 
     private fun loadDetails() {
         screenModelScope.launch {
-            mutableState.value = mutableState.value.copy(isLoading = true)
-            try {
-                val details = source.getNovelDetails(novel)
-                val chapters = source.getChapterList(novel)
-                cachedChapters = chapters
+            mutableState.value = mutableState.value.copy(
+                isLoading = false,
+                isRefreshingData = true,
+                detailError = null,
+                chapterError = null,
+            )
 
-                val existing = novelRepository.getNovelByUrlAndSourceId(details.url, source.id)
-                if (existing != null) {
-                    cachedDbNovel = existing
-                    subscribeToDbChapters(existing.id)
-                }
-
-                mutableState.value = mutableState.value.copy(
-                    novel = details,
-                    dbNovel = existing,
-                    chapters = buildChapterItems(chapters),
-                    isFavorite = existing?.favorite ?: false,
-                    isLoading = false,
-                )
-            } catch (e: Exception) {
-                mutableState.value = mutableState.value.copy(
-                    isLoading = false,
-                    error = e.message,
-                )
+            val detailsResult = runCatching { source.getNovelDetails(novel) }
+            val details = detailsResult.getOrElse { error ->
+                if (error is CancellationException) throw error
+                novel
             }
+            val existing = novelRepository.getNovelByUrlAndSourceId(details.url, source.id)
+            if (existing != null) {
+                cachedDbNovel = existing
+                subscribeToDbChapters(existing.id)
+            }
+
+            mutableState.value = mutableState.value.copy(
+                novel = details,
+                dbNovel = existing,
+                isFavorite = existing?.favorite ?: false,
+                isLoading = false,
+                detailError = detailsResult.exceptionOrNull()?.message ?: detailsResult.exceptionOrNull()?.let {
+                    "Failed to load novel details"
+                },
+            )
+
+            val chaptersResult = runCatching { source.getChapterList(details) }
+            chaptersResult.exceptionOrNull()?.let {
+                if (it is CancellationException) throw it
+            }
+            val chapters = chaptersResult.getOrDefault(emptyList())
+            cachedChapters = chapters.takeIf { chaptersResult.isSuccess }
+            mutableState.value = mutableState.value.copy(
+                chapters = buildChapterItems(chapters),
+                isRefreshingData = false,
+                chapterError = chaptersResult.exceptionOrNull()?.message ?: chaptersResult.exceptionOrNull()?.let {
+                    "Failed to load chapters"
+                },
+            )
         }
     }
 
@@ -234,35 +270,54 @@ class NovelDetailScreenModel(
 
     fun refresh() {
         screenModelScope.launch {
-            mutableState.value = mutableState.value.copy(isRefreshingData = true)
-            try {
-                val details = source.getNovelDetails(mutableState.value.novel)
-                val chapters = source.getChapterList(mutableState.value.novel)
-                cachedChapters = chapters
-
-                val existing = cachedDbNovel ?: novelRepository.getNovelByUrlAndSourceId(details.url, source.id)
-                val dbChapters = if (existing != null) {
-                    val dbNovel = syncNovelToDatabase(details, chapters, favorite = existing.favorite)
-                    cachedDbNovel = dbNovel
-                    syncSourceChapters(dbNovel.id, chapters)
-                } else {
-                    emptyList()
-                }
-
-                mutableState.value = mutableState.value.copy(
-                    novel = details,
-                    dbNovel = cachedDbNovel,
-                    chapters = buildChapterItems(chapters, dbChapters),
-                    isFavorite = cachedDbNovel?.favorite ?: false,
-                    isRefreshingData = false,
-                    error = null,
-                )
-            } catch (e: Exception) {
-                mutableState.value = mutableState.value.copy(
-                    isRefreshingData = false,
-                    error = e.message,
-                )
+            mutableState.value = mutableState.value.copy(
+                isRefreshingData = true,
+                detailError = null,
+                chapterError = null,
+            )
+            val currentNovel = mutableState.value.novel
+            val detailsResult = runCatching { source.getNovelDetails(currentNovel) }
+            detailsResult.exceptionOrNull()?.let {
+                if (it is CancellationException) throw it
             }
+            val details = detailsResult.getOrDefault(currentNovel)
+            mutableState.value = mutableState.value.copy(
+                novel = details,
+                detailError = detailsResult.exceptionOrNull()?.message ?: detailsResult.exceptionOrNull()?.let {
+                    "Failed to refresh novel details"
+                },
+            )
+
+            val chaptersResult = runCatching { source.getChapterList(details) }
+            chaptersResult.exceptionOrNull()?.let {
+                if (it is CancellationException) throw it
+            }
+            val chapters = chaptersResult.getOrNull()
+            if (chapters == null) {
+                mutableState.value = mutableState.value.copy(
+                    isRefreshingData = false,
+                    chapterError = chaptersResult.exceptionOrNull()?.message ?: "Failed to refresh chapters",
+                )
+                return@launch
+            }
+            cachedChapters = chapters
+
+            val existing = cachedDbNovel ?: novelRepository.getNovelByUrlAndSourceId(details.url, source.id)
+            val dbChapters = if (existing != null) {
+                val dbNovel = syncNovelToDatabase(details, chapters, favorite = existing.favorite)
+                cachedDbNovel = dbNovel
+                syncSourceChapters(dbNovel.id, chapters)
+            } else {
+                emptyList()
+            }
+
+            mutableState.value = mutableState.value.copy(
+                dbNovel = cachedDbNovel,
+                chapters = buildChapterItems(chapters, dbChapters),
+                isFavorite = cachedDbNovel?.favorite ?: false,
+                isRefreshingData = false,
+                chapterError = null,
+            )
         }
     }
 

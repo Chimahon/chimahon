@@ -100,6 +100,7 @@ class SyncManager(
             // SY <--
             // Chimahon -->
             novels = syncOptions.novels,
+            sourceNovelLibrary = syncOptions.sourceNovelLibrary,
             // Chimahon <--
             animeEntries = syncOptions.animeEntries,
         )
@@ -107,10 +108,13 @@ class SyncManager(
         logcat(LogPriority.DEBUG) { "Begin create backup" }
         val backupManga = backupCreator.backupMangas(databaseManga, backupOptions)
         val backupAnime = backupCreator.backupAnimes(backupOptions)
+        // Chimahon -->
+        val backupSourceNovels = backupCreator.backupSourceNovels(backupOptions)
+        // Chimahon <--
         val backup = Backup(
             backupManga = backupManga,
             backupCategories = backupCreator.backupCategories(backupOptions),
-            backupSources = backupCreator.backupSources(backupManga),
+            backupSources = backupCreator.backupSources(backupManga, backupSourceNovels),
             backupAnime = backupAnime,
             backupAnimeCategories = backupCreator.backupAnimeCategories(backupOptions),
             backupAnimeSources = backupCreator.backupAnimeSources(backupAnime),
@@ -129,6 +133,7 @@ class SyncManager(
             // Chimahon -->
             backupNovels = backupCreator.backupNovels(backupOptions),
             backupNovelCategories = backupCreator.backupNovelCategories(backupOptions),
+            backupSourceNovels = backupSourceNovels,
             // Chimahon <--
         )
         logcat(LogPriority.DEBUG) { "End create backup" }
@@ -182,10 +187,14 @@ class SyncManager(
             return
         }
 
+        val remoteLocalNovels = remoteBackup.backupNovels.takeIf { backupOptions.novels }.orEmpty()
+        val remoteSourceNovels = remoteBackup.backupSourceNovels.takeIf { backupOptions.sourceNovelLibrary }.orEmpty()
+
         // Stop the sync early if the remote backup is null or empty
         if (remoteBackup.backupManga.isEmpty() &&
             remoteBackup.backupAnime.isEmpty() &&
-            remoteBackup.backupNovels.isEmpty()
+            remoteLocalNovels.isEmpty() &&
+            remoteSourceNovels.isEmpty()
         ) {
             notifier.showSyncError("No data found on remote server.")
             return
@@ -214,15 +223,17 @@ class SyncManager(
             backupFeeds = remoteBackup.backupFeeds,
             // KMK <--
             // Chimahon -->
-            backupNovels = remoteBackup.backupNovels,
+            backupNovels = remoteLocalNovels,
             backupNovelCategories = remoteBackup.backupNovelCategories,
+            backupSourceNovels = remoteSourceNovels,
             // Chimahon <--
         )
 
         // It's local sync no need to restore data. (just update remote data)
         if (filteredFavorites.isEmpty() &&
             remoteBackup.backupAnime.isEmpty() &&
-            remoteBackup.backupNovels.isEmpty()
+            remoteLocalNovels.isEmpty() &&
+            remoteSourceNovels.isEmpty()
         ) {
             // update the sync timestamp
             syncPreferences.lastSyncTimestamp().set(Date().time)
@@ -243,6 +254,8 @@ class SyncManager(
                     libraryEntries = true,
                     extensionStores = true,
                     novels = true,
+                    sourceNovelLibrary = true,
+                    // Chimahon <--
                     animeEntries = true,
                 ),
             )

@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.data.backup.create.creators.FeedBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.MangaBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.PreferenceBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.SavedSearchBackupCreator
+import eu.kanade.tachiyomi.data.backup.create.creators.SourceNovelBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.SourcesBackupCreator
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupAnime
@@ -83,6 +84,7 @@ class BackupCreator(
     // Chimahon -->
     private val novelBackupCreator: eu.kanade.tachiyomi.data.backup.create.creators.NovelBackupCreator = eu.kanade.tachiyomi.data.backup.create.creators.NovelBackupCreator(context),
     private val getSearchHistory: GetSearchHistory = Injekt.get(),
+    private val sourceNovelBackupCreator: SourceNovelBackupCreator = SourceNovelBackupCreator(),
     // Chimahon <--
     // SY -->
     private val savedSearchBackupCreator: SavedSearchBackupCreator = SavedSearchBackupCreator(),
@@ -121,11 +123,14 @@ class BackupCreator(
             val backupManga =
                 backupMangas(getFavorites.await() + nonFavoriteManga /* SY --> */ + mergedManga /* SY <-- */, options)
             val backupAnime = backupAnimes(options)
+            // Chimahon -->
+            val backupSourceNovels = backupSourceNovels(options)
+            // Chimahon <--
 
             val backup = Backup(
                 backupManga = backupManga,
                 backupCategories = backupCategories(options),
-                backupSources = backupSources(backupManga),
+                backupSources = backupSources(backupManga, backupSourceNovels),
                 backupAnime = backupAnime,
                 backupAnimeCategories = backupAnimeCategories(options),
                 backupAnimeSources = backupAnimeSources(backupAnime),
@@ -145,6 +150,7 @@ class BackupCreator(
                 // Chimahon -->
                 backupNovels = backupNovels(options),
                 backupNovelCategories = backupNovelCategories(options),
+                backupSourceNovels = backupSourceNovels,
                 backupMangaStats = backupMangaStats(options),
                 backupAnkiStats = backupAnkiStats(options),
                 backupSearchHistory = backupSearchHistory(options),
@@ -193,8 +199,11 @@ class BackupCreator(
         return mangaBackupCreator(mangas, options)
     }
 
-    fun backupSources(mangas: List<BackupManga>): List<BackupSource> {
-        return sourcesBackupCreator(mangas)
+    fun backupSources(
+        mangas: List<BackupManga>,
+        novels: List<eu.kanade.tachiyomi.data.backup.models.BackupSourceNovel> = emptyList(),
+    ): List<BackupSource> {
+        return sourcesBackupCreator(mangas, novels)
     }
 
     suspend fun backupAnimeCategories(options: BackupOptions): List<BackupCategory> {
@@ -271,6 +280,10 @@ class BackupCreator(
         if (!options.novels) return emptyList()
 
         return novelBackupCreator.backupCategories()
+    }
+
+    suspend fun backupSourceNovels(options: BackupOptions): List<eu.kanade.tachiyomi.data.backup.models.BackupSourceNovel> {
+        return sourceNovelBackupCreator(options)
     }
 
     fun backupMangaStats(options: BackupOptions): List<com.canopus.chimareader.data.MangaStats> {

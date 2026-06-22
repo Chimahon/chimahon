@@ -66,11 +66,14 @@ import eu.kanade.tachiyomi.ui.browse.animemigration.sources.migrateAnimeSourceTa
 import eu.kanade.tachiyomi.ui.browse.animesource.animeSourcesTab
 import eu.kanade.tachiyomi.ui.browse.extension.ExtensionsScreenModel
 import eu.kanade.tachiyomi.ui.browse.extension.extensionsTab
+import eu.kanade.tachiyomi.ui.browse.novelextension.NovelExtensionsScreenModel
+import eu.kanade.tachiyomi.ui.browse.novelextension.novelExtensionsTab
 import eu.kanade.tachiyomi.ui.browse.feed.FeedScreenModel
 import eu.kanade.tachiyomi.ui.browse.feed.feedTab
 import eu.kanade.tachiyomi.ui.browse.migration.sources.migrateSourceTab
 import eu.kanade.tachiyomi.ui.browse.source.globalsearch.GlobalSearchScreen
 import eu.kanade.tachiyomi.ui.browse.source.sourcesTab
+import chimahon.novel.ui.browse.novelSourcesTab
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -89,6 +92,7 @@ import uy.kohesive.injekt.api.get
 enum class BrowseViewMode(val labelRes: StringResource) {
     Sources(MR.strings.manga_singular),
     Anime(MR.strings.label_anime),
+    Novels(MR.strings.novel_singular),
 }
 
 data object BrowseTab : Tab {
@@ -138,6 +142,7 @@ data object BrowseTab : Tab {
 
         val feedScreenModel = rememberScreenModel { FeedScreenModel() }
         val bulkFavoriteScreenModel = rememberScreenModel { BulkFavoriteScreenModel() }
+        val novelExtensionsScreenModel = rememberScreenModel { NovelExtensionsScreenModel() }
 
         val feedState by feedScreenModel.state.collectAsState()
         val bulkFavoriteState by bulkFavoriteScreenModel.state.collectAsState()
@@ -179,6 +184,10 @@ data object BrowseTab : Tab {
                 animeSourcesTab(),
                 animeExtensionsTab(animeExtensionsScreenModel),
                 migrateAnimeSourceTab(),
+            )
+            BrowseViewMode.Novels -> persistentListOf(
+                novelSourcesTab(),
+                novelExtensionsTab(novelExtensionsScreenModel),
             )
         }
         val pagerState = rememberPagerState { currentTabs.size }

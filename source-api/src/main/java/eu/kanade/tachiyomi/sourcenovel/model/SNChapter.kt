@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.sourcenovel.model
 
+import java.io.Serializable
+
 data class SNChapter(
     val name: String = "",
     val url: String = "",
@@ -13,4 +15,4 @@ data class SNChapter(
     val date_fetch: Long = 0L,
     val date_upload_mod: Long = 0L,
     val view_count: Int = 0,
-)
+) : Serializable

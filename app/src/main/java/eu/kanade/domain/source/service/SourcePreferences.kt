@@ -68,6 +68,10 @@ class SourcePreferences(
 
     fun pinnedAnimeSources() = preferenceStore.getStringSet("pinned_anime_catalogues", emptySet())
 
+    fun disabledNovelSources() = preferenceStore.getStringSet("hidden_novel_catalogues", emptySet())
+
+    fun pinnedNovelSources() = preferenceStore.getStringSet("pinned_novel_catalogues", emptySet())
+
     // KMK -->
     fun hideInLibraryFeedItems() = preferenceStore.getBoolean("feed_hide_in_library_items", false)
     // KMK <--

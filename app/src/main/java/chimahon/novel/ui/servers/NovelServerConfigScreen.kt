@@ -109,7 +109,7 @@ class NovelServerConfigScreen : Screen() {
                                 ServerListItem(
                                     server = server,
                                     onBrowse = if (source != null && server.enabled) {
-                                        { navigator.push(BrowseNovelSourceScreen(server, source)) }
+                                        { navigator.push(BrowseNovelSourceScreen(server.id, source.id)) }
                                     } else null,
                                     onEdit = { screenModel.showEditDialog(server) },
                                     onDelete = { screenModel.showDeleteConfirmDialog(server) },

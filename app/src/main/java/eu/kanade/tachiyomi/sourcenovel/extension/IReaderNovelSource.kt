@@ -22,6 +22,8 @@ import ireader.core.source.model.MangaInfo
 import ireader.core.source.model.MangasPageInfo
 import ireader.core.source.model.MovieUrl
 import ireader.core.source.model.Subtitle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal class IReaderNovelSource(
     val catalogSource: CatalogSource,
@@ -53,7 +55,9 @@ internal class IReaderNovelSource(
         val listing = findListing(listings, "Popular")
             ?: listings.firstOrNull()
             ?: return NovelPage(emptyList(), false)
-        return catalogSource.getMangaList(listing, page).toNovelPage()
+        return withContext(Dispatchers.IO) {
+            catalogSource.getMangaList(listing, page).toNovelPage()
+        }
     }
 
     override suspend fun getLatestUpdates(page: Int): NovelPage {
@@ -61,10 +65,16 @@ internal class IReaderNovelSource(
         val listing = findListing(listings, "Latest")
         if (listing == null) {
             val pop = findListing(listings, "Popular") ?: listings.firstOrNull()
-            if (pop != null) return catalogSource.getMangaList(pop, page).toNovelPage()
+            if (pop != null) {
+                return withContext(Dispatchers.IO) {
+                    catalogSource.getMangaList(pop, page).toNovelPage()
+                }
+            }
             return NovelPage(emptyList(), false)
         }
-        return catalogSource.getMangaList(listing, page).toNovelPage()
+        return withContext(Dispatchers.IO) {
+            catalogSource.getMangaList(listing, page).toNovelPage()
+        }
     }
 
     override suspend fun getSearchNovels(
@@ -74,7 +84,9 @@ internal class IReaderNovelSource(
     ): NovelPage {
         if (query.isBlank()) return NovelPage(emptyList(), false)
         val titleFilter = Filter.Title().apply { value = query }
-        return catalogSource.getMangaList(listOf(titleFilter), page).toNovelPage()
+        return withContext(Dispatchers.IO) {
+            catalogSource.getMangaList(listOf(titleFilter), page).toNovelPage()
+        }
     }
 
     override fun getFilterList(): FilterList = FilterList()
@@ -82,25 +94,84 @@ internal class IReaderNovelSource(
     // -- NovelSource --
 
     override suspend fun getNovelDetails(novel: SNNovel): SNNovel {
-        return catalogSource.getMangaDetails(
-            novel.toMangaInfo(),
-            detailFetchCommands(novel.url),
-        ).toSNNovel()
+        val input = novel.toMangaInfo()
+        val nativeResult = runCatching {
+            withContext(Dispatchers.IO) {
+                catalogSource.getMangaDetails(input, emptyList())
+            }
+        }
+        val nativeDetails = nativeResult.getOrNull()
+        val details = if (nativeDetails != null && nativeDetails.hasDetailsBeyond(input)) {
+            nativeDetails
+        } else {
+            val fetchCommands = runCatching { detailFetchCommands(novel.url) }.getOrDefault(emptyList())
+            if (fetchCommands.isNotEmpty()) {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        catalogSource.getMangaDetails(input, fetchCommands)
+                    }
+                }
+                    .getOrNull()
+                    ?.takeIf { it.hasDetailsBeyond(input) }
+                    ?: nativeDetails
+                    ?: nativeResult.getOrThrow()
+            } else {
+                nativeDetails ?: nativeResult.getOrThrow()
+            }
+        }
+        return details.toSNNovel(fallback = novel)
     }
 
     override suspend fun getChapterList(novel: SNNovel): List<SNChapter> {
-        return catalogSource.getChapterList(
-            novel.toMangaInfo(),
-            chapterFetchCommands(novel.url),
-        ).map { it.toSNChapter() }
+        val input = novel.toMangaInfo()
+        val nativeResult = runCatching {
+            withContext(Dispatchers.IO) {
+                catalogSource.getChapterList(input, emptyList())
+            }
+        }
+        val nativeChapters = nativeResult.getOrNull()
+        val chapters = if (!nativeChapters.isNullOrEmpty()) {
+            nativeChapters
+        } else {
+            val fetchCommands = runCatching { chapterFetchCommands(novel.url) }.getOrDefault(emptyList())
+            if (fetchCommands.isNotEmpty()) {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        catalogSource.getChapterList(input, fetchCommands)
+                    }
+                }
+                    .getOrNull()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: nativeChapters
+                    ?: nativeResult.getOrThrow()
+            } else {
+                nativeChapters ?: nativeResult.getOrThrow()
+            }
+        }
+        return chapters.map { it.toSNChapter() }
     }
 
     override suspend fun getChapterContent(chapter: SNChapter): ChapterContent {
-        val pages = catalogSource.getPageList(
-            chapter.toChapterInfo(),
-            contentFetchCommands(chapter.url),
-        )
-        return pages.toChapterContent()
+        val input = chapter.toChapterInfo()
+        val nativeResult = runCatching {
+            withContext(Dispatchers.IO) {
+                catalogSource.getPageList(input, emptyList()).toChapterContent()
+            }
+        }
+        val nativeContent = nativeResult.getOrNull()
+        if (nativeContent?.hasContent() == true) return nativeContent
+
+        val fetchCommands = runCatching { contentFetchCommands(chapter.url) }.getOrDefault(emptyList())
+        if (fetchCommands.isNotEmpty()) {
+            val fetchedContent = runCatching {
+                withContext(Dispatchers.IO) {
+                    catalogSource.getPageList(input, fetchCommands).toChapterContent()
+                }
+            }.getOrNull()
+            if (fetchedContent?.hasContent() == true) return fetchedContent
+        }
+        nativeResult.exceptionOrNull()?.let { throw it }
+        throw IllegalStateException("Source returned no chapter content")
     }
 
     private suspend fun detailFetchCommands(url: String): List<Command<*>> {
@@ -123,15 +194,16 @@ internal class IReaderNovelSource(
 
     // -- Model mapping --
 
-    private fun MangaInfo.toSNNovel(): SNNovel = SNNovel(
-        url = key,
-        title = title,
-        author = author.ifBlank { null },
-        artist = artist.ifBlank { null },
-        description = description.ifBlank { null },
-        genre = genres.joinToString(", ").ifBlank { null },
-        status = status.toInt(),
-        thumbnail_url = cover.ifBlank { null }?.let { runtime.resolveUrl(it, baseUrl) ?: it },
+    private fun MangaInfo.toSNNovel(fallback: SNNovel? = null): SNNovel = SNNovel(
+        url = fallback?.url?.takeIf { it.isNotBlank() } ?: key,
+        title = title.ifBlank { fallback?.title.orEmpty() },
+        author = author.takeIf { it.isNotBlank() } ?: fallback?.author,
+        artist = artist.takeIf { it.isNotBlank() } ?: fallback?.artist,
+        description = description.takeIf { it.isNotBlank() } ?: fallback?.description,
+        genre = genres.joinToString(", ").takeIf { it.isNotBlank() } ?: fallback?.genre,
+        status = status.toInt().takeUnless { it == SNNovel.UNKNOWN } ?: fallback?.status ?: SNNovel.UNKNOWN,
+        thumbnail_url = (cover.takeIf { it.isNotBlank() } ?: fallback?.thumbnail_url)
+            ?.let { runtime.resolveUrl(it, baseUrl) ?: it },
     )
 
     private fun SNNovel.toMangaInfo(): MangaInfo = MangaInfo(
@@ -215,5 +287,23 @@ internal class IReaderNovelSource(
 
     private fun findListing(listings: List<Listing>, name: String): Listing? {
         return listings.find { it.name.equals(name, ignoreCase = true) }
+    }
+
+    private fun MangaInfo.hasDetailsBeyond(input: MangaInfo): Boolean {
+        return title.isNotBlank() && (
+            title != input.title ||
+                author.isNotBlank() ||
+                artist.isNotBlank() ||
+                description.isNotBlank() ||
+                genres.isNotEmpty() ||
+                cover.isNotBlank()
+            )
+    }
+
+    private fun ChapterContent.hasContent(): Boolean = when (this) {
+        is ChapterContent.Text -> text.isNotBlank()
+        is ChapterContent.Html -> html.isNotBlank()
+        is ChapterContent.Images -> urls.any { it.isNotBlank() }
+        is ChapterContent.Mixed -> items.isNotEmpty()
     }
 }

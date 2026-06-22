@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import chimahon.novel.manager.NovelSourceManager
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
@@ -22,11 +23,14 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 class BrowseNovelSourceScreenModel(
-    val source: NovelSource,
+    val sourceId: Long,
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
 ) : StateScreenModel<BrowseNovelSourceScreenModel.State>(State()) {
 
     private var currentPage = 1
+
+    private val sourceManager: NovelSourceManager = Injekt.get()
+    val source: NovelSource? get() = sourceManager.getNovelSource(sourceId)
 
     var displayMode: LibraryDisplayMode by mutableStateOf(LibraryDisplayMode.CompactGrid)
 
