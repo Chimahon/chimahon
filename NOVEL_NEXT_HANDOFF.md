@@ -1,15 +1,15 @@
 # Novel Integration Handoff
 
-Updated: 2026-06-22
+Updated: 2026-07-20
 
 ## Current baseline
 
-- Repo: `F:\sohil\github\mihon`
+- Repo: `/Users/manhhao/GitHub/chimahon` (app package `app.chimahon`, dev variant `app.chimahon.dev`)
 - Branch: `novel-wired`
-- HEAD: `356cf88d1d` (`fix: register Context in AppModule for Injekt resolution; resolve relative cover URLs in IReaderNovelSource`)
-- IReader source API reference: `C:\tmp\IReader`
-- IReader extension reference: `C:\tmp\IReader-extensions`
+- HEAD: `042668b143` (`fix(novel): align IReader detail and reader fallback`)
+- Working tree at last update carried uncommitted changes to the browse/detail novel UI (see "2026-07-20 session" below); these were installed to a device but not committed.
 - Published dependency: `io.github.ireaderorg:source-api:1.5.1`
+- IReader source-api and extensions are cloned on demand into the session scratchpad, not kept in-tree. The extensions repo builds with **JDK 21** (Gradle 8.13 cannot parse JDK 25 — it fails with a bare version string under "What went wrong"). Build one source with `./gradlew :extensions:individual:jp:kakuyomu:assembleDebug -Dorg.gradle.java.home=<jdk21>`.
 - Do not build unless the user explicitly asks.
 - `AGENTS.md` and the old `novel-integration-plan.md` are no longer present in this simplified branch; this handoff is the current local source of task state.
 
@@ -133,45 +133,45 @@ Use Mihon's existing `ExtensionManager`, installer, receiver, trust model, updat
 
 ## Verification status
 
-- `.\gradlew :app:compileDebugKotlin` passed on 2026-06-21 after the user explicitly requested compile verification.
-- `git diff --check` passes.
-- Real repov2 index, APK manifest, class metadata, version naming, and signer were inspected directly.
-- Static API inspection against `C:\tmp\IReader` is complete for the runtime types used here.
-- Compile exposed that `C:\tmp\IReader` master had moved beyond published `1.5.1`; runtime construction was corrected against IReader commit `1a6a203`, where `packageVersion = "1.5.1"`.
+- `./gradlew :app:installDebug` builds and installs on 2026-07-20; the 2026-07-20 session fixes were exercised live on a device (browse, search, detail, chapters, reader, covers).
+- Real repov2 index, APK manifest, class metadata, version naming, and signer were inspected directly (see Japanese findings for the current index contents).
+- Static API inspection against the IReader source-api reference is complete for the runtime types used here.
+- Earlier note retained for context: an IReader master checkout had moved beyond published `1.5.1`; runtime construction was corrected against IReader commit `1a6a203`, where `packageVersion = "1.5.1"`.
 
 ## Japanese extension runtime findings
 
-- The current `C:\tmp\IReader-extensions` clone contains only two Japanese (`jp`) lib-2 extensions:
-  - Kakuyomu
-  - Syosetu
-- The user asked to ignore Syosetu and use Kakuyomu as the Japanese runtime target.
-- Kakuyomu was checked against the live site on 2026-06-22:
-  - ranking selectors still find works;
-  - detail data is still present in `script#__NEXT_DATA__` / `__APOLLO_STATE__`;
-  - episode records are present for chapter parsing;
-  - chapter text still uses `.widget-episodeBody`.
-- Kakuyomu should therefore exercise details, chapter listing, and reader text with the existing adapter.
-- Missing thumbnails in Japanese browse results are not automatically an adapter regression:
-  - both Japanese extensions explicitly return `cover = ""` from their custom ranking-list parsers;
-  - Kakuyomu supplies `adminCoverImageUrl` on detail/search data, so its cover is expected to appear after detail loading rather than in every ranking card.
-- The user-provided crash log came from APK commit `efe63e0920`. It predates `356cf88d1d`, which registers `Context` for the novel detail bookmark sync and resolves relative IReader covers. A new APK is required before those two fixes can be runtime-tested.
+- The `IReaderorg/IReader-extensions` **master** source tree contains two Japanese (`jp`) lib-2 sources: Kakuyomu and Syosetu.
+- **Kakuyomu is NOT in the published `repov2` index.** As of 2026-07-20 the live `index.min.json` has one `jp` entry only: `ireader.syosetu.jp` (Syosetu v2.1). Kakuyomu builds cleanly and upstream's own `not-working-source.json` marks it `"Working"`, yet it has never appeared in repov2 despite repeated rebuilds. Cause unconfirmed — most likely the chunked CI matrix (`settings.gradle.kts` splits sources by `CI_CHUNK_NUM`/`CI_CHUNK_SIZE`) drops it. An earlier theory that a missing `serialization-json` dependency broke its compile was **disproved** — it builds with no dependency edit; `kotlinx.serialization.json` resolves transitively through `ktor-serialization`.
+- Consequence: to use Kakuyomu you must **build the APK yourself** (see baseline). It is debug-signed, so it does not match the pinned signer in `IReaderExtensionConstants.kt` and installs through Mihon's explicit-trust flow (the loader branch already handles this). Its manifest matches the verified contract: features `ireader`/`ireader.extension`, `source.class = tachiyomix.extension.Extension`, `source.lang = jp`.
+- The user asked to ignore Syosetu and use Kakuyomu as the Japanese runtime target. Syosetu remains the only published `jp` source and is the fallback if a build isn't available.
+- Live-site check (2026-07-20) drove two real Kakuyomu source fixes; see "2026-07-20 session".
+- Missing thumbnails in Japanese browse results are not an adapter regression: Kakuyomu ranking pages contain **no cover images at all** (text + a colored block; the ranking page is plain server HTML with no embedded Apollo state). Covers exist only on detail pages via `adminCoverImageUrl` (a real Hatena-CDN URL). This is now handled app-side (lazy browse covers, see session notes).
+
+## 2026-07-20 session
+
+Runtime-tested Kakuyomu on a physical device (`app.chimahon.dev`) with a self-built v2.2 APK. Browse, search, detail, chapters, reader, and covers were exercised live. Fixes below; app-side changes are uncommitted in the working tree.
+
+### Kakuyomu source fixes (in the extensions clone, not in this repo — port upstream via PR)
+
+- **Rankings returned empty.** Not a selector break — `/rankings/*` now 302-redirects to add `?work_variation=long`, and the redirect target is `http://` (downgraded from https), which ktor refuses to follow, so the parse ran on nothing. Fix: request `?work_variation=long` directly (200, no redirect). Applied in `getMangaList(sort)`, `getMangaList(filters)`, and the `exploreFetchers` endpoint; paging switched to `&page=`. Only `/rankings/*` is affected — search and `/works/<id>` detail return 200 directly and were not touched. Bumped `versionCode` to 2 for update detection.
+- Native content parsing is fine: `.widget-episodeBody` matches on live episode pages (147 `<p>`, 200, no redirect). The browser fallback is NOT required for Kakuyomu content.
+
+### App-side fixes (working tree, uncommitted)
+
+- **Chapter open threw "left the composition."** `openChapter` in `NovelDetailScreen.kt` launched on `rememberCoroutineScope()`; leaving composition mid-fetch cancelled it, and the generic `catch (Exception)` reported the resulting `CancellationException` as a failure toast. Fix: launch on `screenModel.screenModelScope`, rethrow `CancellationException` before the toast, drop the now-unused `scope` param.
+- **Chapter open was slow.** `SourceChapterBookBuilder.build` prefetches every chapter before the reader opens (a 741-episode Kakuyomu work = 741 fetches). Two changes: moved the cache-copy path above `semaphore.acquire()` so cached chapters don't burn a fetch permit, and raised `FETCH_CONCURRENCY` from 4 to 12. (A windowed-fetch approach was prototyped and reverted in favor of the simpler, fully-reversible concurrency bump — the whole book is still built, just faster.)
+- **Blank browse covers.** Fixed app-side because the data isn't in ranking HTML. `BrowseNovelSourceScreenModel.requestCover(novel)` lazily calls `source.getNovelDetails(novel)` for entries with no cover, throttled to 4, guarded by `coverRequested` (cleared on reset), and patches the one entry immutably. Both grids fire `LaunchedEffect(novel.url) { onRequestCover(novel) }`, so only cards scrolled into view fetch. Source-generic: Komga/Kavita/OPDS and search results already carry covers and skip it.
+- **Search button did nothing.** `SearchToolbar` opens its field only when `searchQuery != null`, but the browse screen passed a constant `null` and a no-op `onSearchQueryChange`, so the icon tap had nothing to write. Fix: screen now holds `searchQuery` (`rememberSaveable`); toolbar `onClickCloseSearch` clears the query (was hardcoded to `navigateUp`, which popped the whole screen) and clearing reloads Popular.
 
 ## Remaining work
 
-1. Runtime-test the native-first/browser-fallback behavior with Kakuyomu using an APK built after the current working-tree changes.
-   - Confirm the selected title appears immediately.
-   - Confirm Kakuyomu author, cover, status, description, genres, and chapters update independently.
-   - Confirm a chapter error leaves metadata visible.
-2. Verify `PageUrl` behavior against a real extension that returns indirection pages.
-3. Audit cover requests for IReader sources that require custom headers/referrers; do not alter manga's cover fetch path.
-4. Runtime test with at least one real lib-2 APK should cover:
-   - repo listing and icon
-   - private/system install
-   - trust/update matching
-   - source appearing under Novel Sources
-   - popular/search/detail/chapters/content
-   - a source declaring all three Fetch commands
-   - manga extension install/browse/update regression
+1. **Source filters (highest value-to-effort).** `IReaderNovelSource.getFilterList()` returns an empty `FilterList()` instead of translating the extension's `getFilters()`, and `getSearchNovels` ignores its `filters` param. The browse UI has no filter sheet. Net: genre/period/sort browsing is impossible even though sources support it (Kakuyomu exposes Genre + Period). Wiring: translate IReader `Filter`s ↔ Mihon `FilterList`, pass them through `getSearchNovels`, add a filter sheet to `BrowseNovelSourceScreen`.
+2. **Background library updates.** No `NovelUpdateJob`; the manga `LibraryUpdateJob` ignores novels; there is no novel Updates feed. Favorited novels never auto-detect new chapters. Largest remaining piece (job + Updates feed + notifications).
+3. **Downloads / offline.** No download queue or downloaded-badge UI; offline reading works only for chapters already opened (reader cache).
+4. **Global search & migration exclude novels.** `globalsearch` and `migration` have no novel path — no cross-source novel search, no source-to-source migration.
+5. **No tracking** (MAL/AniList/Kitsu) for novels — manga-only. Likely deliberate.
+6. Verify `PageUrl` behavior against a real extension that returns indirection pages.
+7. Audit cover requests for IReader sources that require custom headers/referrers; do not alter manga's cover fetch path.
 
 ## Deferred by design
 

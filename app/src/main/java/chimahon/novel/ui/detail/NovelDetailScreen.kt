@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastAny
 import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.ui.browse.BrowseNovelSourceScreen
@@ -236,7 +237,7 @@ data class NovelDetailScreen(
                         onClick = {
                             val next = screenModel.getNextUnreadChapter()
                             if (next != null) {
-                                openChapter(context, source, state.novel, next, chapters, screenModel, scope)
+                                openChapter(context, source, state.novel, next, chapters, screenModel)
                             }
                         },
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -421,7 +422,7 @@ data class NovelDetailScreen(
                                             if (state.selectionMode) {
                                                 screenModel.toggleChapterSelection(item.id)
                                             } else {
-                                                openChapter(context, source, state.novel, item, chapters, screenModel, scope)
+                                                openChapter(context, source, state.novel, item, chapters, screenModel)
                                             }
                                         },
                                         onDownloadClick = null,
@@ -606,9 +607,8 @@ private fun openChapter(
     item: NovelChapterItem,
     chapters: List<NovelChapterItem>,
     screenModel: NovelDetailScreenModel,
-    scope: kotlinx.coroutines.CoroutineScope,
 ) {
-    scope.launch {
+    screenModel.screenModelScope.launch {
         try {
             val chapterIndex = chapters.indexOf(item)
             if (chapterIndex >= 0 && chapters.size > 1) {
@@ -629,6 +629,8 @@ private fun openChapter(
                 )
                 NovelReaderActivity.launch(context, bookDir)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.widget.Toast.makeText(context, "Failed to open chapter: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
         }

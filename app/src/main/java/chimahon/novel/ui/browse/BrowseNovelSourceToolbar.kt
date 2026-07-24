@@ -42,7 +42,7 @@ fun BrowseNovelSourceToolbar(
         searchQuery = searchQuery,
         onChangeSearchQuery = onSearchQueryChange,
         onSearch = onSearch,
-        onClickCloseSearch = navigateUp,
+        onClickCloseSearch = { onSearchQueryChange(null) },
         actions = {
             AppBarActions(
                 actions = persistentListOf<AppBar.AppBarAction>().builder()

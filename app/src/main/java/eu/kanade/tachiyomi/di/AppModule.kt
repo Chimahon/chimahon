@@ -282,8 +282,7 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { EHentaiUpdateHelper(app) }
 
         addSingletonFactory { NovelCategoryStorage(app) }
-<<<<<<< HEAD
-addSingletonFactory {
+        addSingletonFactory {
             val dictionaryPreferences = get<DictionaryPreferences>()
             DictionaryRepository(
                 externalFilesDir = app.getExternalFilesDir(null),

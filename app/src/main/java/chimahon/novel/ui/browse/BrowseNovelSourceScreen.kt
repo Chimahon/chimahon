@@ -32,7 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -82,6 +85,7 @@ data class BrowseNovelSourceScreen(
 
         val navigator = LocalNavigator.currentOrThrow
         val snackbarHostState = remember { SnackbarHostState() }
+        var searchQuery by rememberSaveable { mutableStateOf<String?>(null) }
 
         Scaffold(
             topBar = {
@@ -91,8 +95,13 @@ data class BrowseNovelSourceScreen(
                         .pointerInput(Unit) {},
                 ) {
                     BrowseNovelSourceToolbar(
-                        searchQuery = null,
-                        onSearchQueryChange = {},
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { query ->
+                            searchQuery = query
+                            if (query == null) {
+                                screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Popular, reset = true)
+                            }
+                        },
                         source = source,
                         displayMode = screenModel.displayMode,
                         onDisplayModeChange = { screenModel.displayMode = it },
@@ -151,6 +160,7 @@ data class BrowseNovelSourceScreen(
                 contentPadding = paddingValues,
                 onNovelClick = { navigator.push(NovelDetailScreen(it, sourceId)) },
                 onLoadMore = screenModel::loadNextPage,
+                onRequestCover = screenModel::requestCover,
             )
         }
     }
@@ -168,6 +178,7 @@ private fun BrowseNovelSourceContent(
     contentPadding: PaddingValues,
     onNovelClick: (SNNovel) -> Unit,
     onLoadMore: () -> Unit,
+    onRequestCover: (SNNovel) -> Unit,
 ) {
     if (novels.isEmpty() && isLoading) {
         LoadingScreen(Modifier.padding(contentPadding))
@@ -199,6 +210,7 @@ private fun BrowseNovelSourceContent(
                 contentPadding = contentPadding,
                 isLoading = isLoading,
                 onNovelClick = onNovelClick,
+                onRequestCover = onRequestCover,
             )
         }
         else -> {
@@ -209,6 +221,7 @@ private fun BrowseNovelSourceContent(
                 contentPadding = contentPadding,
                 isLoading = isLoading,
                 onNovelClick = onNovelClick,
+                onRequestCover = onRequestCover,
             )
         }
     }
@@ -222,6 +235,7 @@ private fun BrowseNovelSourceCompactGrid(
     contentPadding: PaddingValues,
     isLoading: Boolean,
     onNovelClick: (SNNovel) -> Unit,
+    onRequestCover: (SNNovel) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = columns,
@@ -230,6 +244,7 @@ private fun BrowseNovelSourceCompactGrid(
         horizontalArrangement = Arrangement.spacedBy(CommonMangaItemDefaults.GridHorizontalSpacer),
     ) {
         items(novels, key = { it.url }) { novel ->
+            LaunchedEffect(novel.url) { onRequestCover(novel) }
             MangaCompactGridItem(
                 title = novel.title,
                 coverData = MangaCover(
@@ -264,6 +279,7 @@ private fun BrowseNovelSourceComfortableGrid(
     contentPadding: PaddingValues,
     isLoading: Boolean,
     onNovelClick: (SNNovel) -> Unit,
+    onRequestCover: (SNNovel) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = columns,
@@ -272,6 +288,7 @@ private fun BrowseNovelSourceComfortableGrid(
         horizontalArrangement = Arrangement.spacedBy(CommonMangaItemDefaults.GridHorizontalSpacer),
     ) {
         items(novels, key = { it.url }) { novel ->
+            LaunchedEffect(novel.url) { onRequestCover(novel) }
             MangaComfortableGridItem(
                 title = novel.title,
                 coverData = MangaCover(

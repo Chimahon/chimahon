@@ -26,6 +26,7 @@ import kotlin.math.abs
 
 object SourceChapterBookBuilder {
 
+    private const val FETCH_CONCURRENCY = 12
     private const val CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
     private const val CACHE_MAX_ENTRIES = 50
     private const val CACHE_MANIFEST_FILE = "source_chapter_cache.json"
@@ -178,7 +179,7 @@ object SourceChapterBookBuilder {
         val contentDir = File(bookDir, CONTENT_DIR).apply { mkdirs() }
         copyReaderState(existingCache?.bookDir, bookDir)
 
-        val semaphore = Semaphore(4)
+        val semaphore = Semaphore(FETCH_CONCURRENCY)
         val fetchOrder = chapters.indices.sortedWith(
             compareBy<Int> { abs(it - startChapterIndex) }.thenBy { it },
         )
@@ -187,20 +188,20 @@ object SourceChapterBookBuilder {
             val deferred = fetchOrder.map { index ->
                 val chapter = chapters[index]
                 async(Dispatchers.IO) {
+                    val id = "chapter_$index"
+                    val href = "$id.xhtml"
+                    val cacheKey = chapter.cacheKey()
+                    val cachedFile = existingCache?.chapterFile(cacheKey)
+                    if (cachedFile != null) {
+                        cachedFile.copyTo(File(contentDir, href), overwrite = true)
+                        return@async index to GeneratedChapterResult(
+                            chapter = GeneratedChapter(id = id, href = href, title = chapter.name),
+                            cacheKey = cacheKey,
+                            cacheable = true,
+                        )
+                    }
                     semaphore.acquire()
                     try {
-                        val id = "chapter_$index"
-                        val href = "$id.xhtml"
-                        val cacheKey = chapter.cacheKey()
-                        val cachedFile = existingCache?.chapterFile(cacheKey)
-                        if (cachedFile != null) {
-                            cachedFile.copyTo(File(contentDir, href), overwrite = true)
-                            return@async index to GeneratedChapterResult(
-                                chapter = GeneratedChapter(id = id, href = href, title = chapter.name),
-                                cacheKey = cacheKey,
-                                cacheable = true,
-                            )
-                        }
                         val result = runCatching {
                             val content = source.getChapterContent(chapter)
                             chapterContentToXhtml(content)

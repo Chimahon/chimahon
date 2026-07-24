@@ -16,7 +16,10 @@ import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.service.LibraryPreferences
 import uy.kohesive.injekt.Injekt
@@ -37,12 +40,42 @@ class BrowseNovelSourceScreenModel(
     private val pageSource: NovelsPageSource?
         get() = source as? NovelsPageSource
 
+    private val coverSemaphore = Semaphore(4)
+    private val coverRequested = mutableSetOf<String>()
+
     init {
         loadListing(Listing.Popular, reset = true)
     }
 
+    fun requestCover(novel: SNNovel) {
+        if (!novel.thumbnail_url.isNullOrBlank()) return
+        val src = source ?: return
+        if (!coverRequested.add(novel.url)) return
+        screenModelScope.launch {
+            try {
+                val cover = coverSemaphore.withPermit { src.getNovelDetails(novel).thumbnail_url }
+                if (cover.isNullOrBlank()) return@launch
+                val current = mutableState.value.novels
+                val index = current.indexOfFirst { it.url == novel.url }
+                if (index < 0 || !current[index].thumbnail_url.isNullOrBlank()) return@launch
+                mutableState.value = mutableState.value.copy(
+                    novels = current.toMutableList()
+                        .apply { this[index] = this[index].copy(thumbnail_url = cover) }
+                        .toImmutableList(),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                coverRequested.remove(novel.url)
+            }
+        }
+    }
+
     fun loadListing(listing: Listing, reset: Boolean = false) {
-        if (reset) currentPage = 1
+        if (reset) {
+            currentPage = 1
+            coverRequested.clear()
+        }
         val ps = pageSource ?: return
         screenModelScope.launch {
             mutableState.value = mutableState.value.copy(isLoading = true, error = null)
