@@ -74,6 +74,8 @@ private fun parseStructured(text: String): List<GlossNode>? =
     }.getOrNull()?.takeIf { it.isNotEmpty() }
 
 private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? {
+    val style = obj.optJSONObject("style")?.let { parseStructuredStyle(it) }
+
     // Plain text node
     if (obj.has("text")) {
         val text = obj.opt("text")
@@ -84,7 +86,7 @@ private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? {
             is Double -> listOf(text.toString())
             else -> return null
         }
-        return runs.map { GlossNode.Run(it) }
+        return runs.map { GlossNode.Run(it, bold = style?.bold ?: false, italic = style?.italic ?: false, underline = style?.underline ?: false, color = style?.color) }
     }
 
     // Ruby
@@ -146,18 +148,18 @@ private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? {
             else -> ""
         }
         val isBlock = tagName in setOf("div", "p", "li", "h1", "h2", "h3", "h4", "table", "tr", "ul", "ol", "tabs", "tab")
-        val bold = obj.optBoolean("bold", false) || tagName in setOf("strong", "b")
-        val italic = obj.optBoolean("italic", false) || tagName in setOf("em", "i")
-        val underline = obj.optBoolean("underline", false) || tagName == "u"
+        val bold = obj.optBoolean("bold", false) || tagName in setOf("strong", "b") || (style?.bold == true)
+        val italic = obj.optBoolean("italic", false) || tagName in setOf("em", "i") || (style?.italic == true)
+        val underline = obj.optBoolean("underline", false) || tagName == "u" || (style?.underline == true)
+        val styleColor = style?.color
 
         val out = mutableListOf<GlossNode>()
-        val needsLeadingBreak = isBlock && out.isEmpty()
         for (child in children) {
             if (out.isNotEmpty() && child is GlossNode.Run && out.last() is GlossNode.Run) {
                 out.add(GlossNode.Space)
             }
-            if (child is GlossNode.Run && (bold || italic || underline)) {
-                out.add(child.copy(bold = child.bold || bold, italic = child.italic || italic, underline = child.underline || underline))
+            if (child is GlossNode.Run && (bold || italic || underline || styleColor != null)) {
+                out.add(child.copy(bold = child.bold || bold, italic = child.italic || italic, underline = child.underline || underline, color = child.color ?: styleColor))
             } else {
                 out.add(child)
             }
@@ -229,6 +231,7 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
         }
     }
 
+    val style = parseInlineStyle(el.attr("style"))
     val children = el.children()
     if (children.isEmpty()) {
         val text = el.ownText()
@@ -236,9 +239,10 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
             out.add(
                 GlossNode.Run(
                     text = text,
-                    bold = tag in setOf("b", "strong"),
-                    italic = tag in setOf("i", "em"),
-                    underline = tag == "u",
+                    bold = tag in setOf("b", "strong") || style.bold,
+                    italic = tag in setOf("i", "em") || style.italic,
+                    underline = tag == "u" || style.underline,
+                    color = style.color,
                 ),
             )
         }
@@ -248,13 +252,13 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
     if (tag in setOf("p", "div", "section", "li", "dt", "dd", "h1", "h2", "h3", "h4", "h5", "h6", "tr")) {
         out.add(GlossNode.Break)
     }
-    val bold = tag in setOf("b", "strong")
-    val italic = tag in setOf("i", "em")
-    val underline = tag == "u"
+    val bold = tag in setOf("b", "strong") || style.bold
+    val italic = tag in setOf("i", "em") || style.italic
+    val underline = tag == "u" || style.underline
     for (child in children) {
         val start = out.size
         walkElement(child, out)
-        if (bold || italic || underline) {
+        if (bold || italic || underline || style.color != null) {
             for (i in start until out.size) {
                 val n = out[i]
                 if (n is GlossNode.Run) {
@@ -262,6 +266,7 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
                         bold = n.bold || bold,
                         italic = n.italic || italic,
                         underline = n.underline || underline,
+                        color = n.color ?: style.color,
                     )
                 }
             }
@@ -270,6 +275,62 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
             out.add(GlossNode.Break)
         }
     }
+}
+
+/** Parsed subset of an element's `style` attribute. */
+private class InlineStyle(
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val color: Long? = null,
+)
+
+private fun parseInlineStyle(raw: String): InlineStyle {
+    if (raw.isBlank()) return InlineStyle()
+    var bold = false
+    var italic = false
+    var underline = false
+    var color: Long? = null
+    for (decl in raw.split(";")) {
+        val parts = decl.split(":", limit = 2)
+        if (parts.size != 2) continue
+        val prop = parts[0].trim().lowercase()
+        val value = parts[1].trim()
+        when (prop) {
+            "font-weight" -> bold = bold || value == "bold" || (value.toIntOrNull() ?: 0) >= 600
+            "font-style" -> italic = italic || value == "italic"
+            "text-decoration" -> underline = underline || value.contains("underline")
+            "color", "background-color", "background" -> {
+                if (color == null) color = parseCssColor(value)
+            }
+        }
+    }
+    return InlineStyle(bold, italic, underline, color)
+}
+
+/** Best-effort CSS color → ARGB Long. Handles hex (#rgb/#rrggbb/#aarrggbb). */
+private fun parseCssColor(raw: String): Long? {
+    val value = raw.trim().removePrefix("var(").removeSuffix(")").trim()
+    val hex = value.removePrefix("#")
+    if (value.startsWith("#") && hex.length in setOf(3, 4, 6, 8) && hex.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }) {
+        val full = when (hex.length) {
+            3 -> hex.map { "$it$it" }.joinToString("")
+            4 -> hex.map { "$it$it" }.joinToString("")
+            6 -> "ff$hex"
+            else -> hex
+        }
+        return full.toLong(16)
+    }
+    return null
+}
+
+/** Parse a structured-content `style` object into an [InlineStyle]. */
+private fun parseStructuredStyle(style: JSONObject): InlineStyle {
+    var bold = style.optBoolean("fontWeight", false) || style.optString("fontWeight", "").let { it == "bold" || (it.toIntOrNull() ?: 0) >= 600 }
+    var italic = style.optBoolean("fontStyle", false) || style.optString("fontStyle", "") == "italic"
+    var underline = style.optString("textDecoration", "").contains("underline") || style.optString("textDecorationLine", "").contains("underline")
+    val color = parseCssColor(style.optString("color", "").takeIf { it.isNotBlank() } ?: "")
+    return InlineStyle(bold, italic, underline, color)
 }
 
 private fun iHasBlock(el: Element): Boolean =
