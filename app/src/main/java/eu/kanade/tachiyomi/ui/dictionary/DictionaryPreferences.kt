@@ -118,6 +118,9 @@ class DictionaryPreferences(
 
     fun customCss() = preferenceStore.getString("pref_dictionary_custom_css", "")
 
+    /** "webview" (default) or "compose" — native Compose renderer for the reader popup. */
+    fun renderer() = preferenceStore.getString("pref_dictionary_renderer", RENDERER_WEBVIEW)
+
     // -------------------------------------------------------------------------
     // Profile storage (raw pref keys — consumed by AnkiProfileStore and settings UI)
     // -------------------------------------------------------------------------
@@ -312,6 +315,9 @@ class DictionaryPreferences(
 
         const val SCROLL_SMOOTH = "smooth"
         const val SCROLL_INSTANT = "instant"
+
+        const val RENDERER_WEBVIEW = "webview"
+        const val RENDERER_COMPOSE = "compose"
     }
 
     // -------------------------------------------------------------------------

@@ -286,6 +286,7 @@ dependencies {
 
     // HTML parser
     implementation(libs.jsoup)
+    implementation(libs.furiganable)
 
     // Disk
     implementation(libs.disklrucache)

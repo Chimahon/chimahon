@@ -23,6 +23,7 @@ media = "1.7.1"
 truetypeparser = "2.1.4"
 chimahon-ffmpeg = "v8.1.1.4"
 litert = "2.1.6"
+furiganable = "0.2.2"
 
 [libraries]
 desugar = "com.android.tools:desugar_jdk_libs_nio:2.1.5"
@@ -43,6 +44,8 @@ datastore-preferences = { module = "androidx.datastore:datastore-preferences", v
 quickjs-android = { group = "com.github.zhanghai.quickjs-java", name = "quickjs-android", version = "547f5b1597" }
 
 jsoup = "org.jsoup:jsoup:1.22.2"
+
+furiganable = { module = "com.turtlekazu.furiganable:compose-m3", version.ref = "furiganable" }
 
 newpipe-extractor = { module = "com.github.TeamNewPipe:NewPipeExtractor", version.ref = "newpipe-extractor" }
 

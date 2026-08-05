@@ -663,6 +663,17 @@ object SettingsDictionaryScreen : SearchableSettings {
                 ),
             )
             add(
+                Preference.PreferenceItem.ListPreference(
+                    preference = dictionaryPreferences.renderer(),
+                    entries = persistentListOf(
+                        DictionaryPreferences.RENDERER_WEBVIEW to "WebView (default)",
+                        DictionaryPreferences.RENDERER_COMPOSE to "Compose (native)",
+                    ).associate { it.first to it.second }.toPersistentMap(),
+                    title = "Renderer",
+                    subtitle = "Native Compose renderer is faster but a reduced CSS/style subset is applied",
+                ),
+            )
+            add(
                 Preference.PreferenceItem.SwitchPreference(
                     preference = dictionaryPreferences.popupSwipeToDismiss(),
                     title = stringResource(MR.strings.pref_dict_popup_swipe_to_dismiss),
