@@ -71,6 +71,7 @@ import org.json.JSONObject
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import kotlin.math.roundToInt
 
 private data class TermCard(
     val expression: String,
@@ -586,10 +587,60 @@ private fun PitchSection(
 
 private fun buildFrequencyText(frequencies: List<FrequencyEntry>, showHarmonic: Boolean, showAverage: Boolean): String {
     if (frequencies.isEmpty()) return ""
+
+    fun collectNumbers(): List<Int> {
+        val out = mutableListOf<Int>()
+        val seen = mutableSetOf<String>()
+        for (group in frequencies) {
+            if (!seen.add(group.dictName)) continue
+            group.frequencies.forEach { freq ->
+                if (freq.value > 0) {
+                    out.add(freq.value)
+                    return@forEach
+                }
+            }
+        }
+        return out
+    }
+
+    fun harmonic(): Int? {
+        val numbers = collectNumbers()
+        if (numbers.isEmpty()) return null
+        val n = numbers.size
+        val reciprocalSum = numbers.sumOf { 1.0 / it }
+        return if (reciprocalSum == 0.0) null else (n / reciprocalSum).toInt()
+    }
+
+    fun averageRank(): Double? {
+        val numbers = collectNumbers()
+        if (numbers.isEmpty()) return null
+        return numbers.sum() / numbers.size.toDouble()
+    }
+
+    fun formatRank(v: Double): String? {
+        if (!v.isFinite() || v <= 0) return null
+        val rounded = (v * 10).roundToInt() / 10.0
+        return if (rounded == rounded.toLong().toDouble()) rounded.toLong().toString() else rounded.toString()
+    }
+
     val parts = mutableListOf<String>()
+
+    if (showHarmonic) {
+        harmonic()?.let { parts.add("freq harmonic: $it") }
+        if (showAverage) {
+            averageRank()?.let { avg -> formatRank(avg)?.let { parts.add("avg $it") } }
+        }
+        return parts.joinToString("  ")
+    }
+
+    if (showAverage) {
+        averageRank()?.let { avg -> formatRank(avg)?.let { parts.add("avg $it") } }
+    }
+
+    // Compact per-dictionary chips: prefer displayValue, fall back to value.
     for (group in frequencies) {
         val values = group.frequencies
-            .mapNotNull { it.displayValue.takeIf { v -> v.isNotBlank() } ?: it.value.takeIf { v -> v > 0 }?.toString() }
+            .mapNotNull { freq -> freq.displayValue.takeIf { it.isNotBlank() } ?: freq.value.takeIf { it > 0 }?.toString() }
             .distinct()
         if (values.isNotEmpty()) parts.add(values.joinToString(", "))
     }
