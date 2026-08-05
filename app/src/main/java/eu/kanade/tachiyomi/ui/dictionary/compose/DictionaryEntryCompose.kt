@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +65,9 @@ import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -82,6 +88,54 @@ private data class DictionaryGroup(
     val title: String,
     val glosses: List<GlossaryEntry>,
 )
+
+/** A parsed kanji result, mirroring the WebView's `kanji-renderer.js` model. */
+private data class KanjiCard(
+    val character: String,
+    val dictName: String,
+    val onyomi: List<String>,
+    val kunyomi: List<String>,
+    val tags: List<String>,
+    val definitions: List<String>,
+    val stats: List<Pair<String, String>>,
+)
+
+/**
+ * Parse a kanji entry JSON string (the same `buildKanjiEntryJson` payload the
+ * WebView consumes) into a [KanjiCard] for native rendering.
+ */
+private fun parseKanjiEntryJson(json: String): KanjiCard? {
+    val kanji: JSONObject = runCatching {
+        JSONObject(json).optJSONObject("kanji")
+    }.getOrNull() ?: return null
+    return runCatching {
+        val onyomi = kanji.optJSONArray("onyomi")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+        } ?: emptyList()
+        val kunyomi = kanji.optJSONArray("kunyomi")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+        } ?: emptyList()
+        val definitions = kanji.optJSONArray("definitions")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+        } ?: emptyList()
+        val stats = mutableListOf<Pair<String, String>>()
+        kanji.optJSONObject("stats")?.let { obj ->
+            obj.keys().forEach { key ->
+                val v = obj.optString(key)
+                if (v.isNotBlank()) stats.add(key to v)
+            }
+        }
+        KanjiCard(
+            character = kanji.optString("character", ""),
+            dictName = kanji.optString("dictName", ""),
+            onyomi = onyomi,
+            kunyomi = kunyomi,
+            tags = kanji.optString("tags", "").split(" ").filter { it.isNotBlank() },
+            definitions = definitions,
+            stats = stats,
+        )
+    }.getOrNull()
+}
 
 /**
  * Native Compose dictionary renderer for the reader popup — a drop-in for
@@ -110,6 +164,7 @@ fun DictionaryEntryCompose(
     wordAudioAutoplayOverride: Boolean? = null,
     customCss: String = "",
     groupPitches: Boolean = false,
+    entryJsons: List<String>? = null,
     modifier: Modifier = Modifier,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = null,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)? = null,
@@ -150,6 +205,13 @@ fun DictionaryEntryCompose(
         activeProfile.dictionaryOrder.map { resolveTitle(it) }.withIndex().associate { it.value to it.index }
     }
 
+    val kanjiCards = remember(entryJsons, isLoading) {
+        when {
+            isLoading || entryJsons == null -> emptyList()
+            else -> entryJsons.mapNotNull { parseKanjiEntryJson(it) }
+        }
+    }
+
     val displayed = if (isLoading) emptyList() else orderLookupResultsForDisplay(results, activeProfile, context)
     val cards = remember(displayed, groupTerms, activeProfile, priority) {
         buildCards(displayed, groupTerms, resolveTitle, priority)
@@ -160,6 +222,23 @@ fun DictionaryEntryCompose(
             isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = accent)
+                }
+            }
+            kanjiCards.isNotEmpty() -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 12.dp),
+                ) {
+                    itemsIndexed(kanjiCards, key = { i, _ -> "kanji-$i" }) { i, kanji ->
+                        KanjiEntryCard(
+                            kanji = kanji,
+                            fontSize = fontSize,
+                            accent = accent,
+                            onBg = onBg,
+                            onRecursiveLookup = onRecursiveLookup,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
             cards.isEmpty() -> {
@@ -194,6 +273,8 @@ fun DictionaryEntryCompose(
                             existingExpressions = existingExpressions,
                             onAnkiLookup = onAnkiLookup,
                             onRecursiveLookup = onRecursiveLookup,
+                            wordAudioEnabled = wordAudioEnabled,
+                            autoplay = wordAudioAutoplayOverride == true,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -287,6 +368,8 @@ private fun TermCardView(
     existingExpressions: Set<String>,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)?,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
+    wordAudioEnabled: Boolean,
+    autoplay: Boolean,
     modifier: Modifier,
 ) {
     val overrideState = remember(card) { CollapseOverrideState(emptyMap()) }
@@ -294,7 +377,7 @@ private fun TermCardView(
     val alreadyAdded = card.expression in existingExpressions
 
     Column(modifier = modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 4.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 FuriganaText(
                     expression = card.expression,
@@ -312,6 +395,15 @@ private fun TermCardView(
                     )
                 }
             }
+            if (wordAudioEnabled) {
+                WordAudioButton(
+                    expression = card.expression,
+                    reading = card.reading,
+                    accent = accent,
+                    autoplay = autoplay,
+                    modifier = Modifier.size(32.dp),
+                )
+            }
             if (onAnkiLookup != null) {
                 IconButton(
                     onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
@@ -326,8 +418,17 @@ private fun TermCardView(
             }
         }
 
-        if (card.process.isNotEmpty() && card.process != listOf(card.expression)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+        val inflected = card.process.isNotEmpty() && card.process != listOf(card.expression)
+        if (inflected) {
+            var showDetails by remember(card) { mutableStateOf(false) }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .clickable { showDetails = !showDetails }
+                    .padding(vertical = 2.dp),
+            ) {
                 card.process.take(4).forEach { tag ->
                     Surface(shape = RoundedCornerShape(4.dp), color = accent.copy(alpha = 0.12f)) {
                         Text(
@@ -335,6 +436,20 @@ private fun TermCardView(
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                         )
                     }
+                }
+                Text(
+                    text = if (showDetails) "\u25B2" else "\u25BC",
+                    color = onBg.copy(alpha = 0.5f),
+                    fontSize = (fontSize - 4).sp,
+                )
+            }
+            AnimatedVisibility(visible = showDetails) {
+                Column(Modifier.padding(top = 2.dp)) {
+                    Text(
+                        text = card.process.reversed().joinToString(" \u00BB "),
+                        color = onBg.copy(alpha = 0.7f),
+                        fontSize = (fontSize - 3).sp,
+                    )
                 }
             }
         }
@@ -451,6 +566,16 @@ private fun PitchSection(
                     accentColor = accent,
                     modifier = Modifier.padding(top = 2.dp),
                 )
+            }
+            if (showPitchNumber && positions.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "[" + positions.joinToString(", ") + "]",
+                        color = accent,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = (if (showPitchDiagram) 8 else 0).dp, top = 2.dp),
+                    )
+                }
             }
             if (showPitchText) {
                 Text(buildPitchText(card.expression, positions), color = onBg.copy(alpha = 0.8f), fontSize = 12.sp)
@@ -574,4 +699,140 @@ private fun resolveMediaUri(dictName: String, path: String, mediaDataUris: Map<S
         mediaDataUris[candidate]?.let { return it }
     }
     return null
+}
+
+@Composable
+private fun WordAudioButton(
+    expression: String,
+    reading: String,
+    accent: Color,
+    autoplay: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    var playing by remember(expression) { mutableStateOf(false) }
+
+    LaunchedEffect(expression, autoplay) {
+        if (!autoplay) return@LaunchedEffect
+        val url = WordAudioPlayer.findAudio(expression, reading)
+        if (url != null) WordAudioPlayer.playUrl(url)
+    }
+
+    IconButton(
+        onClick = {
+            if (playing) return@IconButton
+            scope.launch {
+                playing = true
+                val url = WordAudioPlayer.findAudio(expression, reading)
+                if (url != null) WordAudioPlayer.playUrl(url)
+                playing = false
+            }
+        },
+        modifier = modifier,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.VolumeUp,
+            contentDescription = null,
+            tint = if (playing) accent.copy(alpha = 0.5f) else accent.copy(alpha = 0.7f),
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun KanjiEntryCard(
+    kanji: KanjiCard,
+    fontSize: Int,
+    accent: Color,
+    onBg: Color,
+    onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(
+                text = kanji.character,
+                color = onBg,
+                fontSize = 48.sp,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Column(Modifier.weight(1f)) {
+                if (kanji.onyomi.isNotEmpty()) {
+                    Text(
+                        text = "ON: ${kanji.onyomi.joinToString(", ")}",
+                        color = accent,
+                        fontSize = (fontSize - 1).sp,
+                    )
+                }
+                if (kanji.kunyomi.isNotEmpty()) {
+                    Text(
+                        text = "KUN: ${kanji.kunyomi.joinToString(", ")}",
+                        color = accent.copy(alpha = 0.9f),
+                        fontSize = (fontSize - 1).sp,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+        }
+
+        kanji.tags.forEach { tag ->
+            Surface(shape = RoundedCornerShape(4.dp), color = accent.copy(alpha = 0.12f), modifier = Modifier.padding(top = 4.dp)) {
+                Text(text = tag, color = accent, fontSize = (fontSize - 5).sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+            }
+        }
+
+        kanji.definitions.forEachIndexed { i, def ->
+            Row(modifier = Modifier.padding(top = (if (i == 0) 8 else 3).dp)) {
+                Text(
+                    text = "${i + 1}.",
+                    color = accent,
+                    fontSize = (fontSize - 1).sp,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+                val defModifier = if (onRecursiveLookup != null && def.isNotBlank()) {
+                    Modifier
+                        .clickable { onRecursiveLookup(def, null, null, null, null, "term") }
+                        .padding(vertical = 1.dp)
+                } else {
+                    Modifier
+                }
+                Text(
+                    text = def,
+                    color = onBg,
+                    fontSize = (fontSize - 1).sp,
+                    modifier = defModifier,
+                )
+            }
+        }
+
+        if (kanji.stats.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = onBg.copy(alpha = 0.05f),
+                modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(10.dp)) {
+                    kanji.stats.forEach { (label, value) ->
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = label,
+                                color = onBg.copy(alpha = 0.6f),
+                                fontSize = (fontSize - 2).sp,
+                                modifier = Modifier.width(90.dp),
+                            )
+                            Text(
+                                text = value,
+                                color = onBg,
+                                fontSize = (fontSize - 2).sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
