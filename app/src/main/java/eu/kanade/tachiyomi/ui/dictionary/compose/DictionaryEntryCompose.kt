@@ -511,6 +511,7 @@ private fun TermCardView(
                                 gloss = gloss,
                                 fontSize = fontSize,
                                 onBg = onBg,
+                                accentBg = accent,
                                 mediaDataUris = mediaDataUris,
                                 onRecursiveLookup = onRecursiveLookup,
                             )
@@ -662,11 +663,27 @@ private fun GlossRow(
     gloss: GlossaryEntry,
     fontSize: Int,
     onBg: Color,
+    accentBg: Color,
     mediaDataUris: Map<String, String>,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
 ) {
     val nodes = remember(gloss.glossary) { parseGlossary(gloss.glossary) }
     Column(Modifier.padding(vertical = 3.dp)) {
+        val defTags = remember(gloss.definitionTags) {
+            gloss.definitionTags.split(Regex("\\s+")).filter { it.isNotBlank() }
+        }
+        if (defTags.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 2.dp)) {
+                defTags.take(8).forEach { tag ->
+                    Surface(shape = RoundedCornerShape(4.dp), color = accentBg.copy(alpha = 0.12f)) {
+                        Text(
+                            text = tag, color = accentBg, fontSize = (fontSize - 5).sp,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+            }
+        }
         nodes.forEach { node ->
             when (node) {
                 is GlossNode.Run -> {
