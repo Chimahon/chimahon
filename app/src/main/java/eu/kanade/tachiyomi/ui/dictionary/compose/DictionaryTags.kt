@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
@@ -9,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -75,22 +77,32 @@ fun dictionaryTag(
     val isFrequency = resolved == "frequency"
     val tagSize = (fontSize * 0.75).sp
 
+    // eInk mode: white chip with 1px black border, square corners (base.css 797-811).
     val labelBg = when {
-        eInk -> Color.Transparent
+        eInk -> Color.White
         isFrequency -> secondary.copy(alpha = 0.10f)
         else -> base
     }
     val labelFg = when {
-        eInk -> secondary
+        eInk -> Color.Black
         isFrequency -> secondary
         else -> Color.White
     }
     val bodyBg = when {
-        eInk -> Color.Transparent
+        eInk -> Color.White
         isFrequency -> secondary.copy(alpha = 0.15f)
         else -> darken(base, 0.8f)
     }
-    val bodyFg = if (eInk) secondary else Color.White
+    val bodyFg = when {
+        eInk -> Color.Black
+        isFrequency -> secondary
+        else -> Color.White
+    }
+    val labelShape = if (eInk) RectangleShape else RoundedCornerShape(3.dp)
+    val leftShape = if (eInk) RectangleShape else RoundedCornerShape(topStart = 3.dp, bottomStart = 3.dp)
+    val rightShape = if (eInk) RectangleShape else RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)
+    val labelBorder = if (eInk) Modifier.border(1.dp, Color.Black) else Modifier
+    val bodyBorder = if (eInk) Modifier.border(1.dp, Color.Black) else Modifier
 
     Row(Modifier.wrapContentSize().then(modifier).padding(end = 3.dp, bottom = 3.dp)) {
         if (body == null) {
@@ -100,7 +112,8 @@ fun dictionaryTag(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = tagSize,
                 modifier = Modifier
-                    .background(labelBg, RoundedCornerShape(3.dp))
+                    .background(labelBg, labelShape)
+                    .then(labelBorder)
                     .padding(horizontal = 5.dp, vertical = 1.dp),
             )
         } else {
@@ -110,7 +123,8 @@ fun dictionaryTag(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = tagSize,
                 modifier = Modifier
-                    .background(labelBg, RoundedCornerShape(topStart = 3.dp, bottomStart = 3.dp))
+                    .background(labelBg, leftShape)
+                    .then(labelBorder)
                     .padding(horizontal = 5.dp, vertical = 1.dp),
             )
             Text(
@@ -120,7 +134,8 @@ fun dictionaryTag(
                 fontSize = tagSize,
                 modifier = Modifier
                     .padding(start = 1.dp)
-                    .background(bodyBg, RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
+                    .background(bodyBg, rightShape)
+                    .then(bodyBorder)
                     .padding(horizontal = 5.dp, vertical = 1.dp),
             )
         }

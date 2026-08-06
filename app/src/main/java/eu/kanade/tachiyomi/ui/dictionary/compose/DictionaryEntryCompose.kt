@@ -210,12 +210,12 @@ fun DictionaryEntryCompose(
     val colorScheme = remember(isDark, isAmoled, seedColor) {
         getDictionaryColorScheme(isDark, isAmoled, seedColor)
     }
-    val bgColor = if (isAmoled && isDark) Color.Black else colorScheme.surface
-    val onBg = colorScheme.onSurface
-    val accent = colorScheme.primary
-    val secondary = colorScheme.onSurfaceVariant
-    val border = if (isAmoled && isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant
-    val hoverBg = if (isAmoled && isDark) Color.White.copy(alpha = 0.07f) else colorScheme.surfaceVariant
+    val bgColor = if (eInkMode) Color.White else if (isAmoled && isDark) Color.Black else colorScheme.surface
+    val onBg = if (eInkMode) Color.Black else colorScheme.onSurface
+    val accent = if (eInkMode) Color.Black else colorScheme.primary
+    val secondary = if (eInkMode) Color.Black else colorScheme.onSurfaceVariant
+    val border = if (eInkMode) Color.Black else if (isAmoled && isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant
+    val hoverBg = if (eInkMode) Color.White else if (isAmoled && isDark) Color.White.copy(alpha = 0.07f) else colorScheme.surfaceVariant
 
     LaunchedEffect(results, isLoading) {
         onContentReadyChange?.invoke(!isLoading)
@@ -432,7 +432,14 @@ private fun TermCardView(
         modifier = modifier
             .then(
                 if (index > 0) {
-                    Modifier.border(width = 2.dp, color = border, shape = RectangleShape)
+                    Modifier.drawBehind {
+                        drawLine(
+                            color = border,
+                            start = Offset.Zero,
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 2.dp.toPx(),
+                        )
+                    }
                 } else {
                     Modifier
                 },
@@ -548,9 +555,15 @@ private fun TermCardView(
                             modifier = Modifier.padding(bottom = 6.dp),
                         ) {
                             ruleSet.forEach { rule ->
-                                Surface(shape = RoundedCornerShape(4.dp), color = accent.copy(alpha = 0.12f)) {
+                                Surface(
+                                    shape = if (eInkMode) RectangleShape else RoundedCornerShape(4.dp),
+                                    color = if (eInkMode) Color.Transparent else accent.copy(alpha = 0.12f),
+                                    border = if (eInkMode) BorderStroke(1.dp, Color.Black) else null,
+                                ) {
                                     Text(
-                                        text = rule, color = accent, fontSize = (fontSize - 4).sp,
+                                        text = rule,
+                                        color = if (eInkMode) Color.Black else accent,
+                                        fontSize = (fontSize - 4).sp,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     )
@@ -560,9 +573,9 @@ private fun TermCardView(
                     }
                     card.process.asReversed().forEachIndexed { i, step ->
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = hoverBg,
-                            border = BorderStroke(1.dp, border),
+                            shape = if (eInkMode) RectangleShape else RoundedCornerShape(8.dp),
+                            color = if (eInkMode) Color.Transparent else hoverBg,
+                            border = BorderStroke(1.dp, if (eInkMode) Color.Black else border),
                             modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                         ) {
                             Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
@@ -570,7 +583,10 @@ private fun TermCardView(
                                     Box(
                                         modifier = Modifier
                                             .size(18.dp)
-                                            .background(accent, CircleShape),
+                                            .background(
+                                                if (eInkMode) Color.Black else accent,
+                                                if (eInkMode) RectangleShape else CircleShape,
+                                            ),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Text(
@@ -900,6 +916,7 @@ private fun buildPitchText(expression: String, positions: List<Int>): String {
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun GlossRow(
     gloss: GlossaryEntry,
     fontSize: Int,
@@ -910,6 +927,7 @@ private fun GlossRow(
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
 ) {
     val nodes = remember(gloss.glossary) { parseGlossary(gloss.glossary) }
+    val lines = remember(nodes) { partitionGlossLines(nodes) }
     Column(Modifier.padding(vertical = 3.dp)) {
         val defTags = remember(gloss.definitionTags) {
             gloss.definitionTags.split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -921,60 +939,92 @@ private fun GlossRow(
                 }
             }
         }
-        nodes.forEach { node ->
-            when (node) {
-                is GlossNode.Run -> {
-                    val bold = node.bold
-                    val italic = node.italic
-                    val underline = node.underline
-                    val runModifier = if (onRecursiveLookup != null && node.text.isNotBlank()) {
-                        Modifier
-                            .clickable { onRecursiveLookup(node.text, null, null, null, null, "term") }
-                            .padding(vertical = 1.dp)
-                    } else {
-                        Modifier
+        lines.forEach { line ->
+            if (line.single() is GlossNode.Image) {
+                GlossImage(gloss.dictName, (line.single() as GlossNode.Image).uri, mediaDataUris, onBg)
+                return@forEach
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                line.forEach { node ->
+                    when (node) {
+                        is GlossNode.Run -> {
+                            val bold = node.bold
+                            val italic = node.italic
+                            val underline = node.underline
+                            val runModifier = if (onRecursiveLookup != null && node.text.isNotBlank()) {
+                                Modifier
+                                    .clickable { onRecursiveLookup(node.text, null, null, null, null, "term") }
+                                    .padding(vertical = 1.dp)
+                            } else {
+                                Modifier
+                            }
+                            Text(
+                                text = node.text,
+                                color = if (node.color != null) Color(node.color) else onBg,
+                                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+                                fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+                                textDecoration = if (underline) TextDecoration.Underline else null,
+                                fontSize = (fontSize - 1).sp,
+                                modifier = runModifier,
+                            )
+                        }
+                        is GlossNode.Ruby -> {
+                            val rubyModifier = if (onRecursiveLookup != null && node.text.isNotBlank()) {
+                                Modifier
+                                    .clickable { onRecursiveLookup(node.text, null, null, null, null, "term") }
+                                    .padding(vertical = 1.dp)
+                            } else {
+                                Modifier
+                            }
+                            TextWithReading(
+                                formattedText = "[${node.text}[${node.ruby}]]",
+                                style = TextStyle(color = onBg, fontSize = (fontSize - 1).sp),
+                                furiganaFontSize = (fontSize - 1).sp * 0.5f,
+                                modifier = rubyModifier,
+                            )
+                        }
+                        is GlossNode.ListMarker -> {
+                            Text(
+                                text = node.marker,
+                                color = secondary,
+                                fontSize = (fontSize - 1).sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        GlossNode.Space -> Spacer(Modifier.width(2.dp))
+                        GlossNode.Break -> {}
+                        is GlossNode.Image -> {}
                     }
-                    Text(
-                        text = node.text,
-                        color = if (node.color != null) Color(node.color) else onBg,
-                        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-                        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-                        textDecoration = if (underline) TextDecoration.Underline else null,
-                        fontSize = (fontSize - 1).sp,
-                        modifier = runModifier,
-                    )
                 }
-                is GlossNode.Ruby -> {
-                    val rubyModifier = if (onRecursiveLookup != null && node.text.isNotBlank()) {
-                        Modifier
-                            .clickable { onRecursiveLookup(node.text, null, null, null, null, "term") }
-                            .padding(vertical = 1.dp)
-                    } else {
-                        Modifier
-                    }
-                    TextWithReading(
-                        formattedText = "[${node.text}[${node.ruby}]]",
-                        style = TextStyle(color = onBg, fontSize = (fontSize - 1).sp),
-                        furiganaFontSize = (fontSize - 1).sp * 0.5f,
-                        modifier = rubyModifier,
-                    )
-                }
-                is GlossNode.Image -> {
-                    GlossImage(gloss.dictName, node.uri, mediaDataUris, onBg)
-                }
-                is GlossNode.ListMarker -> {
-                    Text(
-                        text = node.marker,
-                        color = secondary,
-                        fontSize = (fontSize - 1).sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                GlossNode.Break -> Spacer(Modifier.height(4.dp))
-                GlossNode.Space -> Spacer(Modifier.width(4.dp))
             }
         }
     }
+}
+
+/** Group [nodes] into inline flow lines; [GlossNode.Break] and [GlossNode.Image] split lines. */
+private fun partitionGlossLines(nodes: List<GlossNode>): List<List<GlossNode>> {
+    val result = mutableListOf<List<GlossNode>>()
+    val current = mutableListOf<GlossNode>()
+    fun flush() {
+        if (current.isNotEmpty()) {
+            result.add(current.toList())
+            current.clear()
+        }
+    }
+    for (node in nodes) {
+        when (node) {
+            GlossNode.Break, is GlossNode.Image -> {
+                flush()
+                if (node is GlossNode.Image) result.add(listOf(node))
+            }
+            else -> current.add(node)
+        }
+    }
+    flush()
+    return result
 }
 
 @Composable

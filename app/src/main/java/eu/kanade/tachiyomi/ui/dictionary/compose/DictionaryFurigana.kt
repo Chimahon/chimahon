@@ -43,7 +43,7 @@ fun FuriganaText(
     TextWithReading(
         formattedText = formatted,
         style = TextStyle(color = color, fontSize = fontSize, fontWeight = fontWeight),
-        furiganaFontSize = fontSize * 0.45f,
+        furiganaFontSize = fontSize * 0.55f,
         modifier = modifier,
     )
 }
