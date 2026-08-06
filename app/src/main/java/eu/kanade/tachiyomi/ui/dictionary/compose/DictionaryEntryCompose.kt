@@ -653,7 +653,6 @@ private fun TermCardView(
                                 gloss = gloss,
                                 fontSize = fontSize,
                                 onBg = onBg,
-                                accentBg = accent,
                                 secondary = secondary,
                                 eInkMode = eInkMode,
                                 mediaDataUris = mediaDataUris,
@@ -813,12 +812,19 @@ private fun buildFrequencyChips(
     return chips
 }
 
+internal fun isMoraPitchHigh(moraIndex: Int, pitchAccentValue: Int): Boolean = when (pitchAccentValue) {
+    0 -> moraIndex > 0
+    1 -> moraIndex < 1
+    else -> moraIndex > 0 && moraIndex < pitchAccentValue
+}
+
 private fun buildPitchText(expression: String, positions: List<Int>): String {
     if (expression.isEmpty()) return ""
-    val minDownstep = positions.minOrNull()
+    val accent = positions.minOrNull()
+    val morae = splitMorae(expression)
     return buildString {
-        for ((i, _) in expression.withIndex()) {
-            append(if (minDownstep == null || i < minDownstep) "H" else "L")
+        for (i in morae.indices) {
+            append(if (accent != null && isMoraPitchHigh(i, accent)) "H" else "L")
         }
     }
 }
@@ -828,7 +834,6 @@ private fun GlossRow(
     gloss: GlossaryEntry,
     fontSize: Int,
     onBg: Color,
-    accentBg: Color,
     secondary: Color,
     eInkMode: Boolean,
     mediaDataUris: Map<String, String>,
