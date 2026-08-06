@@ -210,12 +210,12 @@ fun DictionaryEntryCompose(
     val colorScheme = remember(isDark, isAmoled, seedColor) {
         getDictionaryColorScheme(isDark, isAmoled, seedColor)
     }
-    val bgColor = if (eInkMode) Color.White else if (isAmoled && isDark) Color.Black else colorScheme.surface
-    val onBg = if (eInkMode) Color.Black else colorScheme.onSurface
-    val accent = if (eInkMode) Color.Black else colorScheme.primary
-    val secondary = if (eInkMode) Color.Black else colorScheme.onSurfaceVariant
-    val border = if (eInkMode) Color.Black else if (isAmoled && isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant
-    val hoverBg = if (eInkMode) Color.White else if (isAmoled && isDark) Color.White.copy(alpha = 0.07f) else colorScheme.surfaceVariant
+    val bgColor = if (eInkMode) (if (isDark) Color.Black else Color.White) else if (isAmoled && isDark) Color.Black else colorScheme.surface
+    val onBg = if (eInkMode) (if (isDark) Color.White else Color.Black) else colorScheme.onSurface
+    val accent = if (eInkMode) (if (isDark) Color.White else Color.Black) else colorScheme.primary
+    val secondary = if (eInkMode) (if (isDark) Color.White else Color.Black) else colorScheme.onSurfaceVariant
+    val border = if (eInkMode) (if (isDark) Color.White else Color.Black) else if (isAmoled && isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant
+    val hoverBg = if (eInkMode) (if (isDark) Color.Black else Color.White) else if (isAmoled && isDark) Color.White.copy(alpha = 0.07f) else colorScheme.surfaceVariant
 
     LaunchedEffect(results, isLoading) {
         onContentReadyChange?.invoke(!isLoading)
@@ -558,11 +558,11 @@ private fun TermCardView(
                                 Surface(
                                     shape = if (eInkMode) RectangleShape else RoundedCornerShape(4.dp),
                                     color = if (eInkMode) Color.Transparent else accent.copy(alpha = 0.12f),
-                                    border = if (eInkMode) BorderStroke(1.dp, Color.Black) else null,
+                                    border = if (eInkMode) BorderStroke(1.dp, border) else null,
                                 ) {
                                     Text(
                                         text = rule,
-                                        color = if (eInkMode) Color.Black else accent,
+                                        color = if (eInkMode) onBg else accent,
                                         fontSize = (fontSize - 4).sp,
                                         fontWeight = FontWeight.Medium,
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
@@ -574,8 +574,8 @@ private fun TermCardView(
                     card.process.asReversed().forEachIndexed { i, step ->
                         Surface(
                             shape = if (eInkMode) RectangleShape else RoundedCornerShape(8.dp),
-                            color = if (eInkMode) Color.Transparent else hoverBg,
-                            border = BorderStroke(1.dp, if (eInkMode) Color.Black else border),
+                            color = hoverBg,
+                            border = BorderStroke(1.dp, border),
                             modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                         ) {
                             Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
@@ -652,34 +652,49 @@ private fun TermCardView(
             )
         }
 
+        val customOpenNames = remember(card, activeProfile, collapseMode) {
+            when (collapseMode) {
+                AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM -> {
+                    val displayModes = activeProfile.dictionaryDisplayModes
+                    val open = mutableSetOf<String>()
+                    var contentOpened = false
+                    for (group in card.dictGroups) {
+                        val mode = displayModes[group.dictName] ?: "fallback"
+                        if (mode == "always_collapsed") continue
+                        if (mode == "always_expanded" || !contentOpened) {
+                            open.add(group.dictName)
+                            contentOpened = true
+                        }
+                    }
+                    open
+                }
+                else -> emptySet()
+            }
+        }
+
         for ((i, group) in card.dictGroups.withIndex()) {
             val override = overrideState[group.title]
-            val alwaysExpanded = activeProfile.dictionaryDisplayModes[group.dictName] == "always_expanded"
-            val alwaysCollapsed = activeProfile.dictionaryDisplayModes[group.dictName] == "always_collapsed"
-            val initial = when {
-                alwaysExpanded -> true
-                alwaysCollapsed -> false
-                else -> when (collapseMode) {
-                    AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_ALL -> true
-                    AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE -> i == 0
-                    else -> false
-                }
+            val initial = when (collapseMode) {
+                AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_ALL -> true
+                AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE -> i == 0
+                AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM -> customOpenNames.contains(group.dictName)
+                else -> false
             }
             val expanded = override ?: initial
 
             Column(modifier = Modifier.padding(top = if (i == 0) 2.dp else 4.dp)) {
                 val isSelected = selectedDict == group.title
                 val headerBg = when {
-                    eInkMode && isSelected -> Color.Black
+                    eInkMode && isSelected -> accent
                     isSelected -> hoverBg
                     else -> Color.Transparent
                 }
                 val borderColor = when {
-                    isSelected -> if (eInkMode) Color.Black else accent
+                    isSelected -> accent
                     else -> Color.Transparent
                 }
                 val headerLabelColor = when {
-                    eInkMode && isSelected -> Color.White
+                    eInkMode && isSelected -> hoverBg
                     isSelected -> accent
                     else -> secondary
                 }
@@ -724,6 +739,7 @@ private fun TermCardView(
                                 fontSize = fontSize,
                                 onBg = onBg,
                                 secondary = secondary,
+                                border = border,
                                 eInkMode = eInkMode,
                                 mediaDataUris = mediaDataUris,
                                 onRecursiveLookup = onRecursiveLookup,
@@ -805,10 +821,11 @@ private fun PitchSection(
                         )
                     }
                     if (showPitchText) {
-                        Text(
-                            text = buildPitchText(pitchText, listOf(pos)),
+                        PitchTextLine(
+                            text = pitchText,
+                            positions = listOf(pos),
                             color = onBg.copy(alpha = 0.8f),
-                            fontSize = 11.sp,
+                            fontSize = 11,
                         )
                     }
                     if (showPitchNumber) {
@@ -904,17 +921,6 @@ internal fun isMoraPitchHigh(moraIndex: Int, pitchAccentValue: Int): Boolean = w
     else -> moraIndex > 0 && moraIndex < pitchAccentValue
 }
 
-private fun buildPitchText(expression: String, positions: List<Int>): String {
-    if (expression.isEmpty()) return ""
-    val accent = positions.minOrNull()
-    val morae = splitMorae(expression)
-    return buildString {
-        for (i in morae.indices) {
-            append(if (accent != null && isMoraPitchHigh(i, accent)) "H" else "L")
-        }
-    }
-}
-
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun GlossRow(
@@ -922,6 +928,7 @@ private fun GlossRow(
     fontSize: Int,
     onBg: Color,
     secondary: Color,
+    border: Color,
     eInkMode: Boolean,
     mediaDataUris: Map<String, String>,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
@@ -942,6 +949,15 @@ private fun GlossRow(
         lines.forEach { line ->
             if (line.single() is GlossNode.Image) {
                 GlossImage(gloss.dictName, (line.single() as GlossNode.Image).uri, mediaDataUris, onBg)
+                return@forEach
+            }
+            if (line.single() is GlossNode.Table) {
+                GlossTable(
+                    table = (line.single() as GlossNode.Table),
+                    fontSize = fontSize,
+                    onBg = onBg,
+                    border = border,
+                )
                 return@forEach
             }
             FlowRow(
@@ -997,6 +1013,7 @@ private fun GlossRow(
                         GlossNode.Space -> Spacer(Modifier.width(2.dp))
                         GlossNode.Break -> {}
                         is GlossNode.Image -> {}
+                        is GlossNode.Table -> {}
                     }
                 }
             }
@@ -1016,9 +1033,9 @@ private fun partitionGlossLines(nodes: List<GlossNode>): List<List<GlossNode>> {
     }
     for (node in nodes) {
         when (node) {
-            GlossNode.Break, is GlossNode.Image -> {
+            GlossNode.Break, is GlossNode.Image, is GlossNode.Table -> {
                 flush()
-                if (node is GlossNode.Image) result.add(listOf(node))
+                if (node is GlossNode.Image || node is GlossNode.Table) result.add(listOf(node))
             }
             else -> current.add(node)
         }
@@ -1048,6 +1065,53 @@ private fun GlossImage(dictName: String, path: String?, mediaDataUris: Map<Strin
                 .widthIn(max = 240.dp)
                 .heightIn(max = 160.dp),
         )
+    }
+}
+
+/** Render a structured table as bordered rows/cells, mirroring `.gloss-sc-table`. */
+@Composable
+private fun GlossTable(
+    table: GlossNode.Table,
+    fontSize: Int,
+    onBg: Color,
+    border: Color,
+) {
+    if (table.rows.isEmpty()) return
+    val cellFg = onBg
+    val cellBorder = border
+    Column(Modifier.padding(vertical = 4.dp)) {
+        table.rows.forEach { row ->
+            if (row.cells.isEmpty()) return@forEach
+            Row(Modifier.fillMaxWidth()) {
+                row.cells.forEach { cell ->
+                    val weight = 1f / row.cells.size
+                    Box(
+                        modifier = Modifier
+                            .weight(weight)
+                            .border(1.dp, cellBorder)
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                    ) {
+                        cell.nodes.forEach { node ->
+                            when (node) {
+                                is GlossNode.Run -> Text(
+                                    text = node.text,
+                                    color = cellFg,
+                                    fontSize = (fontSize - 1).sp,
+                                    fontWeight = if (cell.isHeader) FontWeight.Bold else FontWeight.Normal,
+                                    lineHeight = (fontSize - 1).sp * 1.2f,
+                                )
+                                is GlossNode.Ruby -> TextWithReading(
+                                    formattedText = "[${node.text}[${node.ruby}]]",
+                                    style = TextStyle(color = cellFg, fontSize = (fontSize - 1).sp),
+                                    furiganaFontSize = (fontSize - 1).sp * 0.5f,
+                                )
+                                else -> {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

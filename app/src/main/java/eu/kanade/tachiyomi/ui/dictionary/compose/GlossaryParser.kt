@@ -18,9 +18,14 @@ sealed interface GlossNode {
     data class Ruby(val text: String, val ruby: String) : GlossNode
     data class Image(val uri: String?) : GlossNode
     data class ListMarker(val marker: String) : GlossNode
+    data class Table(val rows: List<TableRow>) : GlossNode
     object Break : GlossNode
     object Space : GlossNode
 }
+
+data class TableRow(val cells: List<TableCell>)
+
+data class TableCell(val nodes: List<GlossNode>, val isHeader: Boolean = false)
 
 /**
  * Parse a single dictionary glossary string into renderable [GlossNode]s.
@@ -213,23 +218,36 @@ private fun parseStructuredObject(obj: JSONObject, ctx: ListContext): List<Gloss
     // Table
     if (obj.has("table")) {
         val table = obj.optJSONArray("table") ?: return null
-        val out = mutableListOf<GlossNode>()
+        val rows = mutableListOf<TableRow>()
         for (i in 0 until table.length()) {
-            val row = table.optJSONArray(i) ?: continue
-            for (j in 0 until row.length()) {
-                val cell = row.opt(j)
-                val nodes = when (cell) {
-                    is JSONArray -> parseStructured(cell.toString()) ?: emptyList()
-                    is JSONObject -> parseStructuredObject(cell) ?: emptyList()
-                    is String -> listOf(GlossNode.Run(cell))
+            val rowArr = table.optJSONArray(i) ?: continue
+            // A row may be a single {"tag":"tr","content":[...]} object, or a flat cell array.
+            val cells = if (rowArr.length() == 1 && rowArr.optJSONObject(0)?.optString("tag") == "tr") {
+                rowArr.optJSONObject(0)?.optJSONArray("content")
+            } else rowArr
+            if (cells == null) continue
+            val cellList = mutableListOf<TableCell>()
+            for (j in 0 until cells.length()) {
+                val cell = cells.opt(j)
+                val isHeader = when (cell) {
+                    is JSONObject -> cell.optString("tag") == "th"
+                    else -> false
+                }
+                val content = when (cell) {
+                    is JSONObject -> cell.opt("content")
+                    else -> cell
+                }
+                val nodes = when (content) {
+                    is JSONArray -> parseStructured(content.toString()) ?: emptyList()
+                    is JSONObject -> parseStructuredObject(content) ?: emptyList()
+                    is String -> listOf(GlossNode.Run(content))
                     else -> emptyList()
                 }
-                if (j > 0 && nodes.isNotEmpty()) out.add(GlossNode.Space)
-                out.addAll(nodes)
+                cellList.add(TableCell(nodes, isHeader))
             }
-            out.add(GlossNode.Break)
+            rows.add(TableRow(cellList))
         }
-        return out
+        return listOf(GlossNode.Table(rows))
     }
 
     return null

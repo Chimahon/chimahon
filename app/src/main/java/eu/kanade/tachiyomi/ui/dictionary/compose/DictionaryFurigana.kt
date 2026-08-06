@@ -35,6 +35,7 @@ fun FuriganaText(
             text = expression,
             color = color,
             fontSize = fontSize,
+            lineHeight = fontSize * 1.2f,
             maxLines = maxBaseLines,
             fontWeight = fontWeight,
         )
@@ -42,7 +43,7 @@ fun FuriganaText(
     }
     TextWithReading(
         formattedText = formatted,
-        style = TextStyle(color = color, fontSize = fontSize, fontWeight = fontWeight),
+        style = TextStyle(color = color, fontSize = fontSize, fontWeight = fontWeight, lineHeight = fontSize * 1.2f),
         furiganaFontSize = fontSize * 0.55f,
         modifier = modifier,
     )

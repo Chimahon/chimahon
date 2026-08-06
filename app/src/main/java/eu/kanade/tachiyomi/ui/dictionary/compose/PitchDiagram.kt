@@ -1,10 +1,14 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -12,6 +16,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Split [text] into Japanese moras, combining small kana with the previous
@@ -41,8 +46,7 @@ fun PitchAccentDiagram(
     downsteps: List<Int>,
     accentColor: Color,
     modifier: Modifier = Modifier,
-) {
-    if (text.isBlank()) return
+) {    if (text.isBlank()) return
     val accent = downsteps.minOrNull()
     val morae = splitMorae(text)
     val n = morae.size
@@ -100,6 +104,61 @@ fun PitchAccentDiagram(
                 color = accentColor,
                 radius = lineW * 1.6f,
                 center = Offset(x, y),
+            )
+        }
+    }
+}
+
+/**
+ * Renders the reading kana with pitch-line overlays, mirroring the WebView's
+ * `.pronunciation-text` (createPronunciationText). Each mora is drawn with a
+ * top line when high; a right drop + follow line when high drops to next-low.
+ */
+@Composable
+fun PitchTextLine(
+    text: String,
+    positions: List<Int>,
+    color: Color,
+    fontSize: Int,
+    modifier: Modifier = Modifier,
+) {
+    if (text.isBlank()) return
+    val accent = positions.minOrNull()
+    val morae = splitMorae(text)
+    if (morae.isEmpty()) return
+    val annotation = color
+    val ls = (fontSize * 0.9).sp
+
+    Row(modifier = modifier) {
+        morae.forEachIndexed { i, mora ->
+            val high = accent == null || isMoraPitchHigh(i, accent)
+            val highNext = accent == null || isMoraPitchHigh(i + 1, accent)
+            val dropDown = high && !highNext
+            Text(
+                text = mora,
+                fontSize = ls,
+                color = color,
+                modifier = Modifier
+                    .padding(end = if (dropDown) 2.dp else 0.dp)
+                    .drawBehind {
+                        if (high) {
+                            val lineW = ls.toPx() * 0.1f
+                            drawLine(
+                                color = annotation,
+                                start = Offset.Zero,
+                                end = Offset(size.width, 0f),
+                                strokeWidth = lineW,
+                            )
+                            if (dropDown) {
+                                drawLine(
+                                    color = annotation,
+                                    start = Offset(size.width, 0f),
+                                    end = Offset(size.width, lineW * 4f),
+                                    strokeWidth = lineW,
+                                )
+                            }
+                        }
+                    },
             )
         }
     }

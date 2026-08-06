@@ -77,32 +77,37 @@ fun dictionaryTag(
     val isFrequency = resolved == "frequency"
     val tagSize = (fontSize * 0.75).sp
 
-    // eInk mode: white chip with 1px black border, square corners (base.css 797-811).
+    // eInk mode: solid chip with 1px ink border, square corners (base.css 797-811).
+    // `secondary` is the ink color (black on light, white on dark e-ink).
+    val eInkBg = if (eInk) { if (secondary.luminance() < 0.5f) Color.White else Color.Black } else Color.White
+    val eInkFg = if (eInk) { if (secondary.luminance() < 0.5f) Color.Black else Color.White } else Color.Black
+
     val labelBg = when {
-        eInk -> Color.White
+        eInk -> eInkBg
         isFrequency -> secondary.copy(alpha = 0.10f)
         else -> base
     }
     val labelFg = when {
-        eInk -> Color.Black
+        eInk -> eInkFg
         isFrequency -> secondary
         else -> Color.White
     }
     val bodyBg = when {
-        eInk -> Color.White
+        eInk -> eInkBg
         isFrequency -> secondary.copy(alpha = 0.15f)
         else -> darken(base, 0.8f)
     }
     val bodyFg = when {
-        eInk -> Color.Black
+        eInk -> eInkFg
         isFrequency -> secondary
         else -> Color.White
     }
     val labelShape = if (eInk) RectangleShape else RoundedCornerShape(3.dp)
     val leftShape = if (eInk) RectangleShape else RoundedCornerShape(topStart = 3.dp, bottomStart = 3.dp)
     val rightShape = if (eInk) RectangleShape else RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp)
-    val labelBorder = if (eInk) Modifier.border(1.dp, Color.Black) else Modifier
-    val bodyBorder = if (eInk) Modifier.border(1.dp, Color.Black) else Modifier
+    val eInkBorderColor = if (eInk) { if (secondary.luminance() < 0.5f) Color.Black else Color.White } else Color.Black
+    val labelBorder = if (eInk) Modifier.border(1.dp, eInkBorderColor) else Modifier
+    val bodyBorder = if (eInk) Modifier.border(1.dp, eInkBorderColor) else Modifier
 
     Row(Modifier.wrapContentSize().then(modifier).padding(end = 3.dp, bottom = 3.dp)) {
         if (body == null) {
