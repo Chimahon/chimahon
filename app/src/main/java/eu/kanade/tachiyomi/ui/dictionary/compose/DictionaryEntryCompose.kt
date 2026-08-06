@@ -56,7 +56,12 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -233,7 +238,9 @@ fun DictionaryEntryCompose(
         }
     }
 
-    val displayed = if (isLoading) emptyList() else orderLookupResultsForDisplay(results, activeProfile, context)
+    val displayed = remember(results, isLoading, activeProfile) {
+        if (isLoading) emptyList() else orderLookupResultsForDisplay(results, activeProfile, context)
+    }
     val cards = remember(displayed, groupTerms, activeProfile, priority) {
         buildCards(displayed, groupTerms, resolveTitle, priority)
     }
@@ -965,6 +972,20 @@ private fun GlossRow(
                 )
                 return@forEach
             }
+            // Fast path: a single gloss flow-line rendered as ONE Text node via a single
+            // AnnotatedString (spans for bold/italic/underline/color). Avoids the N-node
+            // FlowRow explosion that forced per-text measure/layer invalidation avalanches
+            // on the main thread. Lines containing Ruby (furigana) fall back to the Flow path.
+            if (line.none { it is GlossNode.Ruby }) {
+                val annotated = buildGlossAnnotated(line, onBg, secondary, onRecursiveLookup)
+                Text(
+                    text = annotated,
+                    fontSize = (fontSize - 1).sp,
+                    modifier = Modifier.padding(vertical = 1.dp),
+                )
+                return@forEach
+            }
+
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(1.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -972,9 +993,6 @@ private fun GlossRow(
                 line.forEach { node ->
                     when (node) {
                         is GlossNode.Run -> {
-                            val bold = node.bold
-                            val italic = node.italic
-                            val underline = node.underline
                             val runModifier = if (onRecursiveLookup != null && node.text.isNotBlank()) {
                                 Modifier
                                     .clickable { onRecursiveLookup(node.text, null, null, null, null, "term") }
@@ -985,9 +1003,9 @@ private fun GlossRow(
                             Text(
                                 text = node.text,
                                 color = if (node.color != null) Color(node.color) else onBg,
-                                fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
-                                fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-                                textDecoration = if (underline) TextDecoration.Underline else null,
+                                fontWeight = if (node.bold) FontWeight.Bold else FontWeight.Normal,
+                                fontStyle = if (node.italic) FontStyle.Italic else FontStyle.Normal,
+                                textDecoration = if (node.underline) TextDecoration.Underline else null,
                                 fontSize = (fontSize - 1).sp,
                                 modifier = runModifier,
                             )
@@ -1024,6 +1042,62 @@ private fun GlossRow(
             }
         }
     }
+}
+
+/**
+ * Build a single [AnnotatedString] for a gloss flow-line, applying bold/italic/underline/
+ * color spans and keeping per-run recursive lookup taps (via [LinkAnnotation.Clickable]).
+ */
+@OptIn(ExperimentalTextApi::class)
+private fun buildGlossAnnotated(
+    line: List<GlossNode>,
+    onBg: Color,
+    secondary: Color,
+    onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
+): AnnotatedString {
+    val builder = buildAnnotatedString { }
+    for (node in line) {
+        when (node) {
+            is GlossNode.Run -> {
+                if (node.text.isBlank()) continue
+                val style = SpanStyle(
+                    color = if (node.color != null) Color(node.color) else onBg,
+                    fontWeight = if (node.bold) FontWeight.Bold else FontWeight.Normal,
+                    fontStyle = if (node.italic) FontStyle.Italic else FontStyle.Normal,
+                    textDecoration = if (node.underline) TextDecoration.Underline else null,
+                )
+                if (onRecursiveLookup != null) {
+                    val link = LinkAnnotation.Clickable(node.text) {
+                        onRecursiveLookup(node.text, null, null, null, null, "term")
+                    }
+                    builder.withLink(link) {
+                        pushStyle(style)
+                        append(node.text)
+                        pop()
+                    }
+                } else {
+                    builder.pushStyle(style)
+                    builder.append(node.text)
+                    builder.pop()
+                }
+            }
+            is GlossNode.ListMarker -> {
+                if (node.marker.isBlank()) continue
+                builder.pushStyle(
+                    SpanStyle(
+                        color = secondary,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                )
+                builder.append(node.marker)
+                builder.pop()
+            }
+            GlossNode.Space -> builder.append("\u00A0")
+            GlossNode.Break, is GlossNode.Image, is GlossNode.Table -> {}
+            is GlossNode.Ruby -> {}
+        }
+    }
+    return builder.toAnnotatedString()
 }
 
 /** Group [nodes] into inline flow lines; [GlossNode.Break] and [GlossNode.Image] split lines. */
