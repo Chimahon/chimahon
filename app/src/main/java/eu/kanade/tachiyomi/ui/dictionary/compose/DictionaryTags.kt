@@ -21,13 +21,12 @@ object DictionaryTagColors {
     fun resolveCategory(label: String, defaultCategory: String? = null): String {
         if (defaultCategory != null && defaultCategory != "default") return defaultCategory
         val t = label.lowercase()
-        if (t == "freq" || t == "avg" || t == "frequency") return "frequency"
         if (t.contains("arch") || t.contains("obs") || t.contains("hist")) return "archaism"
         if (t.contains("popular")) return "popular"
         if (t.contains("freq")) return "frequent"
         if (t.contains("col") || t.contains("pol") || t.contains("hon") || t.contains("fam")) return "style"
         if (t.contains("dial")) return "dialect"
-        if (t.contains("v5") || t.contains("v1") || t.contains("adj") || t.contains("adv") || t.contains("vs") || t.contains("vi") || t.contains("vt") || t.contains("exp") || t.contains("int")) return "partOfSpeech"
+        if (t.contains("v5") || t.contains("v1") || t.contains("adj") || t.contains("n") || t.contains("adv")) return "partOfSpeech"
         return "default"
     }
 

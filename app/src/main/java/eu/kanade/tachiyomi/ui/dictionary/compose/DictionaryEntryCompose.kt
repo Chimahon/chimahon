@@ -442,7 +442,15 @@ private fun TermCardView(
         Row(
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (onRecursiveLookup != null) {
+                            Modifier.clickable { onRecursiveLookup(card.expression, null, null, null, null, "term") }
+                        } else Modifier,
+                    ),
+            ) {
                 FuriganaText(
                     expression = card.expression,
                     reading = card.reading,
@@ -568,7 +576,7 @@ private fun TermCardView(
                                         Text(
                                             text = "${i + 1}",
                                             color = Color.White,
-                                            fontSize = (fontSize - 5).sp,
+                                            fontSize = (fontSize * 0.75).sp,
                                             fontWeight = FontWeight.Bold,
                                         )
                                     }
@@ -576,7 +584,7 @@ private fun TermCardView(
                                     Text(
                                         text = step.name,
                                         color = onBg,
-                                        fontSize = (fontSize - 2).sp,
+                                        fontSize = (fontSize * 0.88).sp,
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                 }
@@ -584,8 +592,8 @@ private fun TermCardView(
                                     Text(
                                         text = step.description,
                                         color = secondary,
-                                        fontSize = (fontSize - 3).sp,
-                                        lineHeight = (fontSize + 2).sp,
+                                        fontSize = (fontSize * 0.88).sp,
+                                        lineHeight = (fontSize * 0.88).sp * 1.4f,
                                         modifier = Modifier.padding(top = 3.dp),
                                     )
                                 }
