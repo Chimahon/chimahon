@@ -269,7 +269,7 @@ fun DictionaryEntryCompose(
             else -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 12.dp),
+                    contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                 ) {
                     itemsIndexed(cards, key = { i, _ -> i }) { i, card ->
                         TermCardView(
@@ -417,49 +417,59 @@ private fun TermCardView(
 
     Column(
         modifier = modifier
-            .border(width = Dp.Hairline, color = border, shape = RectangleShape)
-            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 4.dp),
+            .then(
+                if (index > 0) {
+                    Modifier.border(width = 2.dp, color = border, shape = RectangleShape)
+                } else {
+                    Modifier
+                },
+            )
+            .padding(top = 10.dp, bottom = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                FuriganaText(
-                    expression = card.expression,
-                    reading = card.reading,
-                    color = headColor,
-                    fontSize = (fontSize + 4).sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            if (wordAudioEnabled) {
-                WordAudioButton(
-                    expression = card.expression,
-                    reading = card.reading,
-                    accent = accent,
-                    autoplay = autoplay,
-                    modifier = Modifier.size(32.dp),
-                )
-            }
-            if (onAnkiLookup != null) {
-                IconButton(
-                    onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
-                ) {
-                    Icon(
-                        imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
-                        contentDescription = null,
-                        tint = if (alreadyAdded) accent.copy(alpha = 0.5f) else accent,
-                        modifier = Modifier.size(20.dp),
+        Column(Modifier.padding(start = 14.dp, end = 14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    FuriganaText(
+                        expression = card.expression,
+                        reading = card.reading,
+                        color = headColor,
+                        fontSize = (fontSize + 4).sp,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
+                if (wordAudioEnabled) {
+                    WordAudioButton(
+                        expression = card.expression,
+                        reading = card.reading,
+                        accent = accent,
+                        autoplay = autoplay,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+                if (onAnkiLookup != null) {
+                    IconButton(
+                        onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
+                    ) {
+                        Icon(
+                            imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
+                            contentDescription = null,
+                            tint = if (alreadyAdded) accent.copy(alpha = 0.5f) else accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
-        }
 
-        if (termTagList.isNotEmpty()) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                termTagList.take(8).forEach { tag ->
-                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
+            if (termTagList.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    termTagList.take(8).forEach { tag ->
+                        dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
+                    }
                 }
             }
         }
