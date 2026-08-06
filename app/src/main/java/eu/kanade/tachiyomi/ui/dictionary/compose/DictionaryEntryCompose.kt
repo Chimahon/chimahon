@@ -9,6 +9,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -372,6 +374,7 @@ private fun buildCards(
     return out.map { it.finish() }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TermCardView(
     card: TermCard,
@@ -497,9 +500,22 @@ private fun TermCardView(
             }
         }
 
-        val freqText = buildFrequencyText(card.frequencies, showFrequencyHarmonic, showFrequencyAverage)
-        if (freqText.isNotBlank()) {
-            Text(freqText, color = onBg.copy(alpha = 0.75f), fontSize = (fontSize - 2).sp, modifier = Modifier.padding(top = 4.dp))
+        val freqChips = buildFrequencyChips(card.frequencies, showFrequencyHarmonic, showFrequencyAverage)
+        if (freqChips.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                freqChips.forEach { chip ->
+                    dictionaryTag(
+                        label = chip.label,
+                        body = chip.body,
+                        secondary = secondary,
+                        eInk = eInkMode,
+                        category = "frequency",
+                    )
+                }
+            }
         }
 
         if (showPitchDiagram || showPitchNumber || showPitchText) {
@@ -637,8 +653,14 @@ private fun PitchSection(
     }
 }
 
-private fun buildFrequencyText(frequencies: List<FrequencyEntry>, showHarmonic: Boolean, showAverage: Boolean): String {
-    if (frequencies.isEmpty()) return ""
+private data class FrequencyChip(val label: String, val body: String?)
+
+private fun buildFrequencyChips(
+    frequencies: List<FrequencyEntry>,
+    showHarmonic: Boolean,
+    showAverage: Boolean,
+): List<FrequencyChip> {
+    if (frequencies.isEmpty()) return emptyList()
 
     fun collectNumbers(): List<Int> {
         val out = mutableListOf<Int>()
@@ -675,28 +697,34 @@ private fun buildFrequencyText(frequencies: List<FrequencyEntry>, showHarmonic: 
         return if (rounded == rounded.toLong().toDouble()) rounded.toLong().toString() else rounded.toString()
     }
 
-    val parts = mutableListOf<String>()
+    val chips = mutableListOf<FrequencyChip>()
 
     if (showHarmonic) {
-        harmonic()?.let { parts.add("freq harmonic: $it") }
+        harmonic()?.let { chips.add(FrequencyChip("freq", "harmonic: $it")) }
         if (showAverage) {
-            averageRank()?.let { avg -> formatRank(avg)?.let { parts.add("avg $it") } }
+            averageRank()?.let { avg -> formatRank(avg)?.let { chips.add(FrequencyChip("avg", it)) } }
         }
-        return parts.joinToString("  ")
+        return chips
     }
 
     if (showAverage) {
-        averageRank()?.let { avg -> formatRank(avg)?.let { parts.add("avg $it") } }
+        averageRank()?.let { avg -> formatRank(avg)?.let { chips.add(FrequencyChip("avg", it)) } }
     }
 
-    // Compact per-dictionary chips: prefer displayValue, fall back to value.
+    // Default: compact per-dictionary chips like Yomitan frequency groups.
     for (group in frequencies) {
+        val dictName = group.dictName.trim()
         val values = group.frequencies
-            .mapNotNull { freq -> freq.displayValue.takeIf { it.isNotBlank() } ?: freq.value.takeIf { it > 0 }?.toString() }
+            .mapNotNull { freq ->
+                freq.displayValue.takeIf { it.isNotBlank() } ?: freq.value.takeIf { it > 0 }?.toString()
+            }
             .distinct()
-        if (values.isNotEmpty()) parts.add(values.joinToString(", "))
+            .joinToString(", ")
+        if (dictName.isNotBlank() && values.isNotBlank()) {
+            chips.add(FrequencyChip(dictName, values))
+        }
     }
-    return parts.joinToString(" · ")
+    return chips
 }
 
 private fun buildPitchText(expression: String, positions: List<Int>): String {

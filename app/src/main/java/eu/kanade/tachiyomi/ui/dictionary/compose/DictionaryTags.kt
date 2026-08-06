@@ -64,12 +64,28 @@ fun dictionaryTag(
     secondary: Color,
     eInk: Boolean = false,
     body: String? = null,
+    background: Color? = null,
+    category: String? = null,
 ) {
-    val resolved = DictionaryTagColors.resolveCategory(label)
-    val base = DictionaryTagColors.categoryBase(resolved)
-    val labelBg = if (eInk) Color.Transparent else base
-    val labelFg = if (eInk) secondary else Color.White
-    val bodyBg = if (eInk) Color.Transparent else darken(base, 0.8f)
+    val resolved = category ?: DictionaryTagColors.resolveCategory(label)
+    val base = background ?: DictionaryTagColors.categoryBase(resolved)
+    val isFrequency = resolved == "frequency"
+
+    val labelBg = when {
+        eInk -> Color.Transparent
+        isFrequency -> secondary.copy(alpha = 0.10f)
+        else -> base
+    }
+    val labelFg = when {
+        eInk -> secondary
+        isFrequency -> secondary
+        else -> Color.White
+    }
+    val bodyBg = when {
+        eInk -> Color.Transparent
+        isFrequency -> secondary.copy(alpha = 0.15f)
+        else -> darken(base, 0.8f)
+    }
     val bodyFg = if (eInk) secondary else Color.White
 
     Row(Modifier.wrapContentSize().padding(end = 3.dp, bottom = 3.dp)) {
