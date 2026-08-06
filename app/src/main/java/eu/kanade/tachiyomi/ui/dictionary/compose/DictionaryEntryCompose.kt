@@ -647,7 +647,7 @@ private fun TermCardView(
                     )
                 }
                 AnimatedVisibility(visible = expanded) {
-                    Column(Modifier.padding(start = 16.dp, end = 12.dp)) {
+                    Column(Modifier.padding(start = if (group.glosses.size == 1) 0.dp else 16.dp, end = 12.dp)) {
                         group.glosses.forEach { gloss ->
                             GlossRow(
                                 gloss = gloss,
