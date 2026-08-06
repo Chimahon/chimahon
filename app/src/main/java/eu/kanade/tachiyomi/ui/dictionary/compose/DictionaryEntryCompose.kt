@@ -245,7 +245,7 @@ fun DictionaryEntryCompose(
             kanjiCards.isNotEmpty() -> {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 12.dp),
+                    contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                 ) {
                     itemsIndexed(kanjiCards, key = { i, _ -> "kanji-$i" }) { i, kanji ->
                         KanjiEntryCard(
@@ -990,7 +990,7 @@ private fun KanjiEntryCard(
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp)) {
+    Column(modifier = modifier.padding(start = 10.dp, end = 0.dp, top = 12.dp, bottom = 6.dp)) {
         // Glyph
         Text(
             text = kanji.character,
