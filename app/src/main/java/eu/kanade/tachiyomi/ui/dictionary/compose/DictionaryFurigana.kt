@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import com.turtlekazu.furiganable.compose.m3.TextWithReading
@@ -25,6 +26,7 @@ fun FuriganaText(
     modifier: Modifier = Modifier,
     rubyColor: Color? = null,
     maxBaseLines: Int = 2,
+    fontWeight: FontWeight = FontWeight.Normal,
 ) {
     if (expression.isBlank()) return
     val formatted = buildFuriganaString(expression, reading)
@@ -34,12 +36,13 @@ fun FuriganaText(
             color = color,
             fontSize = fontSize,
             maxLines = maxBaseLines,
+            fontWeight = fontWeight,
         )
         return
     }
     TextWithReading(
         formattedText = formatted,
-        style = TextStyle(color = color, fontSize = fontSize),
+        style = TextStyle(color = color, fontSize = fontSize, fontWeight = fontWeight),
         furiganaFontSize = fontSize * 0.45f,
         modifier = modifier,
     )

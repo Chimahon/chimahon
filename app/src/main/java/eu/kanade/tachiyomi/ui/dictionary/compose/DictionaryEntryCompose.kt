@@ -2,8 +2,8 @@ package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -41,8 +41,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -50,6 +54,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -78,6 +83,7 @@ private data class TermCard(
     val reading: String,
     val matched: String,
     val deinflected: String,
+    val termTags: String,
     val process: List<String>,
     val dictGroups: List<DictionaryGroup>,
     val frequencies: List<FrequencyEntry>,
@@ -166,6 +172,7 @@ fun DictionaryEntryCompose(
     customCss: String = "",
     groupPitches: Boolean = false,
     entryJsons: List<String>? = null,
+    eInkMode: Boolean = false,
     modifier: Modifier = Modifier,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = null,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)? = null,
@@ -196,6 +203,9 @@ fun DictionaryEntryCompose(
     val bgColor = if (isAmoled && isDark) Color.Black else colorScheme.surface
     val onBg = colorScheme.onSurface
     val accent = colorScheme.primary
+    val secondary = colorScheme.onSurfaceVariant
+    val border = if (isAmoled && isDark) Color.White.copy(alpha = 0.10f) else colorScheme.outlineVariant
+    val hoverBg = if (isAmoled && isDark) Color.White.copy(alpha = 0.07f) else colorScheme.surfaceVariant
 
     LaunchedEffect(results, isLoading) {
         onContentReadyChange?.invoke(!isLoading)
@@ -235,7 +245,10 @@ fun DictionaryEntryCompose(
                             kanji = kanji,
                             fontSize = fontSize,
                             accent = accent,
+                            secondary = secondary,
+                            border = border,
                             onBg = onBg,
+                            eInkMode = eInkMode,
                             onRecursiveLookup = onRecursiveLookup,
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -262,7 +275,11 @@ fun DictionaryEntryCompose(
                             index = i,
                             fontSize = fontSize,
                             accent = accent,
+                            secondary = secondary,
+                            border = border,
+                            hoverBg = hoverBg,
                             onBg = onBg,
+                            eInkMode = eInkMode,
                             showFrequencyHarmonic = showFrequencyHarmonic,
                             showFrequencyAverage = showFrequencyAverage,
                             showPitchDiagram = showPitchDiagram,
@@ -300,6 +317,7 @@ private fun buildCards(
         var reading = ""
         var matched = ""
         var deinflected = ""
+        var termTags = ""
         val process = LinkedHashSet<String>()
         val glosses = LinkedHashMap<String, DictionaryGroup>()
         val frequencies = LinkedHashMap<String, FrequencyEntry>()
@@ -310,6 +328,7 @@ private fun buildCards(
             reading = reading,
             matched = matched,
             deinflected = deinflected,
+            termTags = termTags,
             process = process.toList(),
             dictGroups = glosses.values.sortedBy { rank(it.title) },
             frequencies = frequencies.values.toList(),
@@ -332,9 +351,11 @@ private fun buildCards(
                 reading = result.term.reading
                 matched = result.matched
                 deinflected = result.deinflected
+                termTags = result.term.glossaries.firstOrNull()?.termTags ?: ""
             }
             out.add(acc)
         }
+        if (acc.termTags.isBlank()) acc.termTags = result.term.glossaries.firstOrNull()?.termTags ?: ""
         if (acc.matched.isBlank()) acc.matched = result.matched
         for (p in result.process) acc.process.add(p.name)
         for (g in result.term.glossaries) {
@@ -357,7 +378,11 @@ private fun TermCardView(
     index: Int,
     fontSize: Int,
     accent: Color,
+    secondary: Color,
+    border: Color,
+    hoverBg: Color,
     onBg: Color,
+    eInkMode: Boolean,
     showFrequencyHarmonic: Boolean,
     showFrequencyAverage: Boolean,
     showPitchDiagram: Boolean,
@@ -377,24 +402,30 @@ private fun TermCardView(
     val collapseMode = activeProfile.dictionaryCollapseMode
     val alreadyAdded = card.expression in existingExpressions
 
-    Column(modifier = modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 4.dp)) {
+    val termTagList = remember(card.termTags) {
+        card.termTags.split(Regex("\\s+")).filter { it.isNotBlank() }
+    }
+    val headColor = when {
+        termTagList.any { it.equals("popular", true) || it.equals("p", true) } -> accent
+        termTagList.any { it.startsWith("rare", true) || it.startsWith("arch", true) || it.startsWith("obs", true) } ->
+            secondary.copy(alpha = 0.7f)
+        else -> onBg
+    }
+
+    Column(
+        modifier = modifier
+            .border(width = Dp.Hairline, color = border, shape = RectangleShape)
+            .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 4.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 FuriganaText(
                     expression = card.expression,
                     reading = card.reading,
-                    color = onBg,
+                    color = headColor,
                     fontSize = (fontSize + 4).sp,
+                    fontWeight = FontWeight.Bold,
                 )
-                if (card.reading.isNotBlank() && card.reading != card.expression) {
-                    Text(
-                        text = card.reading,
-                        color = onBg.copy(alpha = 0.65f),
-                        fontSize = (fontSize - 1).sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
             if (wordAudioEnabled) {
                 WordAudioButton(
@@ -415,6 +446,17 @@ private fun TermCardView(
                         tint = if (alreadyAdded) accent.copy(alpha = 0.5f) else accent,
                         modifier = Modifier.size(20.dp),
                     )
+                }
+            }
+        }
+
+        if (termTagList.isNotEmpty()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                termTagList.take(8).forEach { tag ->
+                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
                 }
             }
         }
@@ -493,14 +535,23 @@ private fun TermCardView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { overrideState.toggle(initial, group.title) }
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = 4.dp)
+                        .drawBehind {
+                            drawRect(
+                                color = if (expanded) accent else Color.Transparent,
+                                topLeft = Offset.Zero,
+                                size = Size(4.dp.toPx(), size.height),
+                            )
+                        }
+                        .padding(start = 12.dp),
                 ) {
                     val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "caret")
-                    Text("▸", color = onBg.copy(alpha = 0.5f), fontSize = (fontSize - 2).sp, modifier = Modifier.rotate(rotation))
+                    Text("▸", color = secondary.copy(alpha = 0.7f), fontSize = (fontSize - 2).sp, modifier = Modifier.rotate(rotation))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = group.title, color = accent, fontSize = (fontSize - 1).sp,
-                        fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        text = group.title, color = if (expanded) accent else secondary, fontSize = (fontSize - 1).sp,
+                        fontWeight = if (expanded) FontWeight.Bold else FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -812,7 +863,10 @@ private fun KanjiEntryCard(
     kanji: KanjiCard,
     fontSize: Int,
     accent: Color,
+    secondary: Color,
+    border: Color,
     onBg: Color,
+    eInkMode: Boolean,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
