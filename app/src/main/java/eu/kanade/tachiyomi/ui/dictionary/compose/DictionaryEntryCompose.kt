@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -52,6 +54,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -413,13 +416,14 @@ private fun TermCardView(
     val overrideState = remember(card) { CollapseOverrideState(emptyMap()) }
     val collapseMode = activeProfile.dictionaryCollapseMode
     val alreadyAdded = card.expression in existingExpressions
+    var selectedDict by remember(card) { mutableStateOf<String?>(null) }
 
     val termTagList = remember(card.termTags) {
         card.termTags.split(Regex("\\s+")).filter { it.isNotBlank() }
     }
     val headColor = when {
-        termTagList.any { it.equals("popular", true) || it.equals("p", true) } -> accent
-        termTagList.any { it.startsWith("rare", true) || it.startsWith("arch", true) || it.startsWith("obs", true) } ->
+        termTagList.any { it.contains("popular", true) || it.contains(" p ", true) } -> accent
+        termTagList.any { it.contains("rare", true) || it.contains("arch", true) || it.contains("obs", true) } ->
             secondary.copy(alpha = 0.7f)
         else -> onBg
     }
@@ -443,7 +447,7 @@ private fun TermCardView(
                     expression = card.expression,
                     reading = card.reading,
                     color = headColor,
-                    fontSize = (fontSize + 4).sp,
+                    fontSize = (fontSize * 1.6).sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -458,16 +462,34 @@ private fun TermCardView(
                 )
             }
             if (onAnkiLookup != null) {
-                IconButton(
-                    onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
-                    modifier = Modifier.size(28.dp),
-                ) {
-                    Icon(
-                        imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
-                        contentDescription = null,
-                        tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
-                        modifier = Modifier.size(20.dp),
-                    )
+                val dupAction = activeProfile.ankiDupAction
+                val showAdd = !alreadyAdded || dupAction != "prevent"
+                val targetDict = selectedDict ?: card.dictGroups.firstOrNull()?.title
+                if (showAdd) {
+                    IconButton(
+                        onClick = { onAnkiLookup(index, null, targetDict, null, false) },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
+                            contentDescription = null,
+                            tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                if (alreadyAdded) {
+                    IconButton(
+                        onClick = { onAnkiLookup(index, null, targetDict, null, true) },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.MenuBook,
+                            contentDescription = null,
+                            tint = onBg.copy(alpha = 0.6f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
         }
@@ -478,7 +500,7 @@ private fun TermCardView(
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 termTagList.take(8).forEach { tag ->
-                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
+                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode, fontSize = fontSize)
                 }
             }
         }
@@ -587,6 +609,7 @@ private fun TermCardView(
                         secondary = secondary,
                         eInk = eInkMode,
                         category = "frequency",
+                        fontSize = fontSize,
                     )
                 }
             }
@@ -621,15 +644,36 @@ private fun TermCardView(
             val expanded = override ?: initial
 
             Column(modifier = Modifier.padding(top = if (i == 0) 2.dp else 4.dp)) {
+                val isSelected = selectedDict == group.title
+                val headerBg = when {
+                    eInkMode && isSelected -> Color.Black
+                    isSelected -> hoverBg
+                    else -> Color.Transparent
+                }
+                val borderColor = when {
+                    isSelected -> if (eInkMode) Color.Black else accent
+                    else -> Color.Transparent
+                }
+                val headerLabelColor = when {
+                    eInkMode && isSelected -> Color.White
+                    isSelected -> accent
+                    else -> secondary
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { overrideState.toggle(initial, group.title) }
+                        .background(headerBg)
+                        .pointerInput(group.title) {
+                            detectTapGestures(
+                                onLongPress = { selectedDict = if (isSelected) null else group.title },
+                                onTap = { overrideState.toggle(initial, group.title) },
+                            )
+                        }
                         .padding(vertical = 4.dp)
                         .drawBehind {
                             drawRect(
-                                color = if (expanded) accent else Color.Transparent,
+                                color = borderColor,
                                 topLeft = Offset.Zero,
                                 size = Size(4.dp.toPx(), size.height),
                             )
@@ -640,8 +684,10 @@ private fun TermCardView(
                     Text("▸", color = secondary.copy(alpha = 0.7f), fontSize = (fontSize - 2).sp, modifier = Modifier.rotate(rotation))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = group.title, color = if (expanded) accent else secondary, fontSize = (fontSize - 1).sp,
-                        fontWeight = if (expanded) FontWeight.Bold else FontWeight.SemiBold,
+                        text = group.title,
+                        color = headerLabelColor,
+                        fontSize = (fontSize - 1).sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
@@ -863,7 +909,7 @@ private fun GlossRow(
         if (defTags.isNotEmpty()) {
             FlowRow(modifier = Modifier.padding(bottom = 2.dp)) {
                 defTags.take(8).forEach { tag ->
-                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
+                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode, fontSize = fontSize)
                 }
             }
         }
@@ -1016,20 +1062,27 @@ private fun KanjiEntryCard(
         Text(
             text = kanji.character,
             color = onBg,
-            fontSize = 64.sp,
+            fontSize = (fontSize * 7).sp,
             fontWeight = FontWeight.Normal,
             modifier = Modifier.padding(bottom = 6.dp),
         )
 
         // Dictionary tag
         if (kanji.dictName.isNotBlank()) {
-            dictionaryTag(label = kanji.dictName, secondary = secondary, eInk = eInkMode)
+            dictionaryTag(
+                label = kanji.dictName,
+                secondary = secondary,
+                eInk = eInkMode,
+                category = "dictionary",
+                fontSize = fontSize,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
 
         // Meanings
         if (kanji.definitions.isNotEmpty()) {
-            KanjiSectionHeader("Meanings", secondary)
-            Column(Modifier.padding(start = 16.dp)) {
+            KanjiSectionHeader("Meanings", secondary, baseFontSize = fontSize)
+            Column(Modifier.padding(start = (fontSize * 1.2).dp)) {
                 kanji.definitions.forEachIndexed { i, def ->
                     val defModifier = if (onRecursiveLookup != null && def.isNotBlank()) {
                         Modifier
@@ -1051,7 +1104,7 @@ private fun KanjiEntryCard(
 
         // Readings
         if (kanji.onyomi.isNotEmpty() || kanji.kunyomi.isNotEmpty()) {
-            KanjiSectionHeader("Readings", secondary, modifier = Modifier.padding(top = 8.dp))
+            KanjiSectionHeader("Readings", secondary, modifier = Modifier.padding(top = 8.dp), baseFontSize = fontSize)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 2.dp),
@@ -1077,7 +1130,7 @@ private fun KanjiEntryCard(
 
         // Statistics
         if (kanji.stats.isNotEmpty()) {
-            KanjiSectionHeader("Statistics", secondary, modifier = Modifier.padding(top = 8.dp))
+            KanjiSectionHeader("Statistics", secondary, modifier = Modifier.padding(top = 8.dp), baseFontSize = fontSize)
             Column(Modifier.padding(top = 2.dp)) {
                 kanji.stats.forEach { (label, value) ->
                     Row(
@@ -1089,7 +1142,7 @@ private fun KanjiEntryCard(
                         Text(
                             text = label,
                             color = secondary,
-                            fontSize = (fontSize - 2).sp,
+                            fontSize = (fontSize * 0.9).sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
                                 .width(96.dp)
@@ -1098,7 +1151,7 @@ private fun KanjiEntryCard(
                         Text(
                             text = value,
                             color = onBg,
-                            fontSize = (fontSize - 2).sp,
+                            fontSize = (fontSize * 0.9).sp,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -1114,14 +1167,16 @@ private fun KanjiEntryCard(
 private fun KanjiSectionHeader(
     title: String,
     accent: Color,
+    fontScale: Float = 0.85f,
+    baseFontSize: Int = 14,
     modifier: Modifier = Modifier,
 ) {
     Text(
         text = title.uppercase(),
         color = accent,
-        fontSize = 12.sp,
+        fontSize = (baseFontSize * fontScale).sp,
         fontWeight = FontWeight.SemiBold,
-        letterSpacing = 0.5.sp,
+        letterSpacing = (baseFontSize * 0.05f).sp,
         modifier = modifier,
     )
 }

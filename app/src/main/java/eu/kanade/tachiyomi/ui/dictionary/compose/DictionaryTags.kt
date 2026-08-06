@@ -68,10 +68,13 @@ fun dictionaryTag(
     body: String? = null,
     background: Color? = null,
     category: String? = null,
+    fontSize: Int = 14,
+    modifier: Modifier = Modifier,
 ) {
     val resolved = category ?: DictionaryTagColors.resolveCategory(label)
     val base = background ?: DictionaryTagColors.categoryBase(resolved)
     val isFrequency = resolved == "frequency"
+    val tagSize = (fontSize * 0.75).sp
 
     val labelBg = when {
         eInk -> Color.Transparent
@@ -90,13 +93,13 @@ fun dictionaryTag(
     }
     val bodyFg = if (eInk) secondary else Color.White
 
-    Row(Modifier.wrapContentSize().padding(end = 3.dp, bottom = 3.dp)) {
+    Row(Modifier.wrapContentSize().then(modifier).padding(end = 3.dp, bottom = 3.dp)) {
         if (body == null) {
             Text(
                 text = label,
                 color = labelFg,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 10.sp,
+                fontSize = tagSize,
                 modifier = Modifier
                     .background(labelBg, RoundedCornerShape(3.dp))
                     .padding(horizontal = 5.dp, vertical = 1.dp),
@@ -106,7 +109,7 @@ fun dictionaryTag(
                 text = label,
                 color = labelFg,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 10.sp,
+                fontSize = tagSize,
                 modifier = Modifier
                     .background(labelBg, RoundedCornerShape(topStart = 3.dp, bottomStart = 3.dp))
                     .padding(horizontal = 5.dp, vertical = 1.dp),
@@ -115,7 +118,7 @@ fun dictionaryTag(
                 text = body,
                 color = bodyFg,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 10.sp,
+                fontSize = tagSize,
                 modifier = Modifier
                     .padding(start = 1.dp)
                     .background(bodyBg, RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
