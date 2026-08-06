@@ -703,25 +703,30 @@ private fun PitchSection(
         val pitchText = if (card.reading.isNotBlank() && card.reading != card.expression) card.reading else card.expression
         val compact = all.size == 1
         all.forEach { pitch ->
-            val tag = if (pitch.dictName.isNotBlank()) {
+            val hasTag = pitch.dictName.isNotBlank()
+            if (hasTag && !compact) {
                 Text(
                     pitch.dictName,
                     color = secondary.copy(alpha = 0.8f),
                     fontSize = 10.sp,
-                    modifier = Modifier.padding(end = 2.dp),
+                    modifier = Modifier.padding(bottom = 2.dp),
                 )
-            } else null
-            if (tag != null && !compact) {
-                Column(Modifier.padding(bottom = 2.dp)) { tag }
             }
             val positions = pitch.pitchPositions.toList().distinct()
             positions.forEach { pos ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = if (tag != null && !compact) 0.dp else 2.dp),
+                    modifier = Modifier.padding(top = if (hasTag && !compact) 0.dp else 2.dp),
                 ) {
-                    if (tag != null && compact) tag
+                    if (hasTag && compact) {
+                        Text(
+                            pitch.dictName,
+                            color = secondary.copy(alpha = 0.8f),
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(end = 2.dp),
+                        )
+                    }
                     if (showPitchDiagram) {
                         PitchAccentDiagram(
                             text = pitchText,
