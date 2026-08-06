@@ -458,12 +458,16 @@ private fun TermCardView(
                         } else Modifier,
                     ),
             ) {
-                FuriganaText(
+                Headword(
                     expression = card.expression,
                     reading = card.reading,
                     color = headColor,
                     fontSize = (fontSize * 1.6).sp,
                     fontWeight = FontWeight.Bold,
+                    onKanjiTap = if (onRecursiveLookup != null) {
+                        { ch -> onRecursiveLookup(ch, null, null, null, null, "kanji") }
+                    } else null,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             if (wordAudioEnabled) {
@@ -947,13 +951,14 @@ private fun GlossRow(
             }
         }
         lines.forEach { line ->
-            if (line.single() is GlossNode.Image) {
-                GlossImage(gloss.dictName, (line.single() as GlossNode.Image).uri, mediaDataUris, onBg)
+            val single = if (line.size == 1) line[0] else null
+            if (single is GlossNode.Image) {
+                GlossImage(gloss.dictName, single.uri, mediaDataUris, onBg)
                 return@forEach
             }
-            if (line.single() is GlossNode.Table) {
+            if (single is GlossNode.Table) {
                 GlossTable(
-                    table = (line.single() as GlossNode.Table),
+                    table = single,
                     fontSize = fontSize,
                     onBg = onBg,
                     border = border,
