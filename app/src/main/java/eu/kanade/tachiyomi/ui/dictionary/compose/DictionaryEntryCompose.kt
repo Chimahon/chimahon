@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -86,11 +88,14 @@ private data class TermCard(
     val matched: String,
     val deinflected: String,
     val termTags: String,
-    val process: List<String>,
+    val rules: String,
+    val process: List<ProcessStep>,
     val dictGroups: List<DictionaryGroup>,
     val frequencies: List<FrequencyEntry>,
     val pitches: List<PitchEntry>,
 )
+
+private data class ProcessStep(val name: String, val description: String)
 
 private data class DictionaryGroup(
     val dictName: String,
@@ -320,7 +325,8 @@ private fun buildCards(
         var matched = ""
         var deinflected = ""
         var termTags = ""
-        val process = LinkedHashSet<String>()
+        var rules = ""
+        val process = LinkedHashSet<ProcessStep>()
         val glosses = LinkedHashMap<String, DictionaryGroup>()
         val frequencies = LinkedHashMap<String, FrequencyEntry>()
         val pitches = LinkedHashMap<String, PitchEntry>()
@@ -331,6 +337,7 @@ private fun buildCards(
             matched = matched,
             deinflected = deinflected,
             termTags = termTags,
+            rules = rules,
             process = process.toList(),
             dictGroups = glosses.values.sortedBy { rank(it.title) },
             frequencies = frequencies.values.toList(),
@@ -354,12 +361,14 @@ private fun buildCards(
                 matched = result.matched
                 deinflected = result.deinflected
                 termTags = result.term.glossaries.firstOrNull()?.termTags ?: ""
+                rules = result.term.rules
             }
             out.add(acc)
         }
         if (acc.termTags.isBlank()) acc.termTags = result.term.glossaries.firstOrNull()?.termTags ?: ""
+        if (acc.rules.isBlank()) acc.rules = result.term.rules
         if (acc.matched.isBlank()) acc.matched = result.matched
-        for (p in result.process) acc.process.add(p.name)
+        for (p in result.process) acc.process.add(ProcessStep(p.name, p.description))
         for (g in result.term.glossaries) {
             val group = acc.glosses.getOrPut(g.dictName) { DictionaryGroup(g.dictName, resolveTitle(g.dictName), mutableListOf()) }
             @Suppress("UNCHECKED_CAST")
@@ -474,25 +483,26 @@ private fun TermCardView(
             }
         }
 
-        val inflected = card.process.isNotEmpty() && card.process != listOf(card.expression)
+        val inflected = card.process.isNotEmpty() && card.process.map { it.name } != listOf(card.expression)
         if (inflected) {
             var showDetails by remember(card) { mutableStateOf(false) }
+            // Left→right: surface→base. process[0] is the last step applied so reverse.
+            val labelText = card.process.map { it.name }.asReversed().joinToString(" » ")
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier
-                    .padding(top = 4.dp)
+                    .fillMaxWidth()
                     .clickable { showDetails = !showDetails }
-                    .padding(vertical = 2.dp),
+                    .padding(top = 4.dp, bottom = 2.dp),
             ) {
-                card.process.take(4).forEach { tag ->
-                    Surface(shape = RoundedCornerShape(4.dp), color = accent.copy(alpha = 0.12f)) {
-                        Text(
-                            text = tag, color = accent, fontSize = (fontSize - 4).sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
-                }
+                Text(
+                    text = labelText,
+                    color = onBg.copy(alpha = 0.6f),
+                    fontSize = (fontSize - 3).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 Text(
                     text = if (showDetails) "\u25B2" else "\u25BC",
                     color = onBg.copy(alpha = 0.5f),
@@ -501,11 +511,65 @@ private fun TermCardView(
             }
             AnimatedVisibility(visible = showDetails) {
                 Column(Modifier.padding(top = 2.dp)) {
-                    Text(
-                        text = card.process.reversed().joinToString(" \u00BB "),
-                        color = onBg.copy(alpha = 0.7f),
-                        fontSize = (fontSize - 3).sp,
-                    )
+                    val ruleSet = card.rules.split(Regex("\\s+")).filter { it.isNotBlank() }
+                    if (ruleSet.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        ) {
+                            ruleSet.forEach { rule ->
+                                Surface(shape = RoundedCornerShape(4.dp), color = accent.copy(alpha = 0.12f)) {
+                                    Text(
+                                        text = rule, color = accent, fontSize = (fontSize - 4).sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    card.process.asReversed().forEachIndexed { i, step ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = hoverBg,
+                            border = BorderStroke(1.dp, border),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        ) {
+                            Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .background(accent, CircleShape),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = "${i + 1}",
+                                            color = Color.White,
+                                            fontSize = (fontSize - 5).sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = step.name,
+                                        color = onBg,
+                                        fontSize = (fontSize - 2).sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                if (step.description.isNotBlank()) {
+                                    Text(
+                                        text = step.description,
+                                        color = secondary,
+                                        fontSize = (fontSize - 3).sp,
+                                        lineHeight = (fontSize + 2).sp,
+                                        modifier = Modifier.padding(top = 3.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -532,6 +596,7 @@ private fun TermCardView(
             PitchSection(
                 card = card,
                 accent = accent,
+                secondary = secondary,
                 onBg = onBg,
                 showPitchDiagram = showPitchDiagram,
                 showPitchNumber = showPitchNumber,
@@ -589,6 +654,8 @@ private fun TermCardView(
                                 fontSize = fontSize,
                                 onBg = onBg,
                                 accentBg = accent,
+                                secondary = secondary,
+                                eInkMode = eInkMode,
                                 mediaDataUris = mediaDataUris,
                                 onRecursiveLookup = onRecursiveLookup,
                             )
@@ -616,6 +683,7 @@ private class CollapseOverrideState(initialByTitle: Map<String, Boolean>) {
 private fun PitchSection(
     card: TermCard,
     accent: Color,
+    secondary: Color,
     onBg: Color,
     showPitchDiagram: Boolean,
     showPitchNumber: Boolean,
@@ -635,29 +703,37 @@ private fun PitchSection(
     Column(Modifier.padding(top = 6.dp)) {
         all.forEach { pitch ->
             if (pitch.dictName.isNotBlank()) {
-            Text(pitch.dictName, color = onBg.copy(alpha = 0.5f), fontSize = 10.sp)
+                Text(pitch.dictName, color = secondary.copy(alpha = 0.8f), fontSize = 10.sp)
             }
-            val positions = pitch.pitchPositions.toList()
-            if (showPitchDiagram) {
-                PitchAccentDiagram(
-                    text = card.expression,
-                    downstepPositions = positions,
-                    accentColor = accent,
+            val positions = pitch.pitchPositions.toList().distinct()
+            positions.forEach { pos ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(top = 2.dp),
-                )
-            }
-            if (showPitchNumber && positions.isNotEmpty()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "[" + positions.joinToString(", ") + "]",
-                        color = accent,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(start = (if (showPitchDiagram) 8 else 0).dp, top = 2.dp),
-                    )
+                ) {
+                    if (showPitchDiagram) {
+                        PitchAccentDiagram(
+                            text = card.expression,
+                            downsteps = listOf(pos),
+                            accentColor = accent,
+                        )
+                    }
+                    if (showPitchText) {
+                        Text(
+                            text = buildPitchText(card.expression, listOf(pos)),
+                            color = onBg.copy(alpha = 0.8f),
+                            fontSize = 11.sp,
+                        )
+                    }
+                    if (showPitchNumber) {
+                        Text(
+                            text = "[$pos]",
+                            color = accent,
+                            fontSize = 12.sp,
+                        )
+                    }
                 }
-            }
-            if (showPitchText) {
-                Text(buildPitchText(card.expression, positions), color = onBg.copy(alpha = 0.8f), fontSize = 12.sp)
             }
         }
     }
@@ -753,6 +829,8 @@ private fun GlossRow(
     fontSize: Int,
     onBg: Color,
     accentBg: Color,
+    secondary: Color,
+    eInkMode: Boolean,
     mediaDataUris: Map<String, String>,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
 ) {
@@ -762,14 +840,9 @@ private fun GlossRow(
             gloss.definitionTags.split(Regex("\\s+")).filter { it.isNotBlank() }
         }
         if (defTags.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 2.dp)) {
+            FlowRow(modifier = Modifier.padding(bottom = 2.dp)) {
                 defTags.take(8).forEach { tag ->
-                    Surface(shape = RoundedCornerShape(4.dp), color = accentBg.copy(alpha = 0.12f)) {
-                        Text(
-                            text = tag, color = accentBg, fontSize = (fontSize - 5).sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
+                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
                 }
             }
         }
@@ -909,90 +982,116 @@ private fun KanjiEntryCard(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
-            Text(
-                text = kanji.character,
-                color = onBg,
-                fontSize = 48.sp,
-                modifier = Modifier.padding(end = 12.dp),
-            )
-            Column(Modifier.weight(1f)) {
+        // Glyph
+        Text(
+            text = kanji.character,
+            color = onBg,
+            fontSize = 64.sp,
+            fontWeight = FontWeight.Normal,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+
+        // Dictionary tag
+        if (kanji.dictName.isNotBlank()) {
+            dictionaryTag(label = kanji.dictName, secondary = secondary, eInk = eInkMode)
+        }
+
+        // Meanings
+        if (kanji.definitions.isNotEmpty()) {
+            KanjiSectionHeader("Meanings", secondary)
+            Column(Modifier.padding(start = 16.dp)) {
+                kanji.definitions.forEachIndexed { i, def ->
+                    val defModifier = if (onRecursiveLookup != null && def.isNotBlank()) {
+                        Modifier
+                            .clickable { onRecursiveLookup(def, null, null, null, null, "term") }
+                            .padding(vertical = 1.dp)
+                    } else {
+                        Modifier
+                    }
+                    Text(
+                        text = def,
+                        color = onBg,
+                        fontSize = (fontSize - 1).sp,
+                        lineHeight = (fontSize + 3).sp,
+                        modifier = defModifier.padding(bottom = 4.dp),
+                    )
+                }
+            }
+        }
+
+        // Readings
+        if (kanji.onyomi.isNotEmpty() || kanji.kunyomi.isNotEmpty()) {
+            KanjiSectionHeader("Readings", secondary, modifier = Modifier.padding(top = 8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 2.dp),
+            ) {
                 if (kanji.onyomi.isNotEmpty()) {
                     Text(
-                        text = "ON: ${kanji.onyomi.joinToString(", ")}",
+                        text = kanji.onyomi.joinToString(", "),
                         color = accent,
                         fontSize = (fontSize - 1).sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
                 if (kanji.kunyomi.isNotEmpty()) {
                     Text(
-                        text = "KUN: ${kanji.kunyomi.joinToString(", ")}",
-                        color = accent.copy(alpha = 0.9f),
+                        text = kanji.kunyomi.joinToString(", "),
+                        color = onBg,
                         fontSize = (fontSize - 1).sp,
-                        modifier = Modifier.padding(top = 2.dp),
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
         }
 
-        kanji.tags.forEach { tag ->
-            Surface(shape = RoundedCornerShape(4.dp), color = accent.copy(alpha = 0.12f), modifier = Modifier.padding(top = 4.dp)) {
-                Text(text = tag, color = accent, fontSize = (fontSize - 5).sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-            }
-        }
-
-        kanji.definitions.forEachIndexed { i, def ->
-            Row(modifier = Modifier.padding(top = (if (i == 0) 8 else 3).dp)) {
-                Text(
-                    text = "${i + 1}.",
-                    color = accent,
-                    fontSize = (fontSize - 1).sp,
-                    modifier = Modifier.padding(end = 6.dp),
-                )
-                val defModifier = if (onRecursiveLookup != null && def.isNotBlank()) {
-                    Modifier
-                        .clickable { onRecursiveLookup(def, null, null, null, null, "term") }
-                        .padding(vertical = 1.dp)
-                } else {
-                    Modifier
-                }
-                Text(
-                    text = def,
-                    color = onBg,
-                    fontSize = (fontSize - 1).sp,
-                    modifier = defModifier,
-                )
-            }
-        }
-
+        // Statistics
         if (kanji.stats.isNotEmpty()) {
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = onBg.copy(alpha = 0.05f),
-                modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(10.dp)) {
-                    kanji.stats.forEach { (label, value) ->
-                        Row(
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.padding(vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = label,
-                                color = onBg.copy(alpha = 0.6f),
-                                fontSize = (fontSize - 2).sp,
-                                modifier = Modifier.width(90.dp),
-                            )
-                            Text(
-                                text = value,
-                                color = onBg,
-                                fontSize = (fontSize - 2).sp,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+            KanjiSectionHeader("Statistics", secondary, modifier = Modifier.padding(top = 8.dp))
+            Column(Modifier.padding(top = 2.dp)) {
+                kanji.stats.forEach { (label, value) ->
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(width = 1.dp, color = border, shape = RectangleShape),
+                    ) {
+                        Text(
+                            text = label,
+                            color = secondary,
+                            fontSize = (fontSize - 2).sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .width(96.dp)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                        Text(
+                            text = value,
+                            color = onBg,
+                            fontSize = (fontSize - 2).sp,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun KanjiSectionHeader(
+    title: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = title.uppercase(),
+        color = accent,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.5.sp,
+        modifier = modifier,
+    )
 }
