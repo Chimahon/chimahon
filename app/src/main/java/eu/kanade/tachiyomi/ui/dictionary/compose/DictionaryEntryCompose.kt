@@ -700,6 +700,7 @@ private fun PitchSection(
     if (all.isEmpty()) return
 
     Column(Modifier.padding(top = 6.dp)) {
+        val pitchText = if (card.reading.isNotBlank() && card.reading != card.expression) card.reading else card.expression
         all.forEach { pitch ->
             if (pitch.dictName.isNotBlank()) {
                 Text(pitch.dictName, color = secondary.copy(alpha = 0.8f), fontSize = 10.sp)
@@ -713,14 +714,14 @@ private fun PitchSection(
                 ) {
                     if (showPitchDiagram) {
                         PitchAccentDiagram(
-                            text = card.expression,
+                            text = pitchText,
                             downsteps = listOf(pos),
                             accentColor = accent,
                         )
                     }
                     if (showPitchText) {
                         Text(
-                            text = buildPitchText(card.expression, listOf(pos)),
+                            text = buildPitchText(pitchText, listOf(pos)),
                             color = onBg.copy(alpha = 0.8f),
                             fontSize = 11.sp,
                         )

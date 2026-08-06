@@ -21,6 +21,7 @@ object DictionaryTagColors {
     fun resolveCategory(label: String, defaultCategory: String? = null): String {
         if (defaultCategory != null && defaultCategory != "default") return defaultCategory
         val t = label.lowercase()
+        if (t == "freq" || t == "avg" || t == "frequency") return "frequency"
         if (t.contains("arch") || t.contains("obs") || t.contains("hist")) return "archaism"
         if (t.contains("popular")) return "popular"
         if (t.contains("freq")) return "frequent"
@@ -33,6 +34,7 @@ object DictionaryTagColors {
     /** Raw #RRGGBB base arrow for each category (from base.css). */
     fun categoryBase(category: String): Color = when (category) {
         "name" -> Color(0xFFB6327A)
+        "expression" -> Color(0xFFF0AD4E)
         "popular" -> Color(0xFF0275D8)
         "frequent" -> Color(0xFF5BC0DE)
         "archaism" -> Color(0xFFD9534F)
