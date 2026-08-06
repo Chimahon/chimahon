@@ -620,7 +620,7 @@ private fun TermCardView(
             }
             val expanded = override ?: initial
 
-            Column(modifier = Modifier.padding(top = 8.dp)) {
+            Column(modifier = Modifier.padding(top = if (i == 0) 2.dp else 4.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
