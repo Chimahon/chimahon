@@ -453,18 +453,20 @@ private fun TermCardView(
                         expression = card.expression,
                         reading = card.reading,
                         accent = accent,
+                        onBg = onBg,
                         autoplay = autoplay,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(28.dp),
                     )
                 }
                 if (onAnkiLookup != null) {
                     IconButton(
                         onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
+                        modifier = Modifier.size(28.dp),
                     ) {
                         Icon(
                             imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
                             contentDescription = null,
-                            tint = if (alreadyAdded) accent.copy(alpha = 0.5f) else accent,
+                            tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -944,6 +946,7 @@ private fun WordAudioButton(
     expression: String,
     reading: String,
     accent: Color,
+    onBg: Color,
     autoplay: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -966,13 +969,13 @@ private fun WordAudioButton(
                 playing = false
             }
         },
-        modifier = modifier,
+        modifier = modifier.size(28.dp),
     ) {
         Icon(
             imageVector = Icons.Outlined.VolumeUp,
             contentDescription = null,
-            tint = if (playing) accent.copy(alpha = 0.5f) else accent.copy(alpha = 0.7f),
-            modifier = Modifier.size(18.dp),
+            tint = if (playing) accent.copy(alpha = 0.7f) else onBg.copy(alpha = 0.6f),
+            modifier = Modifier.size(20.dp),
         )
     }
 }
