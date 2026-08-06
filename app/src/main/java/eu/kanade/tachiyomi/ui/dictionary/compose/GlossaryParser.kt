@@ -17,6 +17,7 @@ sealed interface GlossNode {
 
     data class Ruby(val text: String, val ruby: String) : GlossNode
     data class Image(val uri: String?) : GlossNode
+    data class ListMarker(val marker: String) : GlossNode
     object Break : GlossNode
     object Space : GlossNode
 }
@@ -48,6 +49,9 @@ internal fun parseGlossary(raw: String): List<GlossNode> {
 // ---------------------------------------------------------------------------
 
 private fun parseStructured(text: String): List<GlossNode>? =
+    parseStructured(text, ListContext())
+
+private fun parseStructured(text: String, ctx: ListContext): List<GlossNode>? =
     runCatching {
         val array = JSONArray(text)
         val out = mutableListOf<GlossNode>()
@@ -59,10 +63,10 @@ private fun parseStructured(text: String): List<GlossNode>? =
                 is Double -> out.add(GlossNode.Run(item.toString()))
                 is Boolean -> out.add(GlossNode.Run(item.toString()))
                 is JSONArray -> {
-                    parseStructured(item.toString())?.let { out.addAll(it) }
+                    parseStructured(item.toString(), ctx)?.let { out.addAll(it) }
                 }
                 is JSONObject -> {
-                    val nodes = parseStructuredObject(item) ?: continue
+                    val nodes = parseStructuredObject(item, ctx) ?: continue
                     if (out.isNotEmpty() && nodes.firstOrNull() is GlossNode.Run) {
                         out.add(GlossNode.Space)
                     }
@@ -73,7 +77,15 @@ private fun parseStructured(text: String): List<GlossNode>? =
         out
     }.getOrNull()?.takeIf { it.isNotEmpty() }
 
-private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? {
+/** Tracks nested ordered/unordered list counters while walking structured JSON. */
+private class ListContext {
+    val counters = ArrayDeque<Int>()
+}
+
+private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? =
+    parseStructuredObject(obj, ListContext())
+
+private fun parseStructuredObject(obj: JSONObject, ctx: ListContext): List<GlossNode>? {
     val style = obj.optJSONObject("style")?.let { parseStructuredStyle(it) }
 
     // Plain text node
@@ -135,8 +147,8 @@ private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? {
     if (obj.has("tag") || obj.has("content")) {
         val content = obj.opt("content")
         val children = when (content) {
-            is JSONArray -> parseStructured(content.toString()) ?: emptyList()
-            is JSONObject -> parseStructuredObject(content) ?: emptyList()
+            is JSONArray -> parseStructured(content.toString(), ctx) ?: emptyList()
+            is JSONObject -> parseStructuredObject(content, ctx) ?: emptyList()
             is String -> listOf(GlossNode.Run(content))
             else -> emptyList()
         }
@@ -153,16 +165,46 @@ private fun parseStructuredObject(obj: JSONObject): List<GlossNode>? {
         val underline = obj.optBoolean("underline", false) || tagName == "u" || (style?.underline == true)
         val styleColor = style?.color
 
+        // Enter a list scope for ol/ul; descend into li counting children.
+        if (tagName == "ol" || tagName == "ul") {
+            ctx.counters.addLast(if (tagName == "ol") 0 else -1)
+        }
+
         val out = mutableListOf<GlossNode>()
         for (child in children) {
             if (out.isNotEmpty() && child is GlossNode.Run && out.last() is GlossNode.Run) {
                 out.add(GlossNode.Space)
             }
-            if (child is GlossNode.Run && (bold || italic || underline || styleColor != null)) {
-                out.add(child.copy(bold = child.bold || bold, italic = child.italic || italic, underline = child.underline || underline, color = child.color ?: styleColor))
+            val marker = if (tagName == "li" && ctx.counters.isNotEmpty()) {
+                val idx = ctx.counters.size - 1
+                val count = ctx.counters[idx]
+                if (count >= 0) {
+                    ctx.counters[idx] = count + 1
+                    "${count + 1}. "
+                } else {
+                    "\u2022 "
+                }
+            } else null
+            if (child is GlossNode.Run && (bold || italic || underline || styleColor != null || marker != null)) {
+                out.add(
+                    child.copy(
+                        text = (marker ?: "") + child.text,
+                        bold = child.bold || bold,
+                        italic = child.italic || italic,
+                        underline = child.underline || underline,
+                        color = child.color ?: styleColor,
+                    ),
+                )
             } else {
-                out.add(child)
+                if (marker != null && child is GlossNode.Run) {
+                    out.add(child.copy(text = marker + child.text))
+                } else {
+                    out.add(child)
+                }
             }
+        }
+        if (tagName == "ol" || tagName == "ul") {
+            if (ctx.counters.isNotEmpty()) ctx.counters.removeLast()
         }
         if (isBlock) out.add(GlossNode.Break)
         return out
@@ -201,15 +243,16 @@ private fun parseHtml(html: String): List<GlossNode>? =
     runCatching {
         val doc = Jsoup.parseBodyFragment(html)
         val out = mutableListOf<GlossNode>()
+        val counters = ArrayDeque<Int>()
         for (child in doc.body()?.children() ?: emptyList()) {
-            walkElement(child, out)
+            walkElement(child, out, counters)
         }
         // strip trailing breaks
         while (out.isNotEmpty() && out.last() == GlossNode.Break) out.removeAt(out.size - 1)
         out
     }.getOrNull()?.takeIf { it.isNotEmpty() }
 
-private fun walkElement(el: Element, out: MutableList<GlossNode>) {
+private fun walkElement(el: Element, out: MutableList<GlossNode>, counters: ArrayDeque<Int>) {
     val tag = el.tagName()
     if (tag == "br") {
         out.add(GlossNode.Break)
@@ -230,6 +273,8 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
             return
         }
     }
+    if (tag == "ol") counters.addLast(0)
+    if (tag == "ul") counters.addLast(-1)
 
     val style = parseInlineStyle(el.attr("style"))
     val children = el.children()
@@ -246,6 +291,7 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
                 ),
             )
         }
+        if (tag == "ol" || tag == "ul") counters.removeLastOrNull()
         return
     }
 
@@ -255,9 +301,32 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
     val bold = tag in setOf("b", "strong") || style.bold
     val italic = tag in setOf("i", "em") || style.italic
     val underline = tag == "u" || style.underline
+    var liMarker: String? = null
+    if (tag == "li") {
+        val parentTag = el.parent()?.tagName()
+        liMarker = when (parentTag) {
+            "ol" -> {
+                val count = if (counters.isNotEmpty()) counters.last() else 0
+                if (counters.isNotEmpty()) counters[counters.size - 1] = count + 1
+                "${count + 1}. "
+            }
+            "ul" -> "\u2022 "
+            else -> null
+        }
+    }
     for (child in children) {
         val start = out.size
-        walkElement(child, out)
+        walkElement(child, out, counters)
+        if (liMarker != null) {
+            for (i in start until out.size) {
+                val n = out[i]
+                if (n is GlossNode.Run) {
+                    out[i] = n.copy(text = liMarker + n.text, bold = n.bold || true)
+                    liMarker = null
+                    break
+                }
+            }
+        }
         if (bold || italic || underline || style.color != null) {
             for (i in start until out.size) {
                 val n = out[i]
@@ -275,6 +344,10 @@ private fun walkElement(el: Element, out: MutableList<GlossNode>) {
             out.add(GlossNode.Break)
         }
     }
+    if (liMarker != null) {
+        out.add(GlossNode.Run(liMarker.trimEnd() + " ", bold = true))
+    }
+    if (tag == "ol" || tag == "ul") counters.removeLastOrNull()
 }
 
 /** Parsed subset of an element's `style` attribute. */

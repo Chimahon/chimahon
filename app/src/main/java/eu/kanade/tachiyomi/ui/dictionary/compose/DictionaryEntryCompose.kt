@@ -887,6 +887,14 @@ private fun GlossRow(
                 is GlossNode.Image -> {
                     GlossImage(gloss.dictName, node.uri, mediaDataUris, onBg)
                 }
+                is GlossNode.ListMarker -> {
+                    Text(
+                        text = node.marker,
+                        color = secondary,
+                        fontSize = (fontSize - 1).sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 GlossNode.Break -> Spacer(Modifier.height(4.dp))
                 GlossNode.Space -> Spacer(Modifier.width(4.dp))
             }
