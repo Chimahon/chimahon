@@ -435,52 +435,50 @@ private fun TermCardView(
             )
             .padding(top = 10.dp, bottom = 8.dp),
     ) {
-        Column(Modifier.padding(start = 14.dp, end = 14.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    FuriganaText(
-                        expression = card.expression,
-                        reading = card.reading,
-                        color = headColor,
-                        fontSize = (fontSize + 4).sp,
-                        fontWeight = FontWeight.Bold,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                FuriganaText(
+                    expression = card.expression,
+                    reading = card.reading,
+                    color = headColor,
+                    fontSize = (fontSize + 4).sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            if (wordAudioEnabled) {
+                WordAudioButton(
+                    expression = card.expression,
+                    reading = card.reading,
+                    accent = accent,
+                    onBg = onBg,
+                    autoplay = autoplay,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+            if (onAnkiLookup != null) {
+                IconButton(
+                    onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Icon(
+                        imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
+                        contentDescription = null,
+                        tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp),
                     )
-                }
-                if (wordAudioEnabled) {
-                    WordAudioButton(
-                        expression = card.expression,
-                        reading = card.reading,
-                        accent = accent,
-                        onBg = onBg,
-                        autoplay = autoplay,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-                if (onAnkiLookup != null) {
-                    IconButton(
-                        onClick = { onAnkiLookup(index, null, card.dictGroups.firstOrNull()?.title, null, false) },
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
-                            contentDescription = null,
-                            tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
                 }
             }
+        }
 
-            if (termTagList.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier.padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    termTagList.take(8).forEach { tag ->
-                        dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
-                    }
+        if (termTagList.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                termTagList.take(8).forEach { tag ->
+                    dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode)
                 }
             }
         }
@@ -649,7 +647,7 @@ private fun TermCardView(
                     )
                 }
                 AnimatedVisibility(visible = expanded) {
-                    Column(Modifier.padding(start = 14.dp)) {
+                    Column(Modifier.padding(start = 16.dp, end = 12.dp)) {
                         group.glosses.forEach { gloss ->
                             GlossRow(
                                 gloss = gloss,
