@@ -952,20 +952,26 @@ private fun GlossRow(
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
 ) {
     // Structured-content glosses (e.g. Jitendex / oxford) render through the CSS-aware path.
-    // Everything else keeps the existing flat fast path. Detection is cheap (runs once per gloss
-    // via remember) and avoids the whole-line FlowRow explosion for plain/inline glosses.
-    val parsed = parseStructuredGlossary(gloss.glossary)
-    if (parsed is StructuredEntry.Tree && parsed.nodes.any { node ->
-            val pc = parsedCssMap[gloss.dictName]
-            node.isStructuredBox(pc)
+    // Everything else keeps the existing flat fast path. Detection and parse run once per gloss
+    // via remember, so recompositions (details toggles, image loads) don't re-walk the tree.
+    val structuredNodes = remember(gloss.glossary, parsedCssMap) {
+        val parsed = parseStructuredGlossary(gloss.glossary)
+        if (parsed is StructuredEntry.Tree && parsed.nodes.any { node ->
+                node.isStructuredBox(parsedCssMap[gloss.dictName])
+            }
+        ) {
+            parsed.nodes
+        } else {
+            null
         }
-    ) {
+    }
+    if (structuredNodes != null) {
         val onLookup: ((String) -> Unit)? = onRecursiveLookup?.let { f ->
             { text -> f(text, null, null, null, null, "term") }
         }
         Column(Modifier.padding(vertical = 3.dp)) {
             StructuredGlossaryContent(
-                nodes = parsed.nodes,
+                nodes = structuredNodes,
                 parsedCss = parsedCssMap[gloss.dictName] ?: ParsedCss.EMPTY,
                 dictName = gloss.dictName,
                 mediaDataUris = mediaDataUris,

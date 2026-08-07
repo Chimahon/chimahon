@@ -544,13 +544,15 @@ private fun collectTableRows(node: StructuredNode.Element, out: MutableList<List
 }
 
 /** The marker glyph + circle colour for a Jitendex `td[data-sc-class="form-*"]` badge. */
+private val RADIAL_GRADIENT_REGEX = Regex("""radial-gradient\(([^)]+)\s+50%""")
+
 private fun formBadge(dataClass: String?, parsedCss: ParsedCss): Pair<String?, Color?> {
     if (dataClass.isNullOrBlank()) return null to null
     val styles = parsedCss.selectorStyles[dataClass] ?: return null to null
     val marker = (styles["beforeContent"] ?: "").trim('"', '\'', ' ')
         .takeIf { it.isNotEmpty() }
     val bg = styles["background"]
-        ?.let { Regex("""radial-gradient\(([^)]+)\s+50%""").find(it)?.groupValues?.get(1)?.trim() }
+        ?.let { RADIAL_GRADIENT_REGEX.find(it)?.groupValues?.get(1)?.trim() }
         ?.let { parseCssColor2(it) }
     return marker to bg
 }
@@ -636,8 +638,10 @@ private val namedCssColor = mapOf(
     "red" to Color(0xFFFF0000),
 )
 
+private val QUERY_PARAM_REGEX = Regex("[?&]([^=]+)=([^&]+)")
+
 private fun extractQuery(href: String): String? {
-    val params = Regex("[?&]([^=]+)=([^&]+)").findAll(href)
+    val params = QUERY_PARAM_REGEX.findAll(href)
     return params.asSequence().mapNotNull { m ->
         if (m.groupValues[1] == "query") m.groupValues[2].replace("+", " ") else null
     }.firstOrNull()

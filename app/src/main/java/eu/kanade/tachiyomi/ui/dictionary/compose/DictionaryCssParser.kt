@@ -331,32 +331,37 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
 }
 
 /** Extracts a usable color from `color-mix(in srgb, X 5%, transparent)`, `var(...)`, or plain colors. */
+private val COLOR_MIX_REGEX = Regex("""color-mix\(in\s+srgb,\s*([^,]+),\s*transparent\)""")
+private val HEX_COLOR_REGEX = Regex("""#[0-9a-fA-F]{3,8}""")
+private val VAR_FALLBACK_REGEX = Regex("""var\(--[^,)]+,\s*([^)]+)\)""")
+private val NAMED_COLOR_REGEX = Regex("""[a-zA-Z#][a-zA-Z0-9#]*""")
+
 private fun extractBackgroundColor(value: String): String? {
     val trimmed = value.trim()
-    val mixMatch = Regex("""color-mix\(in\s+srgb,\s*([^,]+),\s*transparent\)""").find(trimmed)
+    val mixMatch = COLOR_MIX_REGEX.find(trimmed)
     if (mixMatch != null) {
         val inner = mixMatch.groupValues[1].trim()
         // `var(--text-color, var(--fg, #333))` → grab first hex seen
-        Regex("""#[0-9a-fA-F]{3,8}""").findAll(inner).firstOrNull()?.value?.let { return it }
-        val varMatch = Regex("""var\(--[^,)]+,\s*([^)]+)\)""").find(inner)
+        HEX_COLOR_REGEX.findAll(inner).firstOrNull()?.value?.let { return it }
+        val varMatch = VAR_FALLBACK_REGEX.find(inner)
         if (varMatch != null) {
             val fallback = varMatch.groupValues[1].trim().removeSuffix(")")
             if (fallback.startsWith("#")) return fallback
         }
         // Named color such as `green`, `goldenrod`, `#1A73E8`
-        Regex("""[a-zA-Z#][a-zA-Z0-9#]*""").find(inner)?.value?.let { candidate ->
+        NAMED_COLOR_REGEX.find(inner)?.value?.let { candidate ->
             return candidate.removeSuffix(")").takeIf { it != "transparent" }
         }
         return null
     }
-    val directVar = Regex("""var\(--[^,)]+,\s*([^)]+)\)""").find(trimmed)
+    val directVar = VAR_FALLBACK_REGEX.find(trimmed)
     if (directVar != null) {
         val fallback = directVar.groupValues[1].trim().removeSuffix(")")
         if (fallback.startsWith("#")) return fallback
     }
     // `var(--text-color, var(--fg, #333))` (nested fallback) — grab first hex seen anywhere.
     if (trimmed.contains("var(")) {
-        Regex("""#[0-9a-fA-F]{3,8}""").find(trimmed)?.value?.let { return it }
+        HEX_COLOR_REGEX.find(trimmed)?.value?.let { return it }
     }
     return trimmed.takeIf { it.startsWith("#") }
 }
