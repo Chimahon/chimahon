@@ -241,6 +241,9 @@ fun DictionaryEntryCompose(
     val displayed = remember(results, isLoading, activeProfile) {
         if (isLoading) emptyList() else orderLookupResultsForDisplay(results, activeProfile, context)
     }
+    val parsedCssMap = remember(styles) {
+        styles.associate { it.dictName to parseDictionaryCss(it.styles) }
+    }
     val cards = remember(displayed, groupTerms, activeProfile, priority) {
         buildCards(displayed, groupTerms, resolveTitle, priority)
     }
@@ -297,6 +300,7 @@ fun DictionaryEntryCompose(
                             hoverBg = hoverBg,
                             onBg = onBg,
                             eInkMode = eInkMode,
+                            parsedCssMap = parsedCssMap,
                             showFrequencyHarmonic = showFrequencyHarmonic,
                             showFrequencyAverage = showFrequencyAverage,
                             showPitchDiagram = showPitchDiagram,
@@ -405,6 +409,7 @@ private fun TermCardView(
     hoverBg: Color,
     onBg: Color,
     eInkMode: Boolean,
+    parsedCssMap: Map<String, ParsedCss>,
     showFrequencyHarmonic: Boolean,
     showFrequencyAverage: Boolean,
     showPitchDiagram: Boolean,
@@ -753,6 +758,7 @@ private fun TermCardView(
                                 border = border,
                                 eInkMode = eInkMode,
                                 mediaDataUris = mediaDataUris,
+                                parsedCssMap = parsedCssMap,
                                 onRecursiveLookup = onRecursiveLookup,
                             )
                         }
@@ -942,8 +948,38 @@ private fun GlossRow(
     border: Color,
     eInkMode: Boolean,
     mediaDataUris: Map<String, String>,
+    parsedCssMap: Map<String, ParsedCss>,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
 ) {
+    // Structured-content glosses (e.g. Jitendex / oxford) render through the CSS-aware path.
+    // Everything else keeps the existing flat fast path. Detection is cheap (runs once per gloss
+    // via remember) and avoids the whole-line FlowRow explosion for plain/inline glosses.
+    val parsed = parseStructuredGlossary(gloss.glossary)
+    if (parsed is StructuredEntry.Tree && parsed.nodes.any { node ->
+            val pc = parsedCssMap[gloss.dictName]
+            node.isStructuredBox(pc)
+        }
+    ) {
+        val onLookup: ((String) -> Unit)? = onRecursiveLookup?.let { f ->
+            { text -> f(text, null, null, null, null, "term") }
+        }
+        Column(Modifier.padding(vertical = 3.dp)) {
+            StructuredGlossaryContent(
+                nodes = parsed.nodes,
+                parsedCss = parsedCssMap[gloss.dictName] ?: ParsedCss.EMPTY,
+                dictName = gloss.dictName,
+                mediaDataUris = mediaDataUris,
+                fontSize = fontSize,
+                onBg = onBg,
+                secondary = secondary,
+                border = border,
+                onRecursiveLookup = onLookup,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        return
+    }
+
     val nodes = remember(gloss.glossary) { parseGlossary(gloss.glossary) }
     val lines = remember(nodes) { partitionGlossLines(nodes) }
     Column(Modifier.padding(vertical = 3.dp)) {
@@ -1055,49 +1091,49 @@ private fun buildGlossAnnotated(
     secondary: Color,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
 ): AnnotatedString {
-    val builder = buildAnnotatedString { }
-    for (node in line) {
-        when (node) {
-            is GlossNode.Run -> {
-                if (node.text.isBlank()) continue
-                val style = SpanStyle(
-                    color = if (node.color != null) Color(node.color) else onBg,
-                    fontWeight = if (node.bold) FontWeight.Bold else FontWeight.Normal,
-                    fontStyle = if (node.italic) FontStyle.Italic else FontStyle.Normal,
-                    textDecoration = if (node.underline) TextDecoration.Underline else null,
-                )
-                if (onRecursiveLookup != null) {
-                    val link = LinkAnnotation.Clickable(node.text) {
-                        onRecursiveLookup(node.text, null, null, null, null, "term")
+    var textLength = 0
+    return buildAnnotatedString {
+        for (node in line) {
+            when (node) {
+                is GlossNode.Run -> {
+                    if (node.text.isBlank()) continue
+                    val start = textLength
+                    val style = SpanStyle(
+                        color = if (node.color != null) Color(node.color) else onBg,
+                        fontWeight = if (node.bold) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if (node.italic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = if (node.underline) TextDecoration.Underline else null,
+                    )
+                    if (onRecursiveLookup != null) {
+                        val link = LinkAnnotation.Clickable(node.text) {
+                            onRecursiveLookup(node.text, null, null, null, null, "term")
+                        }
+                        addLink(link, start, start + node.text.length)
                     }
-                    builder.withLink(link) {
-                        pushStyle(style)
-                        append(node.text)
-                        pop()
-                    }
-                } else {
-                    builder.pushStyle(style)
-                    builder.append(node.text)
-                    builder.pop()
+                    pushStyle(style)
+                    append(node.text)
+                    pop()
+                    textLength += node.text.length
                 }
+                is GlossNode.ListMarker -> {
+                    if (node.marker.isBlank()) continue
+                    val start = textLength
+                    pushStyle(
+                        SpanStyle(
+                            color = secondary,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                    )
+                    append(node.marker)
+                    pop()
+                    textLength += node.marker.length
+                }
+                GlossNode.Space -> append("\u00A0").also { textLength += 1 }
+                GlossNode.Break, is GlossNode.Image, is GlossNode.Table -> {}
+                is GlossNode.Ruby -> {}
             }
-            is GlossNode.ListMarker -> {
-                if (node.marker.isBlank()) continue
-                builder.pushStyle(
-                    SpanStyle(
-                        color = secondary,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                )
-                builder.append(node.marker)
-                builder.pop()
-            }
-            GlossNode.Space -> builder.append("\u00A0")
-            GlossNode.Break, is GlossNode.Image, is GlossNode.Table -> {}
-            is GlossNode.Ruby -> {}
         }
     }
-    return builder.toAnnotatedString()
 }
 
 /** Group [nodes] into inline flow lines; [GlossNode.Break] and [GlossNode.Image] split lines. */
