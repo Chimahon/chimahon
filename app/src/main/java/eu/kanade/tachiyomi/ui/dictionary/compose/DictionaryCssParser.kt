@@ -205,15 +205,23 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
                 }
             }
             "borderRadius" -> borderRadius = parseDpValue(value, baseFontSizeSp)
-            "padding" -> parseDpValue(value, baseFontSizeSp)?.let {
-                paddingStart = it; paddingEnd = it; paddingTop = it; paddingBottom = it
+            "padding" -> {
+                val (top, right, bottom, left) = parseFourValue(value, baseFontSizeSp)
+                if (top != null) paddingTop = top
+                if (right != null) paddingEnd = right
+                if (bottom != null) paddingBottom = bottom
+                if (left != null) paddingStart = left
             }
             "paddingLeft", "paddingInlineStart" -> paddingStart = parseDpValue(value, baseFontSizeSp)
             "paddingRight", "paddingInlineEnd" -> paddingEnd = parseDpValue(value, baseFontSizeSp)
             "paddingTop" -> paddingTop = parseDpValue(value, baseFontSizeSp)
             "paddingBottom" -> paddingBottom = parseDpValue(value, baseFontSizeSp)
-            "margin" -> parseMarginValue(value, baseFontSizeSp)?.let {
-                marginStart = it; marginEnd = it; marginTop = it; marginBottom = it
+            "margin" -> {
+                val (top, right, bottom, left) = parseFourValue(value, baseFontSizeSp)
+                if (top != null) marginTop = top
+                if (right != null) marginEnd = right
+                if (bottom != null) marginBottom = bottom
+                if (left != null) marginStart = left
             }
             "marginLeft", "marginInlineStart" -> marginStart = parseMarginValue(value, baseFontSizeSp)
             "marginRight", "marginInlineEnd" -> marginEnd = parseMarginValue(value, baseFontSizeSp)
@@ -304,12 +312,16 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
     while (i < selectorPart.length) {
         val attrStart = selectorPart.indexOf("[data-sc-", i)
         if (attrStart == -1) break
+        // Support attribute operators: `=` exact, `^=` prefix, `$=` suffix, `*=` substring,
+        // `~=` word. All selectors key on the literal data-sc-content/class value.
         val equalsIndex = selectorPart.indexOf('=', attrStart)
         if (equalsIndex == -1) {
             i = attrStart + 1
             continue
         }
-        val attrName = selectorPart.substring(attrStart + 1, equalsIndex)
+        val operator = selectorPart[equalsIndex - 1].takeIf { it == '^' || it == '$' || it == '*' || it == '~' }
+        val attrEnd = if (operator != null) equalsIndex - 1 else equalsIndex
+        val attrName = selectorPart.substring(attrStart + 1, attrEnd)
         if (attrName != "data-sc-content" && attrName != "data-sc-class") {
             i = equalsIndex + 1
             continue
@@ -424,3 +436,22 @@ private fun parseMarginValue(value: String, baseFontSizeSp: Float): Float? {
         parseDpValue(trimmed, baseFontSizeSp)
     }
 }
+
+/**
+ * Parses a CSS 1-4 value box shorthand (`padding`/`margin`) into (top, right, bottom, left)
+ * as dp. `1em` → all sides; `0 1em` → vertical 0, horizontal 1em; `1em 0 1em` → top/right/bottom;
+ * `1em 2em 3em 4em` → all four.
+ */
+private fun parseFourValue(value: String, baseFontSizeSp: Float): FourValues {
+    val tokens = value.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val parsed = tokens.mapNotNull { parseMarginValue(it, baseFontSizeSp) }
+    return when (parsed.size) {
+        1 -> FourValues(parsed[0], parsed[0], parsed[0], parsed[0])
+        2 -> FourValues(parsed[0], parsed[1], parsed[0], parsed[1])
+        3 -> FourValues(parsed[0], parsed[1], parsed[2], parsed[1])
+        4 -> FourValues(parsed[0], parsed[1], parsed[2], parsed[3])
+        else -> FourValues(null, null, null, null)
+    }
+}
+
+private data class FourValues(val top: Float?, val right: Float?, val bottom: Float?, val left: Float?)

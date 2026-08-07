@@ -192,4 +192,64 @@ class DictionaryCssParserTest {
         assertEquals(4f, box.marginEnd)
         assertEquals(null, box.marginStart)
     }
+
+    @Test
+    fun `parses oxford style display none and prefix selectors`() {
+        val css = """
+            span[data-sc-content="sn"] { display: none; }
+            span[data-sc-content="ps"] { display: none; }
+            details[data-sc-content^="details-entry"] { padding: 0 1em; }
+            summary[data-sc-content="summary-entry"] {
+                user-select: none;
+                width: max-content;
+                color: var(--text-color-light4);
+            }
+            span[data-sc-content="exg x_xd2 hasSn"] {
+                display: block;
+                padding: 0.25em;
+                padding-left: 0.5em;
+                border-style: none none none solid;
+                border-radius: 5px;
+                border-color: var(--shadow-color-light);
+                margin: 0.5em;
+            }
+        """.trimIndent()
+
+        val parsed = parseDictionaryCss(css)
+
+        // Prefix selector `^="details-entry"` keys on the literal value, matching the node's data.
+        assertEquals("none", parsed.selectorStyles["sn"]?.get("display"))
+        assertEquals("none", parsed.selectorStyles["ps"]?.get("display"))
+        assertEquals("0 1em", parsed.selectorStyles["details-entry"]?.get("padding"))
+        assertEquals("none", parsed.selectorStyles["summary-entry"]?.get("userSelect"))
+
+        // display:none must NOT be a box selector (it hides, doesn't box).
+        assertFalse(parsed.boxSelectors.contains("sn"))
+        assertTrue(parsed.boxSelectors.contains("details-entry"))
+        assertTrue(parsed.boxSelectors.contains("exg x_xd2 hasSn"))
+    }
+
+    @Test
+    fun `details box padding parses to dp`() {
+        val box = parseBoxStyle(
+            mapOf("padding" to "0 1em"),
+            baseFontSizeSp = 16f,
+        )
+        assertEquals(0f, box.paddingTop)
+        assertEquals(16f, box.paddingStart)
+        assertEquals(16f, box.paddingEnd)
+        assertEquals(0f, box.paddingBottom)
+    }
+
+    @Test
+    fun `margin shorthand expands all four sides`() {
+        val box = parseBoxStyle(
+            mapOf("margin" to "0.5em 1em"),
+            baseFontSizeSp = 16f,
+        )
+        assertEquals(8f, box.marginTop)
+        assertEquals(8f, box.marginBottom)
+        assertEquals(16f, box.marginStart)
+        assertEquals(16f, box.marginEnd)
+    }
 }

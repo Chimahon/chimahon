@@ -112,7 +112,10 @@ private fun StructuredElementView(
         StructuredTag.Table -> StructuredTable(
             node, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup,
         )
-        StructuredTag.Details, StructuredTag.Summary -> StructuredDetails(
+        StructuredTag.Details -> StructuredDetails(
+            node, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup,
+        )
+        StructuredTag.Summary -> StructuredBox(
             node, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup,
         )
         StructuredTag.UnorderedList, StructuredTag.OrderedList, StructuredTag.ListItem -> StructuredList(
@@ -143,6 +146,11 @@ private fun StructuredBox(
     val combined = getCssStyles(node.attributes.data, parsedCss) + node.attributes.style
     val styled = applyTypography(style, combined)
 
+    // `display: none` / `visibility: hidden` rules hide the element entirely (e.g. Oxford
+    // hides `sn`/`ps`/`hw`/`pr` spans). The WebView applies these via injected dictionary CSS.
+    val display = combined["display"]?.trim()?.lowercase()
+    if (display == "none" || combined["visibility"]?.trim()?.lowercase() == "hidden") return
+
     // Tag chip spans: `span[data-sc-class="tag"]` etc.
     if (node.tag == StructuredTag.Span && node.attributes.data["class"]?.contains("tag") == true) {
         StructuredTagChip(node, combined, style)
@@ -157,8 +165,8 @@ private fun StructuredBox(
     }
 
     if (!box.hasAnyStyle && isInline) {
-        // Plain inline span/div → emit inline text only (fast path).
-        spanText(node.collect(), styled, onRecursiveLookup)
+        // Plain inline span/div → emit inline text only (fast path). Hidden subtrees are skipped.
+        spanText(node.collectVisible(parsedCss), styled, onRecursiveLookup)
         return
     }
 
@@ -419,7 +427,19 @@ private fun StructuredDetails(
     }
     val body = node.children.filterNot { it === summary }
 
-    Column {
+    // `details[data-sc-content="..."] { padding: ... }` styles the disclosure block itself.
+    val combined = getCssStyles(node.attributes.data, parsedCss) + node.attributes.style
+    val baseFontSizeSp = style.fontSize.let { if (it.isSp) it.value else 16f }
+    val box = parseBoxStyle(combined, baseFontSizeSp)
+
+    Column(
+        Modifier.padding(
+            start = box.paddingStart?.dp ?: 0.dp,
+            end = box.paddingEnd?.dp ?: 0.dp,
+            top = box.paddingTop?.dp ?: 0.dp,
+            bottom = box.paddingBottom?.dp ?: 0.dp,
+        ),
+    ) {
         Row(
             modifier = Modifier
                 .clickable { expanded = !expanded }
@@ -575,6 +595,21 @@ private fun StructuredNode.collect(): String = when (this) {
     is StructuredNode.Text -> text
     is StructuredNode.Element -> children.joinToString("") { it.collect() }
     StructuredNode.TextBreak -> "\n"
+}
+
+/** Like [collect] but omits subtrees hidden by `display: none` / `visibility: hidden`. */
+private fun StructuredNode.collectVisible(parsedCss: ParsedCss): String = when (this) {
+    is StructuredNode.Text -> text
+    StructuredNode.TextBreak -> "\n"
+    is StructuredNode.Element -> {
+        val combined = getCssStyles(attributes.data, parsedCss) + attributes.style
+        val display = combined["display"]?.trim()?.lowercase()
+        if (display == "none" || combined["visibility"]?.trim()?.lowercase() == "hidden") {
+            ""
+        } else {
+            children.joinToString("") { it.collectVisible(parsedCss) }
+        }
+    }
 }
 
 private fun applyTypography(base: TextStyle, css: Map<String, String>): TextStyle {
