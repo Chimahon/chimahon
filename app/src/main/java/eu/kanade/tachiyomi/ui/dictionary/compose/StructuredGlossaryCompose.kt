@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -108,7 +109,7 @@ private fun StructuredElementView(
     when (node.tag) {
         StructuredTag.Link -> StructuredLink(node, style, onRecursiveLookup)
         StructuredTag.Ruby -> StructuredRuby(node, style)
-        StructuredTag.Image -> StructuredImage(node, dictName, mediaDataUris)
+        StructuredTag.Image -> StructuredImage(node, style, dictName, mediaDataUris)
         StructuredTag.Table -> StructuredTable(
             node, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup,
         )
@@ -124,6 +125,7 @@ private fun StructuredElementView(
         StructuredTag.Div, StructuredTag.Span -> StructuredBox(
             node, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup,
         )
+        StructuredTag.Break -> Spacer(Modifier.height(2.dp))
         else -> node.children.forEach { child ->
             StructuredNodeView(child, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
         }
@@ -372,20 +374,20 @@ private fun StructuredLink(
     if (text.isBlank()) return
     val linkColor = MaterialTheme.colorScheme.primary
 
-    val query = href?.let { extractQuery(it) }
-    val display = if (query != null) text else if (!href.isNullOrBlank()) "$text ($href)" else text
-    val target = query ?: href ?: text
+    // The reference renders only the link's content text (styled as a link); the href is
+    // never shown inline. Internal lookup links (`?query=...`) keep their text too.
+    val target: String = href?.let { extractQuery(it) ?: it } ?: text
 
-    val annotated = remember(target, display, linkColor) {
+    val annotated = remember(target, text, linkColor) {
         buildAnnotatedString {
             if (target.isNotEmpty()) {
                 val link = LinkAnnotation.Clickable(target) {
                     onRecursiveLookup?.invoke(target)
                 }
-                addLink(link, 0, display.length)
+                addLink(link, 0, text.length)
             }
             pushStyle(SpanStyle(color = linkColor, fontWeight = FontWeight.Medium, textDecoration = TextDecoration.Underline))
-            append(display)
+            append(text)
             pop()
         }
     }
@@ -398,6 +400,7 @@ private fun StructuredLink(
 @Composable
 private fun StructuredImage(
     node: StructuredNode.Element,
+    style: TextStyle,
     dictName: String,
     mediaDataUris: Map<String, String>,
 ) {
@@ -405,6 +408,26 @@ private fun StructuredImage(
     if (path.isNullOrBlank()) return
     val uri = resolveMediaUri2(dictName, path, mediaDataUris)
     if (uri == null) return
+
+    // Reference sizing: em-sized images render at `width em` scaled to the base font size
+    // (sizeUnits=em), otherwise the image's natural aspect at the dictionary's max width.
+    val sizeUnits = node.attributes.properties["sizeUnits"]
+    if (sizeUnits == "em") {
+        val emWidth = node.attributes.properties["width"]?.toFloatOrNull()
+        if (emWidth != null) {
+            val baseSp = if (style.fontSize.isSp) style.fontSize.value else 16f
+            Box(modifier = Modifier.padding(vertical = 2.dp)) {
+                AsyncImage(
+                    model = uri,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .width((emWidth * baseSp).dp)
+                        .heightIn(max = 240.dp),
+                )
+            }
+            return
+        }
+    }
     Box(modifier = Modifier.padding(vertical = 4.dp)) {
         AsyncImage(model = uri, contentDescription = null, modifier = Modifier.widthIn(max = 240.dp))
     }
