@@ -252,4 +252,104 @@ class DictionaryCssParserTest {
         assertEquals(16f, box.marginStart)
         assertEquals(16f, box.marginEnd)
     }
+
+    @Test
+    fun `presence selector applies when the data key exists`() {
+        val parsed = parseDictionaryCss(
+            """
+            [data-sc-meaning] { margin-block-start: 0.2em; }
+            """.trimIndent(),
+        )
+
+        assertEquals("0.2em", getCssStyles(mapOf("meaning" to ""), parsed)["marginBlockStart"])
+        assertTrue(getCssStyles(emptyMap(), parsed).isEmpty())
+    }
+
+    @Test
+    fun `compound presence selector requires all keys`() {
+        val parsed = parseDictionaryCss(
+            """
+            [data-sc-logo][data-sc-round] { border-radius: 0.625em; }
+            [data-sc-logo] { padding: 0.1em; }
+            """.trimIndent(),
+        )
+
+        // Both keys present → compound applies.
+        val both = getCssStyles(mapOf("logo" to "", "round" to ""), parsed)
+        assertEquals("0.625em", both["borderRadius"])
+        // Only one key → only the base rule applies.
+        val one = getCssStyles(mapOf("logo" to ""), parsed)
+        assertEquals(null, one["borderRadius"])
+        assertEquals("0.1em", one["padding"])
+    }
+
+    @Test
+    fun `structural selectors are skipped for presence matching`() {
+        val parsed = parseDictionaryCss(
+            """
+            [data-sc-meaning]:first-child { margin-block-start: 0; }
+            [data-sc-title2]+[data-sc-meaning] { margin-block-start: 0; }
+            td:has([data-sc-logo]) { border: none; }
+            [data-sc-img] .gloss-image-container { width: 15em; }
+            [data-sc-div] { margin-block-start: 0.5em; }
+            """.trimIndent(),
+        )
+
+        // Only the plain presence selector survives.
+        assertEquals(
+            "0.5em",
+            getCssStyles(mapOf("div" to ""), parsed)["marginBlockStart"],
+        )
+        assertTrue(getCssStyles(mapOf("meaning" to ""), parsed).isEmpty())
+        assertTrue(getCssStyles(mapOf("title2" to "", "meaning" to ""), parsed).isEmpty())
+        assertTrue(getCssStyles(mapOf("img" to ""), parsed).isEmpty())
+        assertTrue(getCssStyles(mapOf("td" to "", "logo" to ""), parsed).isEmpty())
+    }
+
+    @Test
+    fun `presence box rule is recognised as a box rule`() {
+        val parsed = parseDictionaryCss(
+            """
+            [data-sc-bs] { padding: 0.1em; border-radius: 0.15em; background-color: #333; }
+            """.trimIndent(),
+        )
+        assertTrue(parsed.hasBoxRules)
+        val rule = parsed.presenceRules.single()
+        assertTrue(rule.isBox)
+        assertEquals(setOf("bs"), rule.requiredKeys)
+    }
+
+    @Test
+    fun `body font size rule scales the entry root only`() {
+        val parsed = parseDictionaryCss(
+            """
+            [data-sc-body] { font-size: 2em; }
+            """.trimIndent(),
+        )
+
+        val bodyStyles = getCssStyles(mapOf("body" to ""), parsed)
+        assertEquals("2em", bodyStyles["fontSize"])
+        // A non-body element must not inherit the 2em scale.
+        assertTrue(getCssStyles(mapOf("headword" to ""), parsed).isEmpty())
+    }
+
+    @Test
+    fun `logical padding and margin shorthands map to box dimensions`() {
+        val box = parseBoxStyle(
+            mapOf(
+                "paddingBlock" to "0.1em",
+                "paddingInline" to "0.5em",
+                "marginBlockStart" to "0.2em",
+                "borderInlineStart" to "solid 0.3em #FFCCCC",
+            ),
+            baseFontSizeSp = 16f,
+        )
+        assertEquals(1.6f, box.paddingTop)
+        assertEquals(1.6f, box.paddingBottom)
+        assertEquals(8f, box.paddingStart)
+        assertEquals(8f, box.paddingEnd)
+        assertEquals(3.2f, box.marginTop)
+        assertTrue(box.leftAccent)
+        assertTrue(box.hasBorder)
+    }
 }

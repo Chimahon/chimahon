@@ -1,14 +1,30 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 /**
+ * A CSS rule that matches by attribute *presence* rather than a literal value: `[data-sc-meaning]`
+ * or a compound like `[data-sc-logo][data-sc-round]` (all keys required, e.g. Shinmeikai Kokugo).
+ */
+data class CssPresenceRule(
+    val requiredKeys: Set<String>,
+    val styles: Map<String, String>,
+    val isBox: Boolean,
+)
+
+/**
  * Parsed dictionary CSS (`styles.css`) extracted into a form the Compose renderer can
  * apply directly. Mirrors the reference implementation: selectorStyles is keyed by the
- * `data-sc-content` / `data-sc-class` values a node carries, so lookups are O(1).
+ * `data-sc-content` / `data-sc-class` values a node carries, so lookups are O(1); presenceRules
+ * handle attribute-presence / compound selectors like `[data-sc-meaning]`.
  */
 data class ParsedCss(
     val boxSelectors: Set<String> = emptySet(),
     val selectorStyles: Map<String, Map<String, String>> = emptyMap(),
+    val presenceRules: List<CssPresenceRule> = emptyList(),
 ) {
+    /** True if any rule (value- or presence-based) carries box semantics. */
+    val hasBoxRules: Boolean
+        get() = boxSelectors.isNotEmpty() || presenceRules.any { it.isBox }
+
     companion object {
         val EMPTY = ParsedCss()
     }
@@ -22,6 +38,7 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
 
     val boxSelectors = mutableSetOf<String>()
     val selectorStyles = mutableMapOf<String, MutableMap<String, String>>()
+    val presenceRules = mutableListOf<CssPresenceRule>()
 
     var i = 0
     while (i < cleaned.length) {
@@ -35,7 +52,8 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
         val properties = parseProperties(propertiesPart)
 
         val dataSelectors = extractDataSelectors(selectorPart)
-        if (dataSelectors.isEmpty() || properties.isEmpty()) {
+        val presence = extractPresenceSelectors(selectorPart)
+        if ((dataSelectors.isEmpty() && presence.isEmpty()) || properties.isEmpty()) {
             i = braceEnd + 1
             continue
         }
@@ -55,17 +73,32 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
                 existing[toCamelCase(key)] = value
             }
         }
+        for (requiredKeys in presence) {
+            presenceRules.add(
+                CssPresenceRule(
+                    requiredKeys = requiredKeys,
+                    styles = properties.mapKeys { toCamelCase(it.key) },
+                    isBox = hasBoxProperty,
+                ),
+            )
+        }
         i = braceEnd + 1
     }
 
-    return ParsedCss(boxSelectors, selectorStyles)
+    return ParsedCss(boxSelectors, selectorStyles, presenceRules)
 }
 
 /** Merges all CSS rules that match an element's `data-*` attribute values. */
 fun getCssStyles(dataAttributes: Map<String, String>, parsedCss: ParsedCss): Map<String, String> {
-    return dataAttributes.values
+    var merged = dataAttributes.values
         .mapNotNull { parsedCss.selectorStyles[it] }
-        .fold(emptyMap()) { acc, map -> acc + map }
+        .fold(emptyMap<String, String>()) { acc, map -> acc + map }
+    for (rule in parsedCss.presenceRules) {
+        if (dataAttributes.keys.containsAll(rule.requiredKeys)) {
+            merged = merged + rule.styles
+        }
+    }
+    return merged
 }
 
 /**
@@ -82,7 +115,7 @@ internal fun StructuredNode.isStructuredBox(parsedCss: ParsedCss?): Boolean = wh
         if (attributes.style.isNotEmpty()) return true
         if (attributes.data.isNotEmpty()) {
             val pc = parsedCss
-            if (pc == null || pc.boxSelectors.isEmpty()) {
+            if (pc == null || !pc.hasBoxRules) {
                 // No CSS available: treat elements with data-* or block semantics as structured.
                 if (attributes.data["content"] == "attribution") return false
                 if (tag in blockSignalTags) return true
@@ -214,8 +247,18 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
             }
             "paddingLeft", "paddingInlineStart" -> paddingStart = parseDpValue(value, baseFontSizeSp)
             "paddingRight", "paddingInlineEnd" -> paddingEnd = parseDpValue(value, baseFontSizeSp)
-            "paddingTop" -> paddingTop = parseDpValue(value, baseFontSizeSp)
-            "paddingBottom" -> paddingBottom = parseDpValue(value, baseFontSizeSp)
+            "paddingTop", "paddingBlockStart" -> paddingTop = parseDpValue(value, baseFontSizeSp)
+            "paddingBottom", "paddingBlockEnd" -> paddingBottom = parseDpValue(value, baseFontSizeSp)
+            "paddingBlock" -> {
+                val (top, bottom) = parseLogicalPair(value, baseFontSizeSp)
+                if (top != null) paddingTop = top
+                if (bottom != null) paddingBottom = bottom
+            }
+            "paddingInline" -> {
+                val (start, end) = parseLogicalPair(value, baseFontSizeSp)
+                if (start != null) paddingStart = start
+                if (end != null) paddingEnd = end
+            }
             "margin" -> {
                 val (top, right, bottom, left) = parseFourValue(value, baseFontSizeSp)
                 if (top != null) marginTop = top
@@ -225,8 +268,13 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
             }
             "marginLeft", "marginInlineStart" -> marginStart = parseMarginValue(value, baseFontSizeSp)
             "marginRight", "marginInlineEnd" -> marginEnd = parseMarginValue(value, baseFontSizeSp)
-            "marginTop" -> marginTop = parseMarginValue(value, baseFontSizeSp)
-            "marginBottom" -> marginBottom = parseMarginValue(value, baseFontSizeSp)
+            "marginTop", "marginBlockStart" -> marginTop = parseMarginValue(value, baseFontSizeSp)
+            "marginBottom", "marginBlockEnd" -> marginBottom = parseMarginValue(value, baseFontSizeSp)
+            "borderInlineStart" -> if (value.isNotBlank() && value != "none" && value != "0") {
+                leftAccent = true
+                hasBorder = true
+                borderColor = extractBackgroundColor(value) ?: value.takeIf { it.startsWith("#") }
+            }
         }
     }
 
@@ -289,8 +337,7 @@ private fun addDeclaration(out: MutableMap<String, String>, raw: String) {
     if (key.isNotEmpty() && value.isNotEmpty()) out[key] = value
 }
 
-/** Returns the index of the `}` matching the `{` at [openBraceIndex], or -1 if unbalanced. */
-private fun findMatchingBraceEnd(css: String, openBraceIndex: Int): Int {
+/** Returns the index of the `}` matching the `{` at [openBraceIndex], or -1 if unbalanced. */private fun findMatchingBraceEnd(css: String, openBraceIndex: Int): Int {
     var depth = 0
     var j = openBraceIndex
     while (j < css.length) {
@@ -342,6 +389,79 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
     return result
 }
 
+/**
+ * Extracts attribute-presence selectors (`[data-sc-meaning]`, `[data-sc-logo][data-sc-round]`)
+ * from a rule's selector list. Returns one key-set per comma-separated selector. Structural
+ * selectors (descendant/sibling combinators, `:first-child`, `:has(...)`, ...) are skipped: those
+ * target a different element or a specific position we can't model, so flattening them would leak
+ * styles onto every matching node. Value-based `[data-sc-content="x"]` selectors are handled by
+ * [extractDataSelectors] and ignored here.
+ */
+private fun extractPresenceSelectors(selectorPart: String): List<Set<String>> {
+    if (!selectorPart.contains("[data-sc-")) return emptyList()
+    val result = mutableListOf<Set<String>>()
+    for (selector in splitSelectorList(selectorPart)) {
+        val trimmed = selector.trim()
+        if (trimmed.isEmpty() || !isSimplePresenceSelector(trimmed)) continue
+        val keys = mutableSetOf<String>()
+        var i = 0
+        while (true) {
+            val attrStart = trimmed.indexOf("[data-sc-", i)
+            if (attrStart == -1) break
+            val attrEnd = trimmed.indexOf(']', attrStart)
+            if (attrEnd == -1) break
+            val attrBody = trimmed.substring(attrStart + 1, attrEnd)
+            if (!attrBody.contains('=')) {
+                val key = attrBody.removePrefix("data-sc-")
+                if (key.isNotEmpty()) keys.add(key)
+            }
+            i = attrEnd + 1
+        }
+        if (keys.isNotEmpty()) result.add(keys)
+    }
+    return result
+}
+
+/** Splits a comma-separated selector list on top-level (depth-0) commas. */
+private fun splitSelectorList(selectorPart: String): List<String> {
+    val parts = mutableListOf<String>()
+    var depth = 0
+    var start = 0
+    for (i in selectorPart.indices) {
+        when (selectorPart[i]) {
+            '[' -> depth++
+            ']' -> depth--
+            ',' -> if (depth == 0) {
+                parts.add(selectorPart.substring(start, i))
+                start = i + 1
+            }
+        }
+    }
+    parts.add(selectorPart.substring(start))
+    return parts
+}
+
+/**
+ * True when a selector is a plain attribute-presence selector usable by the structured renderer:
+ * it references `data-sc-*` attributes only (optionally with an element prefix such as `td`) and
+ * contains no combinators (`>`, `+`, `~`, descendant space) or pseudo-classes.
+ */
+private fun isSimplePresenceSelector(selector: String): Boolean {
+    if (!selector.contains("[data-sc-")) return false
+    var depth = 0
+    for (ch in selector) {
+        when (ch) {
+            '[' -> depth++
+            ']' -> depth--
+            else -> if (depth == 0) {
+                if (ch == '>' || ch == '+' || ch == '~' || ch == ':' || ch == '.' || ch == '#') return false
+                if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') return false
+            }
+        }
+    }
+    return true
+}
+
 /** Extracts a usable color from `color-mix(in srgb, X 5%, transparent)`, `var(...)`, or plain colors. */
 private val COLOR_MIX_REGEX = Regex("""color-mix\(in\s+srgb,\s*([^,]+),\s*transparent\)""")
 private val HEX_COLOR_REGEX = Regex("""#[0-9a-fA-F]{3,8}""")
@@ -375,6 +495,8 @@ private fun extractBackgroundColor(value: String): String? {
     if (trimmed.contains("var(")) {
         HEX_COLOR_REGEX.find(trimmed)?.value?.let { return it }
     }
+    // Shorthand border values like `solid 0.3em #FFCCCC` — grab the hex token if present.
+    HEX_COLOR_REGEX.find(trimmed)?.value?.let { return it }
     return trimmed.takeIf { it.startsWith("#") }
 }
 
@@ -455,3 +577,22 @@ private fun parseFourValue(value: String, baseFontSizeSp: Float): FourValues {
 }
 
 private data class FourValues(val top: Float?, val right: Float?, val bottom: Float?, val left: Float?)
+
+/**
+ * Parses a 1-2 value logical shorthand (`padding-block`/`padding-inline`) into its two components.
+ * `0.1em` → both; `0.1em 0.5em` → first, second.
+ */
+private fun parseLogicalPair(value: String, baseFontSizeSp: Float): Pair<Float?, Float?> {
+    val tokens = value.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    return when (tokens.size) {
+        1 -> {
+            val v = tokens[0].let { parseDpValue(it, baseFontSizeSp) }
+            v to v
+        }
+        else -> {
+            val first = tokens.getOrNull(0)?.let { parseDpValue(it, baseFontSizeSp) }
+            val second = tokens.getOrNull(1)?.let { parseDpValue(it, baseFontSizeSp) }
+            first to second
+        }
+    }
+}
