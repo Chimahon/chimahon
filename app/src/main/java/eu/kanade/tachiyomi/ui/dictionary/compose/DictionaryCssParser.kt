@@ -157,6 +157,11 @@ data class BoxStyle(
     val marginBottom: Float? = null,
     val borderColor: String? = null,
     val backgroundColor: String? = null,
+    val opacity: Float? = null,
+    val textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+    val verticalAlign: String? = null,
+    val whiteSpace: String? = null,
+    val wordBreak: String? = null,
 ) {
     val hasPadding: Boolean
         get() = paddingStart != null || paddingEnd != null || paddingTop != null || paddingBottom != null
@@ -165,7 +170,8 @@ data class BoxStyle(
         get() = marginStart != null || marginEnd != null || marginTop != null || marginBottom != null
 
     val hasAnyStyle: Boolean
-        get() = hasBackground || hasBorder || hasPadding || hasMargin
+        get() = hasBackground || hasBorder || hasPadding || hasMargin ||
+            opacity != null || textAlign != null || verticalAlign != null
 }
 
 /**
@@ -187,9 +193,44 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
     var marginBottom: Float? = null
     var borderColor: String? = null
     var backgroundColor: String? = null
+    var opacity: Float? = null
+    var textAlign: androidx.compose.ui.text.style.TextAlign? = null
+    var verticalAlign: String? = null
+    var whiteSpace: String? = null
+    var wordBreak: String? = null
 
     for ((key, value) in styleMap) {
         when (key) {
+            "opacity" -> {
+                value.trim().toFloatOrNull()?.let { parsed ->
+                    if (parsed in 0f..1f) opacity = parsed
+                    else if (parsed > 1f && parsed <= 100f) opacity = (parsed / 100f).coerceIn(0f, 1f)
+                }
+            }
+            "textAlign" -> {
+                textAlign = when (value.trim().lowercase()) {
+                    "right", "end" -> androidx.compose.ui.text.style.TextAlign.End
+                    "center" -> androidx.compose.ui.text.style.TextAlign.Center
+                    "left", "start" -> androidx.compose.ui.text.style.TextAlign.Start
+                    "justify" -> androidx.compose.ui.text.style.TextAlign.Justify
+                    else -> null
+                }
+            }
+            "verticalAlign" -> {
+                // Only "super" is high-impact (109k uses for 0.7em super notes)
+                if (value.trim().lowercase() == "super" || value.trim().lowercase() == "sub") {
+                    verticalAlign = value.trim().lowercase()
+                }
+            }
+            "whiteSpace" -> {
+                // e.g. "nowrap" on tag chips — no Compose wrap prevention needed beyond FlowRow,
+                // but parse safely so it doesn't leak.
+                whiteSpace = value.trim().lowercase()
+            }
+            "wordBreak" -> {
+                // "keep-all" has no Compose equivalent; ensure we don't break CJK incorrectly.
+                wordBreak = value.trim().lowercase()
+            }
             "backgroundColor", "background" -> {
                 backgroundColor = extractBackgroundColor(value)
                 if (backgroundColor != null &&
@@ -206,7 +247,7 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
                         "borderStyle" -> {
                             // `none none none solid` / `none solid` → left accent bar only.
                             // A plain `solid` (all sides) is a full frame.
-                            val tokens = value.split(Regex("\\s+")).filter { it.isNotBlank() }
+                            val tokens = value.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
                             if (tokens.isNotEmpty() &&
                                 tokens.all { it == "none" || it == "solid" } &&
                                 tokens.any { it == "solid" } &&
@@ -275,6 +316,7 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
                 hasBorder = true
                 borderColor = extractBackgroundColor(value) ?: value.takeIf { it.startsWith("#") }
             }
+            // Opacity / textAlign etc. handled above; remaining keys fall through safely.
         }
     }
 
@@ -295,6 +337,11 @@ fun parseBoxStyle(styleMap: Map<String, String>, baseFontSizeSp: Float): BoxStyl
         marginBottom = marginBottom,
         borderColor = borderColor,
         backgroundColor = backgroundColor,
+        opacity = opacity,
+        textAlign = textAlign,
+        verticalAlign = verticalAlign,
+        whiteSpace = whiteSpace,
+        wordBreak = wordBreak,
     )
 }
 
@@ -462,14 +509,34 @@ private fun isSimplePresenceSelector(selector: String): Boolean {
     return true
 }
 
+private val WHITESPACE_REGEX = Regex("\\s+")
+
 /** Extracts a usable color from `color-mix(in srgb, X 5%, transparent)`, `var(...)`, or plain colors. */
-private val COLOR_MIX_REGEX = Regex("""color-mix\(in\s+srgb,\s*([^,]+),\s*transparent\)""")
+private val COLOR_MIX_REGEX = Regex("""color-mix\(in\s+srgb,\s*(.+),\s*(?:transparent|black|var\([^)]+\)|[^)]+)\)""", RegexOption.IGNORE_CASE)
 private val HEX_COLOR_REGEX = Regex("""#[0-9a-fA-F]{3,8}""")
 private val VAR_FALLBACK_REGEX = Regex("""var\(--[^,)]+,\s*([^)]+)\)""")
 private val NAMED_COLOR_REGEX = Regex("""[a-zA-Z#][a-zA-Z0-9#]*""")
 
 private fun extractBackgroundColor(value: String): String? {
     val trimmed = value.trim()
+    // Generic color-mix handling: `color-mix(in srgb, <c> <pct>, <c2>)` — extract first color, ignore second.
+    // Handles second arg as transparent / black / var(--bg) / var(--secondary) etc.
+    if (trimmed.contains("color-mix", ignoreCase = true)) {
+        val mixInner = extractColorMixFirstPart(trimmed)
+        if (mixInner != null) {
+            val inner = mixInner.trim()
+            HEX_COLOR_REGEX.findAll(inner).firstOrNull()?.value?.let { return it }
+            val varMatch = VAR_FALLBACK_REGEX.find(inner)
+            if (varMatch != null) {
+                val fallback = varMatch.groupValues[1].trim().removeSuffix(")")
+                if (fallback.startsWith("#")) return fallback
+            }
+            NAMED_COLOR_REGEX.find(inner)?.value?.let { candidate ->
+                return candidate.removeSuffix(")").takeIf { it != "transparent" }
+            }
+            // Fallback: try regex-based extraction for older patterns
+        }
+    }
     val mixMatch = COLOR_MIX_REGEX.find(trimmed)
     if (mixMatch != null) {
         val inner = mixMatch.groupValues[1].trim()
@@ -498,6 +565,52 @@ private fun extractBackgroundColor(value: String): String? {
     // Shorthand border values like `solid 0.3em #FFCCCC` — grab the hex token if present.
     HEX_COLOR_REGEX.find(trimmed)?.value?.let { return it }
     return trimmed.takeIf { it.startsWith("#") }
+}
+
+/**
+ * Extracts the first color argument from a `color-mix(in srgb, <c1> <pct>, <c2>)` expression.
+ * Handles second arg as transparent / black / var(--bg) etc. and first arg containing
+ * var() with nested commas by depth-aware comma splitting.
+ */
+private fun extractColorMixFirstPart(value: String): String? {
+    val lower = value.lowercase()
+    val mixIndex = lower.indexOf("color-mix")
+    if (mixIndex == -1) return null
+    val open = value.indexOf('(', mixIndex)
+    if (open == -1) return null
+    var depth = 0
+    var close = -1
+    for (i in open until value.length) {
+        when (value[i]) {
+            '(' -> depth++
+            ')' -> {
+                depth--
+                if (depth == 0) { close = i; break }
+            }
+        }
+    }
+    if (close == -1) return null
+    val inner = value.substring(open + 1, close) // e.g. "in srgb, var(--tag-color) 80%, black"
+    // Remove leading "in srgb," prefix
+    val afterSrbg = if (inner.contains("in srgb", ignoreCase = true)) {
+        inner.substringAfter("in srgb", "").let { s ->
+            // drop first comma after srgb
+            val comma = s.indexOf(',')
+            if (comma != -1) s.substring(comma + 1) else s
+        }
+    } else inner
+    // Split at top-level comma (depth 0) separating two colors
+    var d = 0
+    var splitAt = -1
+    for (i in afterSrbg.indices) {
+        when (afterSrbg[i]) {
+            '(' -> d++
+            ')' -> d--
+            ',' -> if (d == 0) { splitAt = i; break }
+        }
+    }
+    val firstPart = if (splitAt != -1) afterSrbg.substring(0, splitAt) else afterSrbg
+    return firstPart.trim().ifEmpty { null }
 }
 
 /** Strips block comments. */
@@ -565,7 +678,7 @@ private fun parseMarginValue(value: String, baseFontSizeSp: Float): Float? {
  * `1em 2em 3em 4em` → all four.
  */
 private fun parseFourValue(value: String, baseFontSizeSp: Float): FourValues {
-    val tokens = value.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val tokens = value.trim().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     val parsed = tokens.mapNotNull { parseMarginValue(it, baseFontSizeSp) }
     return when (parsed.size) {
         1 -> FourValues(parsed[0], parsed[0], parsed[0], parsed[0])
@@ -583,7 +696,7 @@ private data class FourValues(val top: Float?, val right: Float?, val bottom: Fl
  * `0.1em` → both; `0.1em 0.5em` → first, second.
  */
 private fun parseLogicalPair(value: String, baseFontSizeSp: Float): Pair<Float?, Float?> {
-    val tokens = value.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val tokens = value.trim().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     return when (tokens.size) {
         1 -> {
             val v = tokens[0].let { parseDpValue(it, baseFontSizeSp) }

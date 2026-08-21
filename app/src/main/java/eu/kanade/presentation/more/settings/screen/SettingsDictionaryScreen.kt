@@ -668,6 +668,7 @@ object SettingsDictionaryScreen : SearchableSettings {
                     entries = persistentListOf(
                         DictionaryPreferences.RENDERER_WEBVIEW to "WebView (default)",
                         DictionaryPreferences.RENDERER_COMPOSE to "Compose (native)",
+                        DictionaryPreferences.RENDERER_PLAIN_TEXT to "Plain Text",
                     ).associate { it.first to it.second }.toPersistentMap(),
                     title = "Renderer",
                     subtitle = "Native Compose renderer is faster but a reduced CSS/style subset is applied",

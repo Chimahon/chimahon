@@ -67,6 +67,7 @@ import chimahon.util.ImageEncoder
 import eu.kanade.tachiyomi.ui.dictionary.buildKanjiEntryJson
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryEntryWebView
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryPlainTextCompose
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.resolveDictionaryTheme
@@ -1239,47 +1240,86 @@ fun OcrLookupPopup(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    if (useComposeRenderer == DictionaryPreferences.RENDERER_COMPOSE) {
-                        DictionaryEntryCompose(
-                            results = results,
-                            styles = styles,
-                            mediaDataUris = mediaDataUris,
-                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
-                            fontSize = popupFontSizePref,
-                            showFrequencyHarmonic = showFreqHarmonic,
-                            showFrequencyAverage = showFreqAverage,
-                            groupTerms = groupTerms,
-                            showPitchDiagram = showPitchDiagram,
-                            showPitchNumber = showPitchNumber,
-                            showPitchText = showPitchText,
-                            activeProfile = activeProfile,
-                            existingExpressions = existingExpressions,
-                            entryJsons = entryJsons,
-                            customCss = customCss,
-                            eInkMode = eInkMode,
-                            wordAudioEnabled = wordAudioEnabled,
-                            wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
-                            groupPitches = groupPitches,
-                            onAnkiLookup = onAnkiLookup,
-                            onRecursiveLookup = onRecursiveLookup,
-                            onTabSelect = onTabSelect,
-                            onBack = onBack,
-                            isLoading = isLoading,
-                            onContentReadyChange = { ready ->
-                                if (ready) {
-                                    contentReady = true
-                                    lastRenderedLookupGeneration = lookupGeneration
-                                } else {
-                                    if (lookupGeneration != lastRenderedLookupGeneration) {
-                                        contentReady = false
+                    when (useComposeRenderer) {
+                        DictionaryPreferences.RENDERER_COMPOSE -> {
+                            DictionaryEntryCompose(
+                                results = results,
+                                styles = styles,
+                                mediaDataUris = mediaDataUris,
+                                placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                                fontSize = popupFontSizePref,
+                                showFrequencyHarmonic = showFreqHarmonic,
+                                showFrequencyAverage = showFreqAverage,
+                                groupTerms = groupTerms,
+                                showPitchDiagram = showPitchDiagram,
+                                showPitchNumber = showPitchNumber,
+                                showPitchText = showPitchText,
+                                activeProfile = activeProfile,
+                                existingExpressions = existingExpressions,
+                                entryJsons = entryJsons,
+                                customCss = customCss,
+                                eInkMode = eInkMode,
+                                wordAudioEnabled = wordAudioEnabled,
+                                wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
+                                groupPitches = groupPitches,
+                                onAnkiLookup = onAnkiLookup,
+                                onRecursiveLookup = onRecursiveLookup,
+                                onTabSelect = onTabSelect,
+                                onBack = onBack,
+                                isLoading = isLoading,
+                                onContentReadyChange = { ready ->
+                                    if (ready) {
+                                        contentReady = true
+                                        lastRenderedLookupGeneration = lookupGeneration
+                                    } else {
+                                        if (lookupGeneration != lastRenderedLookupGeneration) {
+                                            contentReady = false
+                                        }
                                     }
-                                }
-                                onContentReadyChange?.invoke(ready)
-                            },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        DictionaryEntryWebView(
+                                    onContentReadyChange?.invoke(ready)
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        DictionaryPreferences.RENDERER_PLAIN_TEXT -> {
+                            DictionaryEntryPlainTextCompose(
+                                results = results,
+                                styles = styles,
+                                mediaDataUris = mediaDataUris,
+                                placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                                fontSize = popupFontSizePref,
+                                showFrequencyHarmonic = showFreqHarmonic,
+                                showFrequencyAverage = showFreqAverage,
+                                groupTerms = groupTerms,
+                                showPitchDiagram = showPitchDiagram,
+                                showPitchNumber = showPitchNumber,
+                                showPitchText = showPitchText,
+                                activeProfile = activeProfile,
+                                existingExpressions = existingExpressions,
+                                entryJsons = entryJsons,
+                                eInkMode = eInkMode,
+                                groupPitches = groupPitches,
+                                onAnkiLookup = onAnkiLookup,
+                                onRecursiveLookup = onRecursiveLookup,
+                                onTabSelect = onTabSelect,
+                                onBack = onBack,
+                                isLoading = isLoading,
+                                onContentReadyChange = { ready ->
+                                    if (ready) {
+                                        contentReady = true
+                                        lastRenderedLookupGeneration = lookupGeneration
+                                    } else {
+                                        if (lookupGeneration != lastRenderedLookupGeneration) {
+                                            contentReady = false
+                                        }
+                                    }
+                                    onContentReadyChange?.invoke(ready)
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        else -> {
+                            DictionaryEntryWebView(
                         results = results,
                         styles = styles,
                         mediaDataUris = mediaDataUris,
@@ -1329,6 +1369,7 @@ fun OcrLookupPopup(
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
+                    }
                     }
 
                 if (errorMessage != null) {

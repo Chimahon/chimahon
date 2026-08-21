@@ -48,6 +48,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import chimahon.DictionaryStyle
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryPlainTextCompose
 import chimahon.HoshiDicts
 import chimahon.LookupResult
 import chimahon.anki.AnkiCardCreator
@@ -712,9 +714,55 @@ data object DictionaryTab : Tab {
             }
 
             if (shouldMountWebView) {
-                // Create the WebView only when the user starts searching, so the search bar
-                // renders immediately when opening the tab.
-                DictionaryEntryWebView(
+                val renderer by dictionaryPreferences.renderer().collectAsState()
+                when (renderer) {
+                    DictionaryPreferences.RENDERER_COMPOSE -> DictionaryEntryCompose(
+                        results = results,
+                        styles = styles,
+                        mediaDataUris = mediaDataUris,
+                        placeholder = if (hasSearched) stringResource(MR.strings.no_results_found) else "Search to view dictionary entries",
+                        showFrequencyHarmonic = showFreqHarmonic,
+                        showFrequencyAverage = showFreqAverage,
+                        groupTerms = groupTerms,
+                        showPitchDiagram = showPitchDiagram,
+                        showPitchNumber = showPitchNumber,
+                        showPitchText = showPitchText,
+                        activeProfile = activeProfile,
+                        existingExpressions = existingExpressions,
+                        entryJsons = entryJsons,
+                        customCss = customCss,
+                        wordAudioEnabled = wordAudioEnabled,
+                        groupPitches = groupPitches,
+                        onAnkiLookup = onAnkiLookup,
+                        onRecursiveLookup = { word, _, _, _, _, type -> stackLookup(word, type) },
+                        onTabSelect = { idx -> if (idx in lookupStack.indices) activeTabIndex = idx },
+                        onBack = { if (activeTabIndex > 0) activeTabIndex-- },
+                        isLoading = isLoading,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                    DictionaryPreferences.RENDERER_PLAIN_TEXT -> DictionaryEntryPlainTextCompose(
+                        results = results,
+                        styles = styles,
+                        mediaDataUris = mediaDataUris,
+                        placeholder = if (hasSearched) stringResource(MR.strings.no_results_found) else "Search to view dictionary entries",
+                        showFrequencyHarmonic = showFreqHarmonic,
+                        showFrequencyAverage = showFreqAverage,
+                        groupTerms = groupTerms,
+                        showPitchDiagram = showPitchDiagram,
+                        showPitchNumber = showPitchNumber,
+                        showPitchText = showPitchText,
+                        activeProfile = activeProfile,
+                        existingExpressions = existingExpressions,
+                        entryJsons = entryJsons,
+                        groupPitches = groupPitches,
+                        onAnkiLookup = onAnkiLookup,
+                        onRecursiveLookup = { word, _, _, _, _, type -> stackLookup(word, type) },
+                        onTabSelect = { idx -> if (idx in lookupStack.indices) activeTabIndex = idx },
+                        onBack = { if (activeTabIndex > 0) activeTabIndex-- },
+                        isLoading = isLoading,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                    else -> DictionaryEntryWebView(
                     results = results,
                     styles = styles,
                     mediaDataUris = mediaDataUris,
@@ -754,6 +802,7 @@ data object DictionaryTab : Tab {
                         .fillMaxWidth()
                         .weight(1f),
                 )
+                }
             } else {
                 Column(
                     modifier = Modifier

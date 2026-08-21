@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -33,6 +35,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -145,13 +149,16 @@ private fun StructuredBox(
 ) {
     if (node.attributes.data["content"] == "attribution") return
 
-    val combined = getCssStyles(node.attributes.data, parsedCss) + node.attributes.style
-    val styled = applyTypography(style, combined)
+    val combined = remember(node.attributes.data, parsedCss, node.attributes.style) {
+        getCssStyles(node.attributes.data, parsedCss) + node.attributes.style
+    }
+    val styled = remember(style, combined) { applyTypography(style, combined) }
 
     // `display: none` / `visibility: hidden` rules hide the element entirely (e.g. Oxford
     // hides `sn`/`ps`/`hw`/`pr` spans). The WebView applies these via injected dictionary CSS.
-    val display = combined["display"]?.trim()?.lowercase()
-    if (display == "none" || combined["visibility"]?.trim()?.lowercase() == "hidden") return
+    val display = remember(combined) { combined["display"]?.trim()?.lowercase() }
+    val visibility = remember(combined) { combined["visibility"]?.trim()?.lowercase() }
+    if (display == "none" || visibility == "hidden") return
 
     // Tag chip spans: `span[data-sc-class="tag"]` etc.
     if (node.tag == StructuredTag.Span && node.attributes.data["class"]?.contains("tag") == true) {
@@ -160,15 +167,53 @@ private fun StructuredBox(
     }
 
     val baseFontSizeSp = style.fontSize.let { if (it.isSp) it.value else 16f }
-    val box = parseBoxStyle(combined, baseFontSizeSp)
+    val box = remember(combined, baseFontSizeSp) { parseBoxStyle(combined, baseFontSizeSp) }
 
     val isInline = node.children.all {
         it is StructuredNode.Text || (it is StructuredNode.Element && it.tag == StructuredTag.Span)
     }
 
+    // Merge box-level typography (textAlign / verticalAlign / opacity) into the style for children.
+    var effectiveStyled = styled
+    if (box.textAlign != null) effectiveStyled = effectiveStyled.copy(textAlign = box.textAlign)
+    if (box.verticalAlign == "super") {
+        effectiveStyled = effectiveStyled.copy(baselineShift = BaselineShift.Superscript)
+    } else if (box.verticalAlign == "sub") {
+        effectiveStyled = effectiveStyled.copy(baselineShift = BaselineShift.Subscript)
+    }
+    // Fallback: if BoxStyle didn't capture verticalAlign but css map has it (e.g. inline super notes 0.7em)
+    if (box.verticalAlign == null && combined["verticalAlign"]?.trim()?.lowercase() == "super") {
+        effectiveStyled = effectiveStyled.copy(baselineShift = BaselineShift.Superscript)
+    }
+
     if (!box.hasAnyStyle && isInline) {
         // Plain inline span/div → emit inline text only (fast path). Hidden subtrees are skipped.
-        spanText(node.collectVisible(parsedCss), styled, onRecursiveLookup)
+        // Use effectiveStyled which carries verticalAlign / textAlign / opacity.
+        if (box.textAlign != null) {
+            // Block alignment needs width; emit as full-width Text rather than inline
+            val text = node.collectVisible(parsedCss)
+            if (text.isNotBlank()) {
+                Text(
+                    text = text,
+                    style = effectiveStyled,
+                    textAlign = box.textAlign,
+                    modifier = Modifier.fillMaxWidth().let { m ->
+                        if (box.opacity != null) m.alpha(box.opacity) else m
+                    },
+                )
+            }
+        } else {
+            // Opacity for Text: apply alpha via Modifier if needed, or color alpha is already in effectiveStyled
+            val alphaMod = if (box.opacity != null) Modifier.alpha(box.opacity) else Modifier
+            if (alphaMod != Modifier) {
+                // Wrap inline text with alpha
+                Box(modifier = alphaMod) {
+                    spanText(node.collectVisible(parsedCss), effectiveStyled, onRecursiveLookup)
+                }
+            } else {
+                spanText(node.collectVisible(parsedCss), effectiveStyled, onRecursiveLookup)
+            }
+        }
         return
     }
 
@@ -176,6 +221,11 @@ private fun StructuredBox(
     val bgColor = box.backgroundColor?.let { parseCssColor2(it) }
         ?: if (box.hasBackground) secondary.copy(alpha = 0.08f) else Color.Transparent
     val borderColor = box.borderColor?.let { parseCssColor2(it) } ?: border
+
+    // Opacity handling: wrap box content with alpha. For Text opacity, also apply via TextStyle color alpha
+    // (handled in applyTypography + effectiveStyled). Box opacity uses Modifier.alpha.
+    val outerAlphaModifier = if (box.opacity != null) Modifier.alpha(box.opacity) else Modifier
+    val fillWidthModifier = if (box.textAlign != null) Modifier.fillMaxWidth() else Modifier
 
     val content = Column(
         modifier = Modifier
@@ -187,7 +237,7 @@ private fun StructuredBox(
             ),
     ) {
         node.children.forEach { child ->
-            StructuredNodeView(child, parsedCss, styled, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+            StructuredNodeView(child, parsedCss, effectiveStyled, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
         }
     }
 
@@ -196,6 +246,8 @@ private fun StructuredBox(
     if (box.leftAccent) {
         Row(
             modifier = Modifier
+                .then(outerAlphaModifier)
+                .then(fillWidthModifier)
                 .padding(
                     start = box.marginStart?.dp ?: 0.dp,
                     end = box.marginEnd?.dp ?: 0.dp,
@@ -226,6 +278,8 @@ private fun StructuredBox(
     }
 
     var modifier = Modifier
+        .then(outerAlphaModifier)
+        .then(fillWidthModifier)
         .padding(
             start = box.marginStart?.dp ?: 0.dp,
             end = box.marginEnd?.dp ?: 0.dp,
@@ -237,7 +291,7 @@ private fun StructuredBox(
     if (box.hasBorder) modifier = modifier.border(1.dp, borderColor, shape)
     Column(modifier = modifier) {
         node.children.forEach { child ->
-            StructuredNodeView(child, parsedCss, styled, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+            StructuredNodeView(child, parsedCss, effectiveStyled, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
         }
     }
 }
@@ -322,7 +376,7 @@ private fun StructuredListItem(
             ?.takeIf { it.isNotEmpty() && it != "inherit" && !it.startsWith("url(") }
             ?: "•"
     }
-    Row(Modifier.padding(vertical = 1.dp)) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 1.dp)) {
         Text(
             marker,
             color = secondary,
@@ -508,13 +562,17 @@ private fun StructuredTable(
 
     Column(Modifier.padding(vertical = 4.dp)) {
         rows.forEach { row ->
-            Row {
+            Row(Modifier.fillMaxWidth()) {
                 row.forEach { cell ->
+                    // colSpan handling: GlossaryJsonParser stores colSpan as string property "colSpan"
+                    val colSpan = cell.element?.attributes?.properties?.get("colSpan")?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                    val weight = colSpan.toFloat()
                     Column(
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(weight)
                             .padding(horizontal = 4.dp, vertical = 2.dp)
-                            .border(1.dp, border, RoundedCornerShape(2.dp))
+                            // border collapse: use 0.5.dp to avoid double borders between cells (each cell draws its own border)
+                            .border(0.5.dp, border, RoundedCornerShape(2.dp))
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     ) {
                         if (cell.isHeader) {
@@ -621,16 +679,18 @@ private fun StructuredNode.collect(): String = when (this) {
 }
 
 /** Like [collect] but omits subtrees hidden by `display: none` / `visibility: hidden`. */
-private fun StructuredNode.collectVisible(parsedCss: ParsedCss): String = when (this) {
-    is StructuredNode.Text -> text
-    StructuredNode.TextBreak -> "\n"
-    is StructuredNode.Element -> {
-        val combined = getCssStyles(attributes.data, parsedCss) + attributes.style
-        val display = combined["display"]?.trim()?.lowercase()
-        if (display == "none" || combined["visibility"]?.trim()?.lowercase() == "hidden") {
-            ""
-        } else {
-            children.joinToString("") { it.collectVisible(parsedCss) }
+private fun StructuredNode.collectVisible(parsedCss: ParsedCss): String =
+    buildString { appendVisible(this@collectVisible, parsedCss) }
+
+private fun StringBuilder.appendVisible(node: StructuredNode, parsedCss: ParsedCss) {
+    when (node) {
+        is StructuredNode.Text -> append(node.text)
+        StructuredNode.TextBreak -> append('\n')
+        is StructuredNode.Element -> {
+            val combined = getCssStyles(node.attributes.data, parsedCss) + node.attributes.style
+            val display = combined["display"]?.trim()?.lowercase()
+            if (display == "none" || combined["visibility"]?.trim()?.lowercase() == "hidden") return
+            node.children.forEach { appendVisible(it, parsedCss) }
         }
     }
 }
@@ -649,6 +709,40 @@ private fun applyTypography(base: TextStyle, css: Map<String, String>): TextStyl
     if (css["textDecoration"]?.contains("underline") == true || css["textDecorationLine"]?.contains("underline") == true) {
         style = style.copy(textDecoration = TextDecoration.Underline)
     }
+    // opacity: Oxford tiers 0.5/.7/.8 and rare/furigana — apply via TextStyle color alpha
+    css["opacity"]?.trim()?.toFloatOrNull()?.let { raw ->
+        val o = when {
+            raw in 0f..1f -> raw
+            raw > 1f && raw <= 100f -> (raw / 100f).coerceIn(0f, 1f)
+            else -> null
+        }
+        if (o != null) {
+            val currentColor = style.color
+            if (currentColor != Color.Unspecified) {
+                style = style.copy(color = currentColor.copy(alpha = currentColor.alpha * o))
+            } else {
+                // If no color set, use black with opacity (will be overridden by theme onBg)
+                style = style.copy(color = Color.Black.copy(alpha = o))
+            }
+        }
+    }
+    // verticalAlign: super — 109k uses for 0.7em super notes
+    when (css["verticalAlign"]?.trim()?.lowercase()) {
+        "super" -> style = style.copy(baselineShift = BaselineShift.Superscript)
+        "sub" -> style = style.copy(baselineShift = BaselineShift.Subscript)
+    }
+    // textAlign right/center/left — 341k uses
+    css["textAlign"]?.trim()?.lowercase()?.let { v ->
+        val align = when (v) {
+            "right", "end" -> TextAlign.End
+            "center" -> TextAlign.Center
+            "left", "start" -> TextAlign.Start
+            "justify" -> TextAlign.Justify
+            else -> null
+        }
+        if (align != null) style = style.copy(textAlign = align)
+    }
+    // wordBreak keep-all + whiteSpace nowrap — parsed safely, no Compose equivalent for keep-all; nowrap on tags is handled by FlowRow layout
     return style
 }
 

@@ -103,8 +103,8 @@ private fun parseStructuredObject(item: JSONObject): StructuredNode? {
         val ruby = item.optJSONObject("ruby")
         val base = ruby?.opt("text")
         val rt = ruby?.opt("rt")
-        val baseText = parseStructuredValue(base).joinToString("") { it.collectText() }
-        val rtText = parseStructuredValue(rt).joinToString("") { it.collectText() }
+        val baseText = parseStructuredValue(base).joinToString("") { it.collectTextOnly() }
+        val rtText = parseStructuredValue(rt).joinToString("") { it.collectTextOnly() }
         val children = buildList {
             if (baseText.isNotBlank()) add(StructuredNode.Text(baseText))
             if (rtText.isNotBlank()) add(StructuredNode.Element(StructuredTag.Rt, children = listOf(StructuredNode.Text(rtText))))
@@ -147,9 +147,9 @@ private fun parseStructuredObject(item: JSONObject): StructuredNode? {
     )
 }
 
-private fun StructuredNode.collectText(): String = when (this) {
+private fun StructuredNode.collectTextOnly(): String = when (this) {
     is StructuredNode.Text -> text
-    is StructuredNode.Element -> children.joinToString("") { it.collectText() }
+    is StructuredNode.Element -> children.joinToString("") { it.collectTextOnly() }
     StructuredNode.TextBreak -> "\n"
 }
 

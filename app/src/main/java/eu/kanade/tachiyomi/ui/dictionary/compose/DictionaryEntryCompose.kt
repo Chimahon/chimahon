@@ -90,6 +90,8 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import kotlin.math.roundToInt
 
+private val WHITESPACE_REGEX = Regex("\\s+")
+
 private data class TermCard(
     val expression: String,
     val reading: String,
@@ -260,7 +262,7 @@ fun DictionaryEntryCompose(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                 ) {
-                    itemsIndexed(kanjiCards, key = { i, _ -> "kanji-$i" }) { i, kanji ->
+                    itemsIndexed(kanjiCards, key = { i, kanji -> "kanji-${kanji.character}-$i" }, contentType = { _, _ -> "kanji" }) { i, kanji ->
                         KanjiEntryCard(
                             kanji = kanji,
                             fontSize = fontSize,
@@ -289,7 +291,7 @@ fun DictionaryEntryCompose(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                 ) {
-                    itemsIndexed(cards, key = { i, _ -> i }) { i, card ->
+                    itemsIndexed(cards, key = { _, card -> "${card.expression}\u0000${card.reading}\u0000${card.dictGroups.hashCode()}" }, contentType = { _, _ -> "term" }) { i, card ->
                         TermCardView(
                             card = card,
                             index = i,
@@ -431,7 +433,7 @@ private fun TermCardView(
     var selectedDict by remember(card) { mutableStateOf<String?>(null) }
 
     val termTagList = remember(card.termTags) {
-        card.termTags.split(Regex("\\s+")).filter { it.isNotBlank() }
+        card.termTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     }
     val headColor = when {
         termTagList.any { it.contains("popular", true) || it.contains(" p ", true) } -> accent
@@ -459,6 +461,7 @@ private fun TermCardView(
             .padding(top = 10.dp, bottom = 8.dp),
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(
@@ -540,7 +543,7 @@ private fun TermCardView(
         if (inflected) {
             var showDetails by remember(card) { mutableStateOf(false) }
             // Left→right: surface→base. process[0] is the last step applied so reverse.
-            val labelText = card.process.map { it.name }.asReversed().joinToString(" » ")
+            val labelText = remember(card.process) { card.process.asReversed().joinToString(" » ") { "${it.name}: ${it.description}" } }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -564,7 +567,7 @@ private fun TermCardView(
             }
             AnimatedVisibility(visible = showDetails) {
                 Column(Modifier.padding(top = 2.dp)) {
-                    val ruleSet = card.rules.split(Regex("\\s+")).filter { it.isNotBlank() }
+                    val ruleSet = remember(card.rules) { card.rules.split(WHITESPACE_REGEX).filter { it.isNotBlank() } }
                     if (ruleSet.isNotEmpty()) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -990,7 +993,7 @@ private fun GlossRow(
     val lines = remember(nodes) { partitionGlossLines(nodes) }
     Column(Modifier.padding(vertical = 3.dp)) {
         val defTags = remember(gloss.definitionTags) {
-            gloss.definitionTags.split(Regex("\\s+")).filter { it.isNotBlank() }
+            gloss.definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
         }
         if (defTags.isNotEmpty()) {
             FlowRow(modifier = Modifier.padding(bottom = 2.dp)) {
@@ -1019,7 +1022,7 @@ private fun GlossRow(
             // FlowRow explosion that forced per-text measure/layer invalidation avalanches
             // on the main thread. Lines containing Ruby (furigana) fall back to the Flow path.
             if (line.none { it is GlossNode.Ruby }) {
-                val annotated = buildGlossAnnotated(line, onBg, secondary, onRecursiveLookup)
+                val annotated = remember(line, onBg, secondary, onRecursiveLookup) { buildGlossAnnotated(line, onBg, secondary, onRecursiveLookup) }
                 Text(
                     text = annotated,
                     fontSize = (fontSize - 1).sp,
@@ -1209,7 +1212,8 @@ private fun GlossTable(
                     Box(
                         modifier = Modifier
                             .weight(weight)
-                            .border(1.dp, cellBorder)
+                            // border-collapse: 0.5.dp avoids double borders between adjacent cells
+                            .border(0.5.dp, cellBorder)
                             .padding(horizontal = 6.dp, vertical = 3.dp),
                     ) {
                         cell.nodes.forEach { node ->
@@ -1378,9 +1382,10 @@ private fun KanjiEntryCard(
                 kanji.stats.forEach { (label, value) ->
                     Row(
                         verticalAlignment = Alignment.Top,
+                        // border-collapse: 0.5.dp avoids doubled 1dp lines between stacked rows
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(width = 1.dp, color = border, shape = RectangleShape),
+                            .border(width = 0.5.dp, color = border, shape = RectangleShape),
                     ) {
                         Text(
                             text = label,

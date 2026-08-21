@@ -318,6 +318,7 @@ class DictionaryPreferences(
 
         const val RENDERER_WEBVIEW = "webview"
         const val RENDERER_COMPOSE = "compose"
+        const val RENDERER_PLAIN_TEXT = "plain_text"
     }
 
     // -------------------------------------------------------------------------
