@@ -244,10 +244,20 @@ fun DictionaryEntryCompose(
     val displayed = remember(results, isLoading, activeProfile) {
         if (isLoading) emptyList() else orderLookupResultsForDisplay(results, activeProfile, context)
     }
-    val parsedCssMap = remember(styles, context) {
+    val parsedCssMap = remember(styles, customCss, context) {
         val map = mutableMapOf<String, ParsedCss>()
+        // customCss (from DictionaryPreferences) should also apply to all dicts like WebView does
+        val customParsed = if (customCss.isNotBlank()) parseDictionaryCss(customCss) else null
+        fun merge(base: ParsedCss, extra: ParsedCss?): ParsedCss {
+            if (extra == null || extra == ParsedCss.EMPTY) return base
+            return ParsedCss(
+                boxSelectors = base.boxSelectors + extra.boxSelectors,
+                selectorStyles = base.selectorStyles + extra.selectorStyles,
+                presenceRules = base.presenceRules + extra.presenceRules,
+            )
+        }
         for (s in styles) {
-            val parsed = parseDictionaryCss(s.styles)
+            val parsed = merge(parseDictionaryCss(s.styles), customParsed)
             map[s.dictName] = parsed
             // gloss.dictName may be dirName or display title; index by both so lookup never misses
             val title = runCatching { getDictionaryTitle(context, s.dictName) }.getOrNull()
@@ -255,6 +265,11 @@ fun DictionaryEntryCompose(
             // also index by lowercased variants for robustness
             map[s.dictName.lowercase()] = parsed
             if (title != null) map[title.lowercase()] = parsed
+        }
+        // if there are no styles but customCss exists, still ensure glosses get custom styles
+        if (map.isEmpty() && customParsed != null && customParsed != ParsedCss.EMPTY) {
+            // will be used as fallback via ?: ParsedCss.EMPTY check, but also store under empty key
+            map[""] = customParsed
         }
         map
     }
@@ -401,7 +416,10 @@ private fun buildCards(
         for (g in result.term.glossaries) {
             val group = acc.glosses.getOrPut(g.dictName) { DictionaryGroup(g.dictName, resolveTitle(g.dictName), mutableListOf()) }
             @Suppress("UNCHECKED_CAST")
-            (group.glosses as MutableList<GlossaryEntry>).add(g)
+            val list = group.glosses as MutableList<GlossaryEntry>
+            if (list.none { it.glossary == g.glossary && it.definitionTags == g.definitionTags }) {
+                list.add(g)
+            }
         }
         for (f in result.term.frequencies) {
             val existing = acc.frequencies[f.dictName]
@@ -1004,10 +1022,13 @@ private fun GlossRow(
     // Structured-content glosses (e.g. Jitendex / oxford) render through the CSS-aware path.
     // Everything else keeps the existing flat fast path. Detection and parse run once per gloss
     // via remember, so recompositions (details toggles, image loads) don't re-walk the tree.
-    val structuredNodes = remember(gloss.glossary, parsedCssMap) {
+    val glossCss = remember(gloss.dictName, parsedCssMap) {
+        parsedCssMap[gloss.dictName] ?: parsedCssMap[gloss.dictName.lowercase()] ?: ParsedCss.EMPTY
+    }
+    val structuredNodes = remember(gloss.glossary, glossCss) {
         val parsed = parseStructuredGlossary(gloss.glossary)
         if (parsed is StructuredEntry.Tree && parsed.nodes.any { node ->
-                node.isStructuredBox(parsedCssMap[gloss.dictName])
+                node.isStructuredBox(glossCss)
             }
         ) {
             parsed.nodes
@@ -1022,7 +1043,7 @@ private fun GlossRow(
         Column(Modifier.padding(vertical = 3.dp)) {
             StructuredGlossaryContent(
                 nodes = structuredNodes,
-                parsedCss = parsedCssMap[gloss.dictName] ?: ParsedCss.EMPTY,
+                parsedCss = glossCss,
                 dictName = gloss.dictName,
                 mediaDataUris = mediaDataUris,
                 fontSize = fontSize,
