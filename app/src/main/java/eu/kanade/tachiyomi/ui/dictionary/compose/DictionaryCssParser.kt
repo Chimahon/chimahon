@@ -416,7 +416,7 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
         val operator = selectorPart[equalsIndex - 1].takeIf { it == '^' || it == '$' || it == '*' || it == '~' }
         val attrEnd = if (operator != null) equalsIndex - 1 else equalsIndex
         val attrName = selectorPart.substring(attrStart + 1, attrEnd)
-        if (attrName != "data-sc-content" && attrName != "data-sc-class") {
+        if (!attrName.startsWith("data-sc-")) {
             i = equalsIndex + 1
             continue
         }
