@@ -200,6 +200,7 @@ fun DictionaryEntryCompose(
     forceDefaultTheme: Boolean = false,
     requestFocusOnMount: Boolean = false,
     isLoading: Boolean = false,
+    usePlainTextBody: Boolean = false,
 ) {
     val context = LocalContext.current
     val prefs = remember { Injekt.get<DictionaryPreferences>() }
@@ -317,6 +318,7 @@ fun DictionaryEntryCompose(
                             wordAudioEnabled = wordAudioEnabled,
                             autoplay = wordAudioAutoplayOverride == true,
                             modifier = Modifier.fillMaxWidth(),
+                            usePlainTextBody = usePlainTextBody,
                         )
                     }
                 }
@@ -426,6 +428,7 @@ private fun TermCardView(
     wordAudioEnabled: Boolean,
     autoplay: Boolean,
     modifier: Modifier,
+    usePlainTextBody: Boolean = false,
 ) {
     val overrideState = remember(card) { CollapseOverrideState(emptyMap()) }
     val collapseMode = activeProfile.dictionaryCollapseMode
@@ -763,6 +766,7 @@ private fun TermCardView(
                                 mediaDataUris = mediaDataUris,
                                 parsedCssMap = parsedCssMap,
                                 onRecursiveLookup = onRecursiveLookup,
+                                usePlainTextBody = usePlainTextBody,
                             )
                         }
                     }
@@ -953,7 +957,39 @@ private fun GlossRow(
     mediaDataUris: Map<String, String>,
     parsedCssMap: Map<String, ParsedCss>,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
+    usePlainTextBody: Boolean = false,
 ) {
+    if (usePlainTextBody) {
+        val plain = remember(gloss.glossary) {
+            val raw = gloss.glossary
+            val t = raw.trimStart()
+            val candidate = if (t.startsWith("[") || t.startsWith("{") || t.contains('<')) {
+                try {
+                    when (val e = parseStructuredGlossary(t)) {
+                        is StructuredEntry.Tree -> e.nodes.joinToString("") { it.flatten() }
+                        is StructuredEntry.PlainText -> raw
+                    }
+                } catch (_: Exception) { raw }
+            } else raw
+            // collapse weird spacing: multiple newlines/blank lines -> single newline, trim
+            candidate.replace(Regex("\\n[ \\t]*\\n+"), "\n").replace(Regex("[ \\t]{2,}"), " ").trim()
+        }
+        if (plain.isBlank()) return
+        Column(Modifier.padding(vertical = 2.dp)) {
+            val defTags = remember(gloss.definitionTags) {
+                gloss.definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
+            }
+            if (defTags.isNotEmpty()) {
+                FlowRow(modifier = Modifier.padding(bottom = 2.dp)) {
+                    defTags.take(8).forEach { tag ->
+                        dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode, fontSize = fontSize)
+                    }
+                }
+            }
+            Text(text = plain, color = onBg, fontSize = (fontSize - 1).sp, lineHeight = (fontSize * 1.35).sp)
+        }
+        return
+    }
     // Structured-content glosses (e.g. Jitendex / oxford) render through the CSS-aware path.
     // Everything else keeps the existing flat fast path. Detection and parse run once per gloss
     // via remember, so recompositions (details toggles, image loads) don't re-walk the tree.

@@ -740,7 +740,7 @@ data object DictionaryTab : Tab {
                         isLoading = isLoading,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
-                    DictionaryPreferences.RENDERER_PLAIN_TEXT -> DictionaryEntryPlainTextCompose(
+                    DictionaryPreferences.RENDERER_PLAIN_TEXT -> DictionaryEntryCompose(
                         results = results,
                         styles = styles,
                         mediaDataUris = mediaDataUris,
@@ -754,12 +754,15 @@ data object DictionaryTab : Tab {
                         activeProfile = activeProfile,
                         existingExpressions = existingExpressions,
                         entryJsons = entryJsons,
+                        customCss = customCss,
+                        wordAudioEnabled = wordAudioEnabled,
                         groupPitches = groupPitches,
                         onAnkiLookup = onAnkiLookup,
                         onRecursiveLookup = { word, _, _, _, _, type -> stackLookup(word, type) },
                         onTabSelect = { idx -> if (idx in lookupStack.indices) activeTabIndex = idx },
                         onBack = { if (activeTabIndex > 0) activeTabIndex-- },
                         isLoading = isLoading,
+                        usePlainTextBody = true,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                     else -> DictionaryEntryWebView(

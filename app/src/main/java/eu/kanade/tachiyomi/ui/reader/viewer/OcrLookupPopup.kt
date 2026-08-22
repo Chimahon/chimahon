@@ -1282,7 +1282,7 @@ fun OcrLookupPopup(
                             )
                         }
                         DictionaryPreferences.RENDERER_PLAIN_TEXT -> {
-                            DictionaryEntryPlainTextCompose(
+                            DictionaryEntryCompose(
                                 results = results,
                                 styles = styles,
                                 mediaDataUris = mediaDataUris,
@@ -1297,13 +1297,17 @@ fun OcrLookupPopup(
                                 activeProfile = activeProfile,
                                 existingExpressions = existingExpressions,
                                 entryJsons = entryJsons,
+                                customCss = customCss,
                                 eInkMode = eInkMode,
+                                wordAudioEnabled = wordAudioEnabled,
+                                wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
                                 groupPitches = groupPitches,
                                 onAnkiLookup = onAnkiLookup,
                                 onRecursiveLookup = onRecursiveLookup,
                                 onTabSelect = onTabSelect,
                                 onBack = onBack,
                                 isLoading = isLoading,
+                                usePlainTextBody = true,
                                 onContentReadyChange = { ready ->
                                     if (ready) {
                                         contentReady = true
