@@ -244,8 +244,19 @@ fun DictionaryEntryCompose(
     val displayed = remember(results, isLoading, activeProfile) {
         if (isLoading) emptyList() else orderLookupResultsForDisplay(results, activeProfile, context)
     }
-    val parsedCssMap = remember(styles) {
-        styles.associate { it.dictName to parseDictionaryCss(it.styles) }
+    val parsedCssMap = remember(styles, context) {
+        val map = mutableMapOf<String, ParsedCss>()
+        for (s in styles) {
+            val parsed = parseDictionaryCss(s.styles)
+            map[s.dictName] = parsed
+            // gloss.dictName may be dirName or display title; index by both so lookup never misses
+            val title = runCatching { getDictionaryTitle(context, s.dictName) }.getOrNull()
+            if (title != null && title != s.dictName) map[title] = parsed
+            // also index by lowercased variants for robustness
+            map[s.dictName.lowercase()] = parsed
+            if (title != null) map[title.lowercase()] = parsed
+        }
+        map
     }
     val cards = remember(displayed, groupTerms, activeProfile, priority) {
         buildCards(displayed, groupTerms, resolveTitle, priority)
