@@ -142,14 +142,14 @@ private fun StructuredElementView(
             color = border,
         )
         // Semantic inline tags: browser-default styling the WebView gets for free.
-        Bold -> semanticChildren(node, parsedCss, style.copy(fontWeight = FontWeight.Bold), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Italic -> semanticChildren(node, parsedCss, style.copy(fontStyle = FontStyle.Italic), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Underline -> semanticChildren(node, parsedCss, style.copy(textDecoration = TextDecoration.Underline), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Strike -> semanticChildren(node, parsedCss, style.copy(textDecoration = TextDecoration.LineThrough), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Superscript -> semanticChildren(node, parsedCss, style.copy(baselineShift = BaselineShift.Superscript, fontSize = style.fontSize * 0.75f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Subscript -> semanticChildren(node, parsedCss, style.copy(baselineShift = BaselineShift.Subscript, fontSize = style.fontSize * 0.75f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Small -> semanticChildren(node, parsedCss, style.copy(fontSize = style.fontSize * 0.8f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
-        Mark -> semanticChildren(
+        StructuredTag.Bold -> semanticChildren(node, parsedCss, style.copy(fontWeight = FontWeight.Bold), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Italic -> semanticChildren(node, parsedCss, style.copy(fontStyle = FontStyle.Italic), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Underline -> semanticChildren(node, parsedCss, style.copy(textDecoration = TextDecoration.Underline), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Strike -> semanticChildren(node, parsedCss, style.copy(textDecoration = TextDecoration.LineThrough), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Superscript -> semanticChildren(node, parsedCss, style.copy(baselineShift = BaselineShift.Superscript, fontSize = style.fontSize * 0.75f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Subscript -> semanticChildren(node, parsedCss, style.copy(baselineShift = BaselineShift.Subscript, fontSize = style.fontSize * 0.75f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Small -> semanticChildren(node, parsedCss, style.copy(fontSize = style.fontSize * 0.8f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        StructuredTag.Mark -> semanticChildren(
             node, parsedCss,
             style.copy(background = Color(0xFFFFF176)),
             dictName, mediaDataUris, secondary, border, onRecursiveLookup,
@@ -160,6 +160,7 @@ private fun StructuredElementView(
     }
 }
 
+@Composable
 private fun semanticChildren(
     node: StructuredNode.Element,
     parsedCss: ParsedCss,
@@ -202,7 +203,7 @@ private fun StructuredBox(
     // Tag chip spans: `span[data-sc-class="tag"]` — token equality, not substring
     // (substring matched "stage"/"vintage" etc).
     if (node.tag == StructuredTag.Span &&
-        node.attributes.data["class"]?.split(WHITESPACE_REGEX)?.any { it == "tag" } == true
+        node.attributes.data["class"]?.split(CLASS_SPLIT_REGEX)?.any { it == "tag" } == true
     ) {
         StructuredTagChip(node, combined, style)
         return
@@ -719,6 +720,7 @@ private fun collectTableRows(node: StructuredNode.Element, out: MutableList<List
 
 /** The marker glyph + circle colour for a Jitendex `td[data-sc-class="form-*"]` badge. */
 private val RADIAL_GRADIENT_REGEX = Regex("""radial-gradient\(([^)]+)\s+50%""")
+private val CLASS_SPLIT_REGEX = Regex("\\s+")
 
 private fun formBadge(dataClass: String?, parsedCss: ParsedCss): Pair<String?, Color?> {
     if (dataClass.isNullOrBlank()) return null to null

@@ -54,7 +54,10 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
         val dataSelectors = extractDataSelectors(selectorPart)
         val presence = extractPresenceSelectors(selectorPart)
         val classSelectors = extractClassSelectors(selectorPart)
-        val allValueSelectors = dataSelectors + classSelectors
+        // Compound selectors (`[a][b="v"]`, `.x.y`) target a conjunction we can't flatten:
+        // indexing either value alone would style every node matching just one side.
+        val bracketCount = selectorPart.count { it == '[' }
+        val allValueSelectors = if (bracketCount <= 1) dataSelectors + classSelectors else classSelectors
         if ((allValueSelectors.isEmpty() && presence.isEmpty()) || properties.isEmpty()) {
             i = braceEnd + 1
             continue
@@ -95,8 +98,13 @@ fun getCssStyles(dataAttributes: Map<String, String>, parsedCss: ParsedCss): Map
     val lookupKeys = mutableListOf<String>()
     for ((k, v) in dataAttributes) {
         if (k == "class") {
-            // class tokens are namespaced with "." in selectorStyles (see extractClassSelectors)
-            lookupKeys.addAll(v.split(WHITESPACE_REGEX).filter { it.isNotBlank() }.map { ".$it" })
+            // Class tokens resolve against BOTH ".name" (real class rules from
+            // extractClassSelectors) and bare "name" ([data-sc-class="name"] rules) so
+            // either selector style matches.
+            v.split(WHITESPACE_REGEX).filter { it.isNotBlank() }.forEach { token ->
+                lookupKeys.add(".$token")
+                lookupKeys.add(token)
+            }
         } else if (v.isNotBlank()) {
             lookupKeys.add(v)
         }

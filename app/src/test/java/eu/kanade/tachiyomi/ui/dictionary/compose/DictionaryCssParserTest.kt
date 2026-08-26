@@ -352,4 +352,54 @@ class DictionaryCssParserTest {
         assertTrue(box.leftAccent)
         assertTrue(box.hasBorder)
     }
+
+    @Test
+    fun `compound presence selector does not leak second attribute value`() {
+        val css = """
+            [data-sc-form-badge][data-sc-pos="noun"] { color: red; }
+        """.trimIndent()
+
+        val parsed = parseDictionaryCss(css)
+
+        // "noun" must NOT become a global key matching any element with value "noun".
+        assertTrue(getCssStyles(mapOf("content" to "noun"), parsed).isEmpty())
+    }
+
+    @Test
+    fun `class selector rules match via class token lookup`() {
+        val css = """
+            .sense { background-color: #f0f0f0; padding: 6px; }
+            div.sense > span.glossary { color: gray; }
+        """.trimIndent()
+
+        val parsed = parseDictionaryCss(css)
+
+        // Simple .sense rule applies via class token.
+        val merged = getCssStyles(mapOf("class" to "sense"), parsed)
+        assertEquals("#f0f0f0", merged["backgroundColor"])
+        // Combinator rule must be skipped entirely (no leakage of sense or glossary).
+        assertTrue(parsed.selectorStyles[".glossary"] == null)
+        assertTrue(merged["color"] == null)
+    }
+
+    @Test
+    fun `data class selector still matches bare token after namespacing`() {
+        val css = """
+            span[data-sc-class="tag"] { font-size: 0.8em; }
+        """.trimIndent()
+
+        val parsed = parseDictionaryCss(css)
+        val merged = getCssStyles(mapOf("class" to "tag"), parsed)
+        assertEquals("0.8em", merged["fontSize"])
+    }
+
+    @Test
+    fun `rgba hex reorders alpha channel`() {
+        // CSS #RRGGBBAA: R=FF G=00 B=00 A=80 → semi-transparent red.
+        val c = parseCssColor2("#FF000080")!!
+        assertEquals(0x80 / 255f, c.alpha, 0.01f)
+        assertEquals(1f, c.red, 0.01f)
+        assertEquals(0f, c.green, 0.01f)
+        assertEquals(0f, c.blue, 0.01f)
+    }
 }
