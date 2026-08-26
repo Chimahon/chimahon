@@ -95,9 +95,10 @@ fun getCssStyles(dataAttributes: Map<String, String>, parsedCss: ParsedCss): Map
     val lookupKeys = mutableListOf<String>()
     for ((k, v) in dataAttributes) {
         if (k == "class") {
-            lookupKeys.addAll(v.split(WHITESPACE_REGEX).filter { it.isNotBlank() })
-        } else {
-            if (v.isNotBlank()) lookupKeys.add(v)
+            // class tokens are namespaced with "." in selectorStyles (see extractClassSelectors)
+            lookupKeys.addAll(v.split(WHITESPACE_REGEX).filter { it.isNotBlank() }.map { ".$it" })
+        } else if (v.isNotBlank()) {
+            lookupKeys.add(v)
         }
     }
     var merged = lookupKeys
@@ -416,29 +417,36 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
     while (i < selectorPart.length) {
         val attrStart = selectorPart.indexOf("[data-sc-", i)
         if (attrStart == -1) break
+        // Bound the search INSIDE this bracket: `[a][b="v"]` must not leak `v`
+        // from the second attribute into the first.
+        val closeBracket = selectorPart.indexOf(']', attrStart)
+        if (closeBracket == -1) break
         // Support attribute operators: `=` exact, `^=` prefix, `$=` suffix, `*=` substring,
-        // `~=` word. All selectors key on the literal data-sc-content/class value.
+        // `~=` word. All selectors key on the literal data-sc-* value.
         val equalsIndex = selectorPart.indexOf('=', attrStart)
-        if (equalsIndex == -1) {
-            i = attrStart + 1
+        if (equalsIndex == -1 || equalsIndex > closeBracket) {
+            i = closeBracket + 1
             continue
         }
-        val operator = selectorPart[equalsIndex - 1].takeIf { it == '^' || it == '$' || it == '*' || it == '~' }
+        val operator = selectorPart.getOrNull(equalsIndex - 1)?.takeIf { it == '^' || it == '$' || it == '*' || it == '~' }
         val attrEnd = if (operator != null) equalsIndex - 1 else equalsIndex
         val attrName = selectorPart.substring(attrStart + 1, attrEnd)
         if (!attrName.startsWith("data-sc-")) {
-            i = equalsIndex + 1
+            i = closeBracket + 1
             continue
         }
         val valueStart = equalsIndex + 1
         if (valueStart >= selectorPart.length) break
         val quote = selectorPart[valueStart]
         if (quote != '\'' && quote != '"') {
-            i = valueStart + 1
+            i = closeBracket + 1
             continue
         }
         val valueEnd = selectorPart.indexOf(quote, valueStart + 1)
-        if (valueEnd == -1) break
+        if (valueEnd == -1 || valueEnd > closeBracket) {
+            i = closeBracket + 1
+            continue
+        }
         val value = selectorPart.substring(valueStart + 1, valueEnd)
         if (value.isNotEmpty()) result.add(value)
         i = valueEnd + 1
@@ -448,12 +456,13 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
 
 private val CLASS_SELECTOR_REGEX = Regex("""\.([a-zA-Z][a-zA-Z0-9_-]*)""")
 /**
- * Extracts plain class selectors (`.sense`, `.glossary`, `span.tag`) that dicts like Jitendex
- * use alongside data-sc selectors. Keyed by the class name itself, so it matches via the
- * node's `data["class"]` values in [getCssStyles].
+ * Extracts simple class selectors (`.sense`, `.glossary`) that dicts like Jitendex use.
+ * Keys are namespaced with a "." prefix so they can never collide with data-sc values.
+ * Selector parts containing combinators (`>`, `+`, `~`), pseudo-classes (`:hover`, `:not`),
+ * or descendant spaces are skipped — flattening those would leak styles onto every node.
  */
 private fun extractClassSelectors(selectorPart: String): List<String> {
-    // avoid matching inside attribute brackets or decimal numbers: strip brackets first
+    // strip attribute-bracket contents so `[data-sc-class="x.y"]` doesn't yield ".y"
     val stripped = buildString {
         var depth = 0
         for (ch in selectorPart) {
@@ -464,7 +473,16 @@ private fun extractClassSelectors(selectorPart: String): List<String> {
             }
         }
     }
-    return CLASS_SELECTOR_REGEX.findAll(stripped).map { it.groupValues[1] }.filter { it.isNotBlank() }.toList()
+    return splitSelectorList(stripped)
+        .map { it.trim() }
+        .filter { part ->
+            part.isNotEmpty() && part.none { ch ->
+                ch == '>' || ch == '+' || ch == '~' || ch == ':' || ch == ' ' || ch == '\t'
+            }
+        }
+        .flatMap { CLASS_SELECTOR_REGEX.findAll(it).map { m -> m.groupValues[1] } }
+        .map { ".$it" } // namespace so class keys never collide with data-sc values
+        .filter { it.length > 1 }
 }
 
 /**

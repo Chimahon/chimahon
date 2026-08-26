@@ -318,7 +318,7 @@ fun DictionaryEntryCompose(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                 ) {
-                    itemsIndexed(cards, key = { _, card -> "${card.expression}\u0000${card.reading}\u0000${card.dictGroups.hashCode()}" }, contentType = { _, _ -> "term" }) { i, card ->
+                    itemsIndexed(cards, key = { i, card -> "$i-${card.expression}\u0000${card.reading}" }, contentType = { _, _ -> "term" }) { i, card ->
                         TermCardView(
                             card = card,
                             index = i,
@@ -1036,11 +1036,23 @@ private fun GlossRow(
             null
         }
     }
+    // definitionTags (part-of-speech / field / archaic chips) must render for BOTH paths —
+    // the structured branch previously returned before them, hiding half the entry info.
+    val defTags = remember(gloss.definitionTags) {
+        gloss.definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
+    }
     if (structuredNodes != null) {
         val onLookup: ((String) -> Unit)? = onRecursiveLookup?.let { f ->
             { text -> f(text, null, null, null, null, "term") }
         }
         Column(Modifier.padding(vertical = 3.dp)) {
+            if (defTags.isNotEmpty()) {
+                FlowRow(modifier = Modifier.padding(bottom = 2.dp)) {
+                    defTags.take(8).forEach { tag ->
+                        dictionaryTag(label = tag, secondary = secondary, eInk = eInkMode, fontSize = fontSize)
+                    }
+                }
+            }
             StructuredGlossaryContent(
                 nodes = structuredNodes,
                 parsedCss = glossCss,
@@ -1060,9 +1072,6 @@ private fun GlossRow(
     val nodes = remember(gloss.glossary) { parseGlossary(gloss.glossary) }
     val lines = remember(nodes) { partitionGlossLines(nodes) }
     Column(Modifier.padding(vertical = 3.dp)) {
-        val defTags = remember(gloss.definitionTags) {
-            gloss.definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
-        }
         if (defTags.isNotEmpty()) {
             FlowRow(modifier = Modifier.padding(bottom = 2.dp)) {
                 defTags.take(8).forEach { tag ->

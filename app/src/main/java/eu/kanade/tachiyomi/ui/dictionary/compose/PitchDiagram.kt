@@ -142,8 +142,9 @@ fun PitchTextLine(
                 text = mora,
                 fontSize = ls,
                 color = color,
+                // drawBehind BEFORE padding: its coordinate space then includes the
+                // reserved gap, so the drop stroke lands in the gap instead of on the glyph.
                 modifier = Modifier
-                    .padding(end = if (dropDown) 2.dp else 0.dp)
                     .drawBehind {
                         if (high) {
                             val lineW = ls.toPx() * 0.1f
@@ -156,13 +157,14 @@ fun PitchTextLine(
                             if (dropDown) {
                                 drawLine(
                                     color = annotation,
-                                    start = Offset(size.width, 0f),
-                                    end = Offset(size.width, lineW * 4f),
+                                    start = Offset(size.width - lineW / 2f, 0f),
+                                    end = Offset(size.width - lineW / 2f, lineW * 4f),
                                     strokeWidth = lineW,
                                 )
                             }
                         }
-                    },
+                    }
+                    .padding(end = if (dropDown) 2.dp else 0.dp),
             )
         }
     }

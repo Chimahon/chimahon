@@ -19,7 +19,9 @@ sealed interface StructuredNode {
 
 enum class StructuredTag {
     Span, Div, Ruby, Rt, Rp, Table, Thead, Tbody, Tfoot, Tr, Td, Th,
-    OrderedList, UnorderedList, ListItem, Details, Summary, Link, Image, Break, Unknown;
+    OrderedList, UnorderedList, ListItem, Details, Summary, Link, Image, Break,
+    Bold, Italic, Underline, Strike, Superscript, Subscript, Small, Mark, HorizontalRule,
+    Unknown;
 
     companion object {
         fun fromRaw(tag: String?): StructuredTag = when (tag?.lowercase()) {
@@ -42,6 +44,16 @@ enum class StructuredTag {
             "summary" -> Summary
             "a" -> Link
             "br" -> Break
+            // Semantic inline tags — browser-default styles applied in StructuredElementView.
+            "b", "strong" -> Bold
+            "i", "em", "cite", "var", "dfn" -> Italic
+            "u", "ins" -> Underline
+            "s", "strike", "del" -> Strike
+            "sup" -> Superscript
+            "sub" -> Subscript
+            "small" -> Small
+            "mark" -> Mark
+            "hr" -> HorizontalRule
             else -> Unknown
         }
     }

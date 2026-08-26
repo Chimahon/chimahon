@@ -27,6 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.LinkAnnotation
@@ -41,7 +44,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
+import com.turtlekazu.furiganable.compose.m3.TextWithReading
 
 /**
  * Renders a parsed [StructuredEntry.Tree] with dictionary CSS (backgrounds, borders, tag chips,
@@ -130,9 +137,41 @@ private fun StructuredElementView(
             node, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup,
         )
         StructuredTag.Break -> Spacer(Modifier.height(2.dp))
+        StructuredTag.HorizontalRule -> androidx.compose.material3.HorizontalDivider(
+            modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth(),
+            color = border,
+        )
+        // Semantic inline tags: browser-default styling the WebView gets for free.
+        Bold -> semanticChildren(node, parsedCss, style.copy(fontWeight = FontWeight.Bold), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Italic -> semanticChildren(node, parsedCss, style.copy(fontStyle = FontStyle.Italic), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Underline -> semanticChildren(node, parsedCss, style.copy(textDecoration = TextDecoration.Underline), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Strike -> semanticChildren(node, parsedCss, style.copy(textDecoration = TextDecoration.LineThrough), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Superscript -> semanticChildren(node, parsedCss, style.copy(baselineShift = BaselineShift.Superscript, fontSize = style.fontSize * 0.75f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Subscript -> semanticChildren(node, parsedCss, style.copy(baselineShift = BaselineShift.Subscript, fontSize = style.fontSize * 0.75f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Small -> semanticChildren(node, parsedCss, style.copy(fontSize = style.fontSize * 0.8f), dictName, mediaDataUris, secondary, border, onRecursiveLookup)
+        Mark -> semanticChildren(
+            node, parsedCss,
+            style.copy(background = Color(0xFFFFF176)),
+            dictName, mediaDataUris, secondary, border, onRecursiveLookup,
+        )
         else -> node.children.forEach { child ->
             StructuredNodeView(child, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
         }
+    }
+}
+
+private fun semanticChildren(
+    node: StructuredNode.Element,
+    parsedCss: ParsedCss,
+    style: TextStyle,
+    dictName: String,
+    mediaDataUris: Map<String, String>,
+    secondary: Color,
+    border: Color,
+    onRecursiveLookup: ((String) -> Unit)?,
+) {
+    node.children.forEach { child ->
+        StructuredNodeView(child, parsedCss, style, dictName, mediaDataUris, secondary, border, onRecursiveLookup)
     }
 }
 
@@ -160,8 +199,11 @@ private fun StructuredBox(
     val visibility = remember(combined) { combined["visibility"]?.trim()?.lowercase() }
     if (display == "none" || visibility == "hidden") return
 
-    // Tag chip spans: `span[data-sc-class="tag"]` etc.
-    if (node.tag == StructuredTag.Span && node.attributes.data["class"]?.contains("tag") == true) {
+    // Tag chip spans: `span[data-sc-class="tag"]` — token equality, not substring
+    // (substring matched "stage"/"vintage" etc).
+    if (node.tag == StructuredTag.Span &&
+        node.attributes.data["class"]?.split(WHITESPACE_REGEX)?.any { it == "tag" } == true
+    ) {
         StructuredTagChip(node, combined, style)
         return
     }
@@ -170,7 +212,16 @@ private fun StructuredBox(
     val box = remember(combined, baseFontSizeSp) { parseBoxStyle(combined, baseFontSizeSp) }
 
     val isInline = node.children.all {
-        it is StructuredNode.Text || (it is StructuredNode.Element && it.tag == StructuredTag.Span)
+        // Only plain text and UNSTYLED spans count as inline. Styled spans, tag chips,
+        // ruby (base+rt), links and images must fall through to per-node rendering or
+        // collectVisible flattens them into one glued string (readings look duplicated,
+        // images vanish).
+        (it is StructuredNode.Text) ||
+            (
+                it is StructuredNode.Element && it.tag == StructuredTag.Span &&
+                    it.attributes.style.isEmpty() && it.attributes.data.isEmpty() &&
+                    it.children.all { c -> c is StructuredNode.Text }
+                )
     }
 
     // Merge box-level typography (textAlign / verticalAlign / opacity) into the style for children.
@@ -242,12 +293,21 @@ private fun StructuredBox(
     }
 
     // Left-accent boxes (`border-style: none none none solid`): a colored edge bar with the
-    // content beside it, exactly like the WebView's accent border.
+    // content beside it, exactly like the WebView's accent border. Drawn behind the row —
+    // a standalone 3dp Box in a wrap-content Row measured 4dp tall (invisible stub).
     if (box.leftAccent) {
         Row(
             modifier = Modifier
                 .then(outerAlphaModifier)
                 .then(fillWidthModifier)
+                .drawBehind {
+                    drawRect(
+                        color = borderColor,
+                        topLeft = Offset.Zero,
+                        size = Size(3.dp.toPx(), size.height),
+                    )
+                }
+                .padding(start = 3.dp)
                 .padding(
                     start = box.marginStart?.dp ?: 0.dp,
                     end = box.marginEnd?.dp ?: 0.dp,
@@ -256,13 +316,6 @@ private fun StructuredBox(
                 ),
             verticalAlignment = Alignment.Top,
         ) {
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .padding(top = 2.dp, bottom = 2.dp)
-                    .clip(RoundedCornerShape(topEnd = 2.dp, bottomEnd = 2.dp))
-                    .background(borderColor),
-            )
             Box(
                 modifier = Modifier.then(
                     Modifier.clip(shape).let { m ->
@@ -395,26 +448,26 @@ private fun StructuredListItem(
 
 @Composable
 private fun StructuredRuby(node: StructuredNode.Element, style: TextStyle) {
+    // Exclude BOTH rt and rp from the base text (rp = fallback parentheses, never rendered).
     val base = node.children
-        .filterNot { it is StructuredNode.Element && it.tag == StructuredTag.Rt }
+        .filterNot { it is StructuredNode.Element && (it.tag == StructuredTag.Rt || it.tag == StructuredTag.Rp) }
         .joinToString("") { it.collect() }
+    // Concatenate ALL rt children — multi-segment ruby loses readings with firstOrNull.
     val rt = node.children
         .filterIsInstance<StructuredNode.Element>()
-        .firstOrNull { it.tag == StructuredTag.Rt }
-        ?.children?.joinToString("") { it.collect() }.orEmpty()
+        .filter { it.tag == StructuredTag.Rt }
+        .joinToString("") { it.children.joinToString("") { c -> c.collect() } }
     if (rt.isBlank()) {
         spanText(base, style, null)
         return
     }
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 2.dp)) {
-        Text(base, style = style)
-        Text(
-            rt,
-            color = style.color ?: Color.Unspecified,
-            fontSize = style.fontSize * 0.6f,
-            modifier = Modifier.padding(start = 3.dp),
-        )
-    }
+    // Draw furigana ABOVE the base via TextWithReading — a Row of sibling Texts made the
+    // reading look like duplicated text next to the kanji.
+    TextWithReading(
+        formattedText = "[$base[$rt]]",
+        style = style,
+        furiganaFontSize = style.fontSize * 0.6f,
+    )
 }
 
 @Composable
@@ -427,10 +480,30 @@ private fun StructuredLink(
     val text = node.collect()
     if (text.isBlank()) return
     val linkColor = MaterialTheme.colorScheme.primary
+    val context = LocalContext.current
 
-    // The reference renders only the link's content text (styled as a link); the href is
-    // never shown inline. Internal lookup links (`?query=...`) keep their text too.
-    val target: String = href?.let { extractQuery(it) ?: it } ?: text
+    // External URLs open in the browser (WebView parity: navigateStructuredLink routes
+    // internal `?query=` links to lookup, everything else to navigation). The old code
+    // made the literal "https://…" string the lookup term.
+    if (href != null && (href.startsWith("http://") || href.startsWith("https://"))) {
+        Text(
+            text = text,
+            style = style.copy(
+                color = linkColor,
+                fontWeight = FontWeight.Medium,
+                textDecoration = TextDecoration.Underline,
+            ),
+            modifier = Modifier.clickable {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(href)))
+                }
+            },
+        )
+        return
+    }
+
+    // Internal lookup links (`?query=...`) keep their content text and route to lookup.
+    val target: String = href?.let { extractQuery(it) ?: text } ?: text
 
     val annotated = remember(target, text, linkColor) {
         buildAnnotatedString {
@@ -649,7 +722,10 @@ private val RADIAL_GRADIENT_REGEX = Regex("""radial-gradient\(([^)]+)\s+50%""")
 
 private fun formBadge(dataClass: String?, parsedCss: ParsedCss): Pair<String?, Color?> {
     if (dataClass.isNullOrBlank()) return null to null
-    val styles = parsedCss.selectorStyles[dataClass] ?: return null to null
+    // class="form-pri form-irr" — split tokens and merge, matching getCssStyles semantics
+    // (selectorStyles only holds single-token keys).
+    val styles = getCssStyles(mapOf("class" to dataClass), parsedCss)
+    if (styles.isEmpty()) return null to null
     val marker = (styles["beforeContent"] ?: "").trim('"', '\'', ' ')
         .takeIf { it.isNotEmpty() }
     val bg = styles["background"]
@@ -764,14 +840,22 @@ internal fun parseCssColor2(raw: String?): Color? {
     val v = raw.trim()
     if (v.startsWith("#")) {
         val hex = v.removePrefix("#")
-        val full = when (hex.length) {
-            3 -> hex.map { "$it$it" }.joinToString("").let { "FF$it" }
-            4 -> hex.map { "$it$it" }.joinToString("")
-            6 -> "FF$hex"
-            8 -> hex
-            else -> return null
+        // CSS hex is RRGGBBAA / RGBA; Compose Color(Long) wants AARRGGBB — reorder alpha.
+        return when (hex.length) {
+            3 -> hex.map { "$it$it" }.joinToString("").let { runCatching { Color(("FF$it").toLong(16)) }.getOrNull() }
+            4 -> {
+                val r = hex[0].toString().repeat(2)
+                val g = hex[1].toString().repeat(2)
+                val b = hex[2].toString().repeat(2)
+                val a = hex[3].toString().repeat(2)
+                runCatching { Color((a + r + g + b).toLong(16)) }.getOrNull()
+            }
+            6 -> runCatching { Color(("FF$hex").toLong(16)) }.getOrNull()
+            8 -> runCatching {
+                Color((hex.substring(6, 8) + hex.substring(0, 6)).toLong(16))
+            }.getOrNull()
+            else -> null
         }
-        return runCatching { Color(full.toLong(16)) }.getOrNull()
     }
     return namedCssColor[v.lowercase()]
 }

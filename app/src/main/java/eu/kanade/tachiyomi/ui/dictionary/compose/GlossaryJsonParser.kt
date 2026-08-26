@@ -206,7 +206,12 @@ private fun walkHtml(node: Node, out: MutableList<StructuredNode>) {
     when (node) {
         is TextNode -> {
             val text = node.text()
-            if (text.isNotBlank()) out.add(StructuredNode.Text(text))
+            // Keep whitespace-only nodes as a single space — dropping them glues adjacent
+            // words: <b>foo</b> <i>bar</i> rendered "foobar".
+            when {
+                text.isNotEmpty() -> out.add(StructuredNode.Text(text))
+                node.isBlank() -> out.add(StructuredNode.Text(" "))
+            }
         }
         is Element -> {
             val tag = node.tagName().lowercase()
