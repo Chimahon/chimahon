@@ -6,6 +6,9 @@ import eu.kanade.tachiyomi.animeextension.AnimeExtensionManager
 import eu.kanade.tachiyomi.animeextension.model.AnimeExtension
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import mihon.feature.extension.sync.SyncExtensionCandidate
+import mihon.feature.extension.sync.SyncExtensionIdentity
+import mihon.feature.extension.sync.matchRememberedExtensions
 
 class GetAnimeExtensionsByType(
     private val preferences: SourcePreferences,
@@ -20,7 +23,10 @@ class GetAnimeExtensionsByType(
             animeExtensionManager.installedExtensionsFlow,
             animeExtensionManager.untrustedExtensionsFlow,
             animeExtensionManager.availableExtensionsFlow,
-        ) { enabledLanguages, _installed, _untrusted, _available ->
+            // Chimahon -->
+            preferences.rememberedAnimeExtensions().changes(),
+            // Chimahon <--
+        ) { enabledLanguages, _installed, _untrusted, _available, _remembered ->
             val (updates, installed) = _installed
                 .filter { (showNsfwSources || !it.isNsfw) }
                 .sortedWith(
@@ -32,9 +38,34 @@ class GetAnimeExtensionsByType(
             val untrusted = _untrusted
                 .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
+            // Chimahon -->
+            // Packages remembered from sync and installable from this device's catalog.
+            val fromSyncPkgNames = matchRememberedExtensions(
+                remembered = _remembered.mapNotNullTo(mutableSetOf(), SyncExtensionIdentity::decode),
+                candidates = _available.map { extension ->
+                    SyncExtensionCandidate(
+                        pkgName = extension.pkgName,
+                        signatureHash = extension.signatureHash,
+                        isNsfw = extension.isNsfw,
+                        languages = extension.sources.map { it.lang }.toSet()
+                            .ifEmpty { setOf(extension.lang) },
+                    )
+                },
+                installedPkgNames = _installed.mapTo(mutableSetOf()) { it.pkgName },
+                showNsfw = showNsfwSources,
+                enabledLanguages = enabledLanguages,
+            )
+            val fromSync = _available
+                .filter { it.pkgName in fromSyncPkgNames }
+                .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+            // Chimahon <--
+
             val available = _available
                 .filter { extension ->
-                    _installed.none { it.pkgName == extension.pkgName } &&
+                    // Chimahon --> matched entries are shown in the "Extensions from Sync" section instead
+                    extension.pkgName !in fromSyncPkgNames &&
+                        // Chimahon <--
+                        _installed.none { it.pkgName == extension.pkgName } &&
                         _untrusted.none { it.pkgName == extension.pkgName } &&
                         (showNsfwSources || !extension.isNsfw)
                 }
@@ -54,7 +85,7 @@ class GetAnimeExtensionsByType(
                 }
                 .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
-            AnimeExtensions(updates, installed, available, untrusted)
+            AnimeExtensions(updates, installed, available, untrusted, /* Chimahon */ fromSync)
         }
     }
 }

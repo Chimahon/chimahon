@@ -7,4 +7,8 @@ data class AnimeExtensions(
     val installed: List<AnimeExtension.Installed>,
     val available: List<AnimeExtension.Available>,
     val untrusted: List<AnimeExtension.Untrusted>,
+    // Chimahon -->
+    /** Remembered-from-sync anime extensions available in this device's catalog, one per package. */
+    val fromSync: List<AnimeExtension.Available> = emptyList(),
+    // Chimahon <--
 )

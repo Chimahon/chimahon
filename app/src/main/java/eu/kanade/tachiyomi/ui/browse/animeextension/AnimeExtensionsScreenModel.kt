@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.kmk.KMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import kotlin.time.Duration.Companion.seconds
@@ -62,7 +63,7 @@ class AnimeExtensionsScreenModel(
                     .map { searchQueryPredicate(it ?: "") },
                 currentDownloads,
                 getAnimeExtensions.subscribe(),
-            ) { predicate, downloads, (_updates, _installed, _available, _untrusted) ->
+            ) { predicate, downloads, (_updates, _installed, _available, _untrusted, _fromSync) ->
                 buildMap {
                     val updates = _updates.filter(predicate).map(extensionMapper(downloads))
                     if (updates.isNotEmpty()) {
@@ -76,6 +77,13 @@ class AnimeExtensionsScreenModel(
                     if (installed.isNotEmpty() || untrusted.isNotEmpty()) {
                         put(AnimeExtensionUiModel.Header.Resource(MR.strings.ext_installed), installed + untrusted)
                     }
+
+                    // Chimahon -->
+                    val fromSync = _fromSync.filter(predicate).map(extensionMapper(downloads))
+                    if (fromSync.isNotEmpty()) {
+                        put(AnimeExtensionUiModel.Header.Resource(KMR.strings.extensions_from_sync), fromSync)
+                    }
+                    // Chimahon <--
 
                     val languagesWithExtensions = _available
                         .filter(predicate)

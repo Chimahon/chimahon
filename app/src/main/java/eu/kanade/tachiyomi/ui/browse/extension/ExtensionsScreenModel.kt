@@ -74,7 +74,7 @@ class ExtensionsScreenModel(
                 // KMK <--
                 currentDownloads,
                 getExtensions.subscribe(),
-            ) { predicate, nsfwOnly, downloads, (_updates, _installed, _available, _untrusted) ->
+            ) { predicate, nsfwOnly, downloads, (_updates, _installed, _available, _untrusted, _fromSync) ->
                 buildMap {
                     val updates = _updates.filter(predicate).map(extensionMapper(downloads))
                         // KMK -->
@@ -95,6 +95,14 @@ class ExtensionsScreenModel(
                     if (installed.isNotEmpty() || untrusted.isNotEmpty()) {
                         put(ExtensionUiModel.Header.Resource(MR.strings.ext_installed), installed + untrusted)
                     }
+
+                    // Chimahon -->
+                    val fromSync = _fromSync.filter(predicate).map(extensionMapper(downloads))
+                        .filter { !nsfwOnly || it.extension.isNsfw }
+                    if (fromSync.isNotEmpty()) {
+                        put(ExtensionUiModel.Header.Resource(KMR.strings.extensions_from_sync), fromSync)
+                    }
+                    // Chimahon <--
 
                     val languagesWithExtensions = _available
                         .filter(predicate)

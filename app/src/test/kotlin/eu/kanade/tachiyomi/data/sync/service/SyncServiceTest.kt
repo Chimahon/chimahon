@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.data.backup.models.BackupAnime
 import eu.kanade.tachiyomi.data.backup.models.BackupAnimeSource
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupEpisode
+import eu.kanade.tachiyomi.data.backup.models.BackupExtension
 import eu.kanade.tachiyomi.data.backup.models.BackupExtensionRepos
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
@@ -106,6 +107,37 @@ class SyncServiceTest {
         merged.backupAnime.single().version shouldBe 2L
         merged.backupAnime.single().episodes.map { it.name }
             .shouldContainExactlyInAnyOrder("Episode 1", "Episode 2")
+    }
+
+    @Test
+    fun `merge unions and de-duplicates extension identities (extension-only payload)`() {
+        val service = TestSyncService()
+
+        val merged = service.merge(
+            local = SyncData(
+                backup = Backup(
+                    backupMangaExtensions = listOf(
+                        BackupExtension("pkg.manga.a", "hashA"),
+                        BackupExtension("pkg.manga.shared", "hashShared"),
+                    ),
+                    backupAnimeExtensions = listOf(BackupExtension("pkg.anime.a", "hashAnimeA")),
+                ),
+            ),
+            remote = SyncData(
+                backup = Backup(
+                    backupMangaExtensions = listOf(
+                        BackupExtension("pkg.manga.shared", "hashShared"), // duplicate
+                        BackupExtension("pkg.manga.b", "hashB"),
+                    ),
+                    backupAnimeExtensions = listOf(BackupExtension("pkg.anime.b", "hashAnimeB")),
+                ),
+            ),
+        ).backup!!
+
+        merged.backupMangaExtensions.map { it.pkgName }
+            .shouldContainExactlyInAnyOrder("pkg.manga.a", "pkg.manga.shared", "pkg.manga.b")
+        merged.backupAnimeExtensions.map { it.pkgName }
+            .shouldContainExactlyInAnyOrder("pkg.anime.a", "pkg.anime.b")
     }
 
     private fun extensionRepo(baseUrl: String) = BackupExtensionRepos(

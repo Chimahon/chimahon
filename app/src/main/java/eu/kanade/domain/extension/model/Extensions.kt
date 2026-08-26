@@ -7,4 +7,8 @@ data class Extensions(
     val installed: List<Extension.Installed>,
     val available: List<Extension.Available>,
     val untrusted: List<Extension.Untrusted>,
+    // Chimahon -->
+    /** Remembered-from-sync extensions available in this device's catalog, one entry per package. */
+    val fromSync: List<Extension.Available> = emptyList(),
+    // Chimahon <--
 )

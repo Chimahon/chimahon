@@ -23,6 +23,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import logcat.LogPriority
 import logcat.logcat
+import mihon.feature.extension.sync.mergeExtensionIdentities
 
 @Serializable
 data class SyncData(
@@ -107,6 +108,14 @@ abstract class SyncService(
             remoteSyncData.backup?.backupNovelCategories ?: emptyList(),
             mergedNovelCategoriesList,
         )
+        val mergedMangaExtensions = mergeExtensionIdentities(
+            localSyncData.backup?.backupMangaExtensions,
+            remoteSyncData.backup?.backupMangaExtensions,
+        )
+        val mergedAnimeExtensions = mergeExtensionIdentities(
+            localSyncData.backup?.backupAnimeExtensions,
+            remoteSyncData.backup?.backupAnimeExtensions,
+        )
         // Chimahon <--
 
         // Create the merged Backup object
@@ -129,6 +138,8 @@ abstract class SyncService(
             // Chimahon -->
             backupNovels = mergedNovelsList,
             backupNovelCategories = mergedNovelCategoriesList,
+            backupMangaExtensions = mergedMangaExtensions,
+            backupAnimeExtensions = mergedAnimeExtensions,
             // Chimahon <--
         )
 

@@ -84,6 +84,26 @@ class SourcePreferences(
         emptySet(),
     )
 
+    // Chimahon -->
+    /**
+     * Cumulative history of manga extension identities (encoded as "pkgName|signatureHash") that
+     * this device has installed or seen via sync. Powers the "Extensions from Sync" section.
+     * Stored as app-state so it is never included in preference backups/restores.
+     */
+    fun rememberedMangaExtensions() = preferenceStore.getStringSet(
+        Preference.appStateKey("remembered_manga_extensions"),
+        emptySet(),
+    )
+
+    /**
+     * Cumulative history of anime extension identities. See [rememberedMangaExtensions].
+     */
+    fun rememberedAnimeExtensions() = preferenceStore.getStringSet(
+        Preference.appStateKey("remembered_anime_extensions"),
+        emptySet(),
+    )
+    // Chimahon <--
+
     fun globalSearchFilterState() = preferenceStore.getBoolean(
         Preference.appStateKey("has_filters_toggle_state"),
         false,

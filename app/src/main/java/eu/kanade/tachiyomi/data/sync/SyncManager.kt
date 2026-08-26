@@ -2,7 +2,9 @@ package eu.kanade.tachiyomi.data.sync
 
 import android.content.Context
 import android.net.Uri
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.animeextension.AnimeExtensionManager
 import eu.kanade.tachiyomi.data.backup.create.BackupCreator
 import eu.kanade.tachiyomi.data.backup.create.BackupOptions
 import eu.kanade.tachiyomi.data.backup.models.Backup
@@ -15,10 +17,14 @@ import eu.kanade.tachiyomi.data.sync.service.GoogleDriveSyncService
 import eu.kanade.tachiyomi.data.sync.service.SyncData
 import eu.kanade.tachiyomi.data.sync.service.SyncYomiSyncService
 import eu.kanade.tachiyomi.data.sync.service.WebDavSyncService
+import eu.kanade.tachiyomi.extension.ExtensionManager
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import logcat.LogPriority
 import logcat.logcat
+import mihon.feature.extension.sync.SyncExtensionIdentity
+import mihon.feature.extension.sync.combineRememberedWithInstalled
+import mihon.feature.extension.sync.cumulativeExtensionHistory
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.data.Chapters
 import tachiyomi.data.DatabaseHandler
@@ -47,6 +53,11 @@ class SyncManager(
         ignoreUnknownKeys = true
     },
     private val getCategories: GetCategories = Injekt.get(),
+    // Chimahon -->
+    private val sourcePreferences: SourcePreferences = Injekt.get(),
+    private val extensionManager: ExtensionManager = Injekt.get(),
+    private val animeExtensionManager: AnimeExtensionManager = Injekt.get(),
+    // Chimahon <--
 ) {
     private val backupCreator: BackupCreator = BackupCreator(context, false)
     private val notifier: SyncNotifier = SyncNotifier(context)
@@ -107,6 +118,32 @@ class SyncManager(
         logcat(LogPriority.DEBUG) { "Begin create backup" }
         val backupManga = backupCreator.backupMangas(databaseManga, backupOptions)
         val backupAnime = backupCreator.backupAnimes(backupOptions)
+
+        // Chimahon -->
+        // Combine remembered extension identities with currently installed extensions before syncing.
+        val rememberedMangaExtensionsPref = sourcePreferences.rememberedMangaExtensions()
+        val rememberedAnimeExtensionsPref = sourcePreferences.rememberedAnimeExtensions()
+        val backupMangaExtensions = combineRememberedWithInstalled(
+            remembered = rememberedMangaExtensionsPref.get(),
+            installed = extensionManager.installedExtensionsFlow.value.map {
+                SyncExtensionIdentity(pkgName = it.pkgName, signatureHash = it.signatureHash)
+            },
+        )
+        val backupAnimeExtensions = combineRememberedWithInstalled(
+            remembered = rememberedAnimeExtensionsPref.get(),
+            installed = animeExtensionManager.installedExtensionsFlow.value.map {
+                SyncExtensionIdentity(pkgName = it.pkgName, signatureHash = it.signatureHash)
+            },
+        )
+        // Keep the local history cumulative even when nothing is received from remote.
+        rememberedMangaExtensionsPref.set(
+            cumulativeExtensionHistory(rememberedMangaExtensionsPref.get(), backupMangaExtensions),
+        )
+        rememberedAnimeExtensionsPref.set(
+            cumulativeExtensionHistory(rememberedAnimeExtensionsPref.get(), backupAnimeExtensions),
+        )
+        // Chimahon <--
+
         val backup = Backup(
             backupManga = backupManga,
             backupCategories = backupCreator.backupCategories(backupOptions),
@@ -129,6 +166,8 @@ class SyncManager(
             // Chimahon -->
             backupNovels = backupCreator.backupNovels(backupOptions),
             backupNovelCategories = backupCreator.backupNovelCategories(backupOptions),
+            backupMangaExtensions = backupMangaExtensions,
+            backupAnimeExtensions = backupAnimeExtensions,
             // Chimahon <--
         )
         logcat(LogPriority.DEBUG) { "End create backup" }
@@ -173,6 +212,17 @@ class SyncManager(
             // should we call showSyncError?
             return
         }
+
+        // Chimahon -->
+        // Persist the union of local and remote extension identities before any early return so the
+        // "Extensions from Sync" history keeps accumulating even when there is nothing else to restore.
+        rememberedMangaExtensionsPref.set(
+            cumulativeExtensionHistory(rememberedMangaExtensionsPref.get(), remoteBackup.backupMangaExtensions),
+        )
+        rememberedAnimeExtensionsPref.set(
+            cumulativeExtensionHistory(rememberedAnimeExtensionsPref.get(), remoteBackup.backupAnimeExtensions),
+        )
+        // Chimahon <--
 
         if (remoteBackup == syncData.backup) {
             // nothing changed

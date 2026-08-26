@@ -105,6 +105,7 @@
     <!-- Extension section -->
     <string name="extensions_page_need_refresh">Refresh extension page to update list.</string>
     <string name="extensions_page_more">More extensions...</string>
+    <string name="extensions_from_sync">Extensions from Sync</string>
     <!-- Extension repos -->
       <!-- Downloads section -->
     <string name="download_cache_renew_interval">Download cache renew interval</string>
