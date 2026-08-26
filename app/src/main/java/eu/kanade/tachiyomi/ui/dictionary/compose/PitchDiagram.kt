@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -15,6 +16,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -47,13 +49,14 @@ fun PitchAccentDiagram(
     accentColor: Color,
     modifier: Modifier = Modifier,
 ) {    if (text.isBlank()) return
-    val accent = downsteps.minOrNull()
-    val morae = splitMorae(text)
+    val accent = remember(downsteps) { downsteps.minOrNull() }
+    val morae = remember(text) { splitMorae(text) }
     val n = morae.size
     if (n == 0) return
-    val slotW = 18f
+    val density = LocalDensity.current
+    val slotWdp = 18.dp
     Canvas(
-        modifier = modifier.size(width = (n * slotW).dp, height = 34.dp),
+        modifier = modifier.size(width = (n * 18).dp, height = 34.dp),
     ) {
         val baseY = size.height * 0.78f
         val highY = size.height * 0.22f
@@ -62,7 +65,8 @@ fun PitchAccentDiagram(
 
         fun isHigh(i: Int): Boolean = accent == null || isMoraPitchHigh(i, accent)
 
-        fun dotX(i: Int) = slotW * (i + 0.5f)
+        val slotWpx = with(density) { slotWdp.toPx() }
+        fun dotX(i: Int) = slotWpx * (i + 0.5f)
         fun dotY(i: Int) = if (isHigh(i)) highY else lowY
 
         // Contour polyline connecting all mora dots.
@@ -79,7 +83,7 @@ fun PitchAccentDiagram(
         // Dashed tail projecting low past the last mora when there is a downstep.
         if (accent != null) {
             val tailStart = dotX(n - 1)
-            val endX = size.width + 6f
+            val endX = size.width + with(density) { 6.dp.toPx() }
             drawLine(
                 color = accentColor,
                 start = Offset(tailStart, lowY),

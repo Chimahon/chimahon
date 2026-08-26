@@ -53,7 +53,9 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
 
         val dataSelectors = extractDataSelectors(selectorPart)
         val presence = extractPresenceSelectors(selectorPart)
-        if ((dataSelectors.isEmpty() && presence.isEmpty()) || properties.isEmpty()) {
+        val classSelectors = extractClassSelectors(selectorPart)
+        val allValueSelectors = dataSelectors + classSelectors
+        if ((allValueSelectors.isEmpty() && presence.isEmpty()) || properties.isEmpty()) {
             i = braceEnd + 1
             continue
         }
@@ -66,7 +68,7 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
                 key == "clip-path"
         }
 
-        for (selector in dataSelectors) {
+        for (selector in allValueSelectors) {
             if (hasBoxProperty) boxSelectors.add(selector)
             val existing = selectorStyles.getOrPut(selector) { mutableMapOf() }
             properties.forEach { (key, value) ->
@@ -90,7 +92,15 @@ fun parseDictionaryCss(cssText: String?): ParsedCss {
 
 /** Merges all CSS rules that match an element's `data-*` attribute values. */
 fun getCssStyles(dataAttributes: Map<String, String>, parsedCss: ParsedCss): Map<String, String> {
-    var merged = dataAttributes.values
+    val lookupKeys = mutableListOf<String>()
+    for ((k, v) in dataAttributes) {
+        if (k == "class") {
+            lookupKeys.addAll(v.split(WHITESPACE_REGEX).filter { it.isNotBlank() })
+        } else {
+            if (v.isNotBlank()) lookupKeys.add(v)
+        }
+    }
+    var merged = lookupKeys
         .mapNotNull { parsedCss.selectorStyles[it] }
         .fold(emptyMap<String, String>()) { acc, map -> acc + map }
     for (rule in parsedCss.presenceRules) {
@@ -434,6 +444,27 @@ private fun extractDataSelectors(selectorPart: String): List<String> {
         i = valueEnd + 1
     }
     return result
+}
+
+private val CLASS_SELECTOR_REGEX = Regex("""\.([a-zA-Z][a-zA-Z0-9_-]*)""")
+/**
+ * Extracts plain class selectors (`.sense`, `.glossary`, `span.tag`) that dicts like Jitendex
+ * use alongside data-sc selectors. Keyed by the class name itself, so it matches via the
+ * node's `data["class"]` values in [getCssStyles].
+ */
+private fun extractClassSelectors(selectorPart: String): List<String> {
+    // avoid matching inside attribute brackets or decimal numbers: strip brackets first
+    val stripped = buildString {
+        var depth = 0
+        for (ch in selectorPart) {
+            when (ch) {
+                '[' -> { depth++; append(' ') }
+                ']' -> { depth--; append(' ') }
+                else -> append(if (depth > 0) ' ' else ch)
+            }
+        }
+    }
+    return CLASS_SELECTOR_REGEX.findAll(stripped).map { it.groupValues[1] }.filter { it.isNotBlank() }.toList()
 }
 
 /**

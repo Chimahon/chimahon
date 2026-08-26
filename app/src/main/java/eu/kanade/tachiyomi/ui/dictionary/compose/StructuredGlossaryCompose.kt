@@ -333,8 +333,8 @@ private fun StructuredList(
     onRecursiveLookup: ((String) -> Unit)?,
 ) {
     val ordered = node.tag == StructuredTag.OrderedList
-    val cssMap = getCssStyles(node.attributes.data, parsedCss)
-    val listStyleType = (cssMap + node.attributes.style)["listStyleType"]
+    val cssMap = remember(node.attributes.data, parsedCss) { getCssStyles(node.attributes.data, parsedCss) }
+    val listStyleType = remember(cssMap, node.attributes.style) { (cssMap + node.attributes.style)["listStyleType"] }
 
     Column {
         var counter = 0
