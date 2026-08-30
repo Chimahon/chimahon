@@ -39,6 +39,10 @@ object Notifications {
     const val ID_EHENTAI_PROGRESS = -199
     const val ID_EHENTAI_ERROR = -198
 
+    // KMK -->
+    const val ID_ANILIST_SYNC = -107
+    // KMK <--
+
     /**
      * Notification channel and ids used by the downloader.
      */

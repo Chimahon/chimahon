@@ -9,6 +9,8 @@ import eu.kanade.tachiyomi.data.track.anilist.dto.ALCurrentUserResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALError
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALIdSearchResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALMangaMetadata
+import eu.kanade.tachiyomi.data.track.anilist.dto.ALMediaListCollectionResult
+import eu.kanade.tachiyomi.data.track.anilist.dto.ALMediaListEntry
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALOAuth
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALSearchResult
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALUserListMangaQueryResult
@@ -573,6 +575,58 @@ class AnilistApi(val client: OkHttpClient, interceptor: AnilistInterceptor) {
         }
     }
 
+    suspend fun getMangaList(userId: Int): List<ALMediaListEntry> {
+        return getMediaListCollection(userId, "MANGA")
+    }
+
+    suspend fun getAnimeList(userId: Int): List<ALMediaListEntry> {
+        return getMediaListCollection(userId, "ANIME")
+    }
+
+    private suspend fun getMediaListCollection(userId: Int, type: String): List<ALMediaListEntry> {
+        return withIOContext {
+            val query = $$"""
+            |query ($userId: Int, $type: MediaType) {
+                |MediaListCollection(userId: $userId, type: $type) {
+                    |lists {
+                        |entries {
+                            |id
+                            |status
+                            |progress
+                            |media {
+                                |id
+                                |title {
+                                    |userPreferred
+                                |}
+                            |}
+                        |}
+                    |}
+                |}
+            |}
+            |
+            """.trimMargin()
+            val payload = buildJsonObject {
+                put("query", query)
+                putJsonObject("variables") {
+                    put("userId", userId)
+                    put("type", type)
+                }
+            }
+            with(json) {
+                authClient.newCall(
+                    POST(
+                        API_URL,
+                        body = payload.toString().toRequestBody(jsonMime),
+                    ),
+                )
+                    .awaitALSuccess()
+                    .parseAs<ALMediaListCollectionResult>()
+                    .data.mediaListCollection.lists
+                    .flatMap { it.entries }
+            }
+        }
+    }
+
     suspend fun getLibManga(track: Track, userId: Int): Track {
         return findLibManga(track, userId) ?: throw Exception("Could not find manga")
     }
@@ -736,6 +790,62 @@ class AnilistApi(val client: OkHttpClient, interceptor: AnilistInterceptor) {
                     .parseAs<ALIdSearchResult>()
                     .data.media
                     .toALManga()
+                    .toTrack()
+            }
+        }
+    }
+
+    suspend fun searchAnimeById(id: Long): AnimeTrackSearch {
+        return withIOContext {
+            val query = $$"""
+            |query ($animeId: Int!) {
+                |Media (id: $animeId) {
+                    |id
+                    |studios {
+                        |edges {
+                            |isMain
+                            |node {
+                                |name
+                            |}
+                        |}
+                    |}
+                    |title {
+                        |userPreferred
+                    |}
+                    |coverImage {
+                        |large
+                    |}
+                    |format
+                    |status
+                    |episodes
+                    |description
+                    |startDate {
+                        |year
+                        |month
+                        |day
+                    |}
+                    |averageScore
+                |}
+            |}
+            |
+            """.trimMargin()
+            val payload = buildJsonObject {
+                put("query", query)
+                putJsonObject("variables") {
+                    put("animeId", id)
+                }
+            }
+            with(json) {
+                authClient.newCall(
+                    POST(
+                        API_URL,
+                        body = payload.toString().toRequestBody(jsonMime),
+                    ),
+                )
+                    .awaitALSuccess()
+                    .parseAs<ALIdSearchResult>()
+                    .data.media
+                    .toALAnime()
                     .toTrack()
             }
         }

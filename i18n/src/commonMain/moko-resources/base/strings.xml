@@ -897,6 +897,7 @@
 
     <!-- Sync section -->
     <string name="syncing_library">Syncing library</string>
+    <string name="syncing_ani_list">Syncing AniList</string>
     <string name="library_sync_complete">Library sync complete</string>
 
       <!-- Advanced section -->

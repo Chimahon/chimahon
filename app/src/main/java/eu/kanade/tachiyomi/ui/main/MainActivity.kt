@@ -57,6 +57,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.connections.service.ConnectionsPreferences
 import eu.kanade.domain.source.interactor.GetIncognitoState
+import eu.kanade.domain.track.service.AniListSyncJob
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.presentation.components.AppStateBanners
@@ -521,6 +522,12 @@ class MainActivity : BaseActivity() {
                     if (!AnimeLibraryUpdateJob.isPeriodicUpdateScheduled(context)) {
                         AnimeLibraryUpdateJob.setupTask(context)
                     }
+                    // KMK -->
+                    if (!AniListSyncJob.isPeriodicSyncScheduled(context)) {
+                        AniListSyncJob.setupTask(context)
+                    }
+                    AniListSyncJob.startNow(context)
+                    // KMK <--
                 } catch (e: Exception) {
                     logcat(LogPriority.ERROR, e)
                     withContext(Dispatchers.Main) {

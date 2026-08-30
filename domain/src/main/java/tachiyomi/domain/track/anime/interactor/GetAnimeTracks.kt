@@ -28,6 +28,15 @@ class GetAnimeTracks(
         }
     }
 
+    suspend fun awaitAll(): List<AnimeTrack> {
+        return try {
+            animeTrackRepository.getAllAnime()
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e)
+            emptyList()
+        }
+    }
+
     fun subscribe(): Flow<List<AnimeTrack>> {
         return animeTrackRepository.getAnimeTracksAsFlow()
     }

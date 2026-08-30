@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.BaseTracker
 import eu.kanade.tachiyomi.data.track.DeletableAnimeTracker
 import eu.kanade.tachiyomi.data.track.DeletableTracker
+import eu.kanade.tachiyomi.data.track.anilist.dto.ALMediaListEntry
 import eu.kanade.tachiyomi.data.track.anilist.dto.ALOAuth
 import eu.kanade.tachiyomi.data.track.model.AnimeTrackSearch
 import eu.kanade.tachiyomi.data.track.model.TrackMangaMetadata
@@ -318,6 +319,14 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker, AnimeTra
         return api.searchAnime(query)
     }
 
+    suspend fun getFullMangaList(): List<ALMediaListEntry> {
+        return api.getMangaList(getUsername().toInt())
+    }
+
+    suspend fun getFullAnimeList(): List<ALMediaListEntry> {
+        return api.getAnimeList(getUsername().toInt())
+    }
+
     override suspend fun refresh(track: Track): Track {
         val remoteTrack = api.getLibManga(track, getUsername().toInt())
         track.copyPersonalFrom(remoteTrack)
@@ -364,6 +373,15 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker, AnimeTra
             api.searchById(id)
         } catch (e: Exception) {
             xLogW("Error during searchById '$id': ${e.message}", e)
+            null
+        }
+    }
+
+    suspend fun searchAnimeById(id: Long): AnimeTrackSearch? {
+        return try {
+            api.searchAnimeById(id)
+        } catch (e: Exception) {
+            xLogW("Error during searchAnimeById '$id': ${e.message}", e)
             null
         }
     }

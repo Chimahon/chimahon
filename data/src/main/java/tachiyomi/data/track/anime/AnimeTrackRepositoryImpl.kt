@@ -19,6 +19,12 @@ class AnimeTrackRepositoryImpl(
         }
     }
 
+    override suspend fun getAllAnime(): List<AnimeTrack> {
+        return handler.awaitList {
+            anime_syncQueries.getAnimeTracks(AnimeTrackMapper::mapTrack)
+        }
+    }
+
     override fun getAnimeTracksAsFlow(): Flow<List<AnimeTrack>> {
         return handler.subscribeToList {
             anime_syncQueries.getAnimeTracks(AnimeTrackMapper::mapTrack)
