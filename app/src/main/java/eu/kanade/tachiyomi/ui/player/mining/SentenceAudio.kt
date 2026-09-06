@@ -275,7 +275,7 @@ internal object SentenceAudioFfmpegArguments {
         if (input.headers.isNotEmpty()) { add("-headers"); add(input.headers.joinToString("") { "${it.first}: ${it.second}\r\n" }) }
     }
     private fun Double.seconds() = String.format(Locale.ROOT, "%.6f", this).trimEnd('0').trimEnd('.')
-    internal const val ALLOWED_INPUT_DECODERS = "aac,aac_fixed,ac3,alac,ass,av1,dca,dvdsub,eac3,eia_608,ffv1,flac,h263,h264,hevc,libdav1d,mjpeg,mov_text,mp3,mp3float,mpeg1video,mpeg2video,mpeg4,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,prores,realtext,ssa,subrip,text,theora,truehd,vorbis,vp8,vp9,webvtt"
+    internal const val ALLOWED_INPUT_DECODERS = "aac,aac_fixed,ac3,alac,ass,av1,dca,dvdsub,eac3,eia_608,ffv1,flac,h263,h264,hevc,libdav1d,mjpeg,mov_text,mp3,mp3float,mpeg1video,mpeg2video,mpeg4,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,prores,realtext,srt,ssa,subrip,text,theora,truehd,vorbis,vp8,vp9,webvtt"
 }
 
 /** Parses the small, explicitly requested audio subset of ffprobe's key/value output. */
