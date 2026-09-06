@@ -94,6 +94,7 @@ import eu.kanade.tachiyomi.ui.player.utils.applySubtitleRegexFilters
 import eu.kanade.tachiyomi.ui.player.utils.subtitleRegexFilterOptions
 import eu.kanade.tachiyomi.ui.player.utils.displayName
 import eu.kanade.tachiyomi.ui.player.utils.guessJimakuMedia
+import eu.kanade.tachiyomi.ui.player.utils.inPlaybackOrder
 import eu.kanade.tachiyomi.ui.player.utils.matchedSrtFiles
 import eu.kanade.tachiyomi.ui.player.utils.selectBestJimakuEntry
 import eu.kanade.tachiyomi.ui.reader.SaveImageNotifier
@@ -2114,7 +2115,8 @@ class PlayerViewModel @JvmOverloads constructor(
             episodesForPlayer += listOf(selectedEpisode)
         }
 
-        return episodesForPlayer
+        return episodesForPlayer.sortedWith(getEpisodeSort(anime, sortDescending = false))
+            .inPlaybackOrder(anime.sorting == Anime.EPISODE_SORTING_SOURCE)
     }
 
     fun getCurrentEpisodeIndex(): Int {

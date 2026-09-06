@@ -969,7 +969,8 @@ private fun PlayerSubtitleTextLayer(
                         )
                     }
                 }
-                .pointerInput(subtitleText, textLayout, textLayerOrigin, subtitleDelaySeconds) {
+                // Timing can arrive after the text, or change when an identical line repeats.
+                .pointerInput(subtitleText, textLayout, textLayerOrigin, subtitleDelaySeconds, cue) {
                     detectTapGestures(
                         onTap = { position ->
                             val layout = textLayout ?: return@detectTapGestures
