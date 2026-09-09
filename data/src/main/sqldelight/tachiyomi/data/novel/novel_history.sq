@@ -1,0 +1,106 @@
+CREATE TABLE novel_history(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    novel_chapter_id INTEGER NOT NULL UNIQUE,
+    last_read INTEGER NOT NULL,
+    time_read INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(novel_chapter_id) REFERENCES novel_chapters (_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX novel_history_novel_chapter_id_index ON novel_history(novel_chapter_id);
+CREATE INDEX novel_history_last_read_index ON novel_history(last_read) WHERE last_read > 0;
+
+getNovelHistoryByChapterId:
+SELECT *
+FROM novel_history
+WHERE novel_chapter_id = :chapterId;
+
+getNovelHistoryByNovelId:
+SELECT
+H._id,
+H.novel_chapter_id,
+H.last_read,
+H.time_read
+FROM novel_history H
+JOIN novel_chapters C
+ON H.novel_chapter_id = C._id
+WHERE C.novel_id = :novelId;
+
+getLatestNovelHistoryByNovel:
+SELECT
+H._id,
+H.novel_chapter_id,
+H.last_read,
+H.time_read
+FROM novel_history H
+JOIN novel_chapters C
+ON H.novel_chapter_id = C._id
+WHERE C.novel_id = :novelId
+ORDER BY H.last_read DESC
+LIMIT 1;
+
+getLatestLastReadByNovelIds:
+SELECT C.novel_id, coalesce(max(H.last_read), 0) AS lastRead
+FROM novel_history H
+JOIN novel_chapters C
+ON H.novel_chapter_id = C._id
+WHERE C.novel_id IN :novelIds
+GROUP BY C.novel_id;
+
+getNovelHistoryWithRelations:
+SELECT
+H._id,
+H.novel_chapter_id,
+H.last_read,
+H.time_read,
+C.novel_id,
+C.url,
+C.name,
+C.chapter_number,
+C.read,
+C.progress,
+N.title,
+N.thumbnail_url,
+N.source,
+N.favorite
+FROM novel_history H
+JOIN novel_chapters C
+ON H.novel_chapter_id = C._id
+JOIN novels N
+ON C.novel_id = N._id
+WHERE H.last_read > 0 AND N.title LIKE '%' || :query || '%'
+ORDER BY H.last_read DESC;
+
+deleteAllNovelHistory:
+DELETE FROM novel_history;
+
+upsertNovelHistory:
+INSERT INTO novel_history(novel_chapter_id, last_read, time_read)
+VALUES (:chapterId, :lastRead, :timeRead)
+ON CONFLICT(novel_chapter_id)
+DO UPDATE
+SET
+    last_read = :lastRead,
+    time_read = time_read + :timeRead
+WHERE novel_chapter_id = :chapterId;
+
+resetNovelHistoryByChapterIds:
+UPDATE novel_history
+SET last_read = 0
+WHERE _id IN :historyIds;
+
+deleteNovelHistoryByNovelIds:
+DELETE FROM novel_history
+WHERE novel_chapter_id IN (
+    SELECT C._id
+    FROM novel_chapters C
+    WHERE C.novel_id IN :novelIds
+);
+
+getTotalNovelTimeRead:
+SELECT coalesce(sum(time_read), 0)
+FROM novel_history;
+
+getAllNovelHistory:
+SELECT *
+FROM novel_history;

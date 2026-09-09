@@ -48,6 +48,12 @@ import mihon.domain.animeextensionrepo.interactor.GetAnimeExtensionRepoCount
 import mihon.domain.animeextensionrepo.interactor.ReplaceAnimeExtensionRepo
 import mihon.domain.animeextensionrepo.interactor.UpdateAnimeExtensionRepo
 import mihon.domain.animeextensionrepo.repository.AnimeExtensionRepoRepository
+import mihon.data.repository.NovelExtensionRepoRepositoryImpl
+import mihon.domain.novelextensionrepo.interactor.CreateNovelExtensionRepo
+import mihon.domain.novelextensionrepo.interactor.DeleteNovelExtensionRepo
+import mihon.domain.novelextensionrepo.interactor.GetNovelExtensionRepo
+import mihon.domain.novelextensionrepo.interactor.GetNovelExtensionRepoCount
+import mihon.domain.novelextensionrepo.repository.NovelExtensionRepoRepository
 import mihon.domain.extensionrepo.service.ExtensionRepoService
 import mihon.domain.chapter.interactor.FilterChaptersForDownload
 import mihon.domain.extension.interactor.AddExtensionStore
@@ -273,6 +279,7 @@ class DomainModule : InjektModule {
         addFactory { SetMigrateSorting(get()) }
         addFactory { ToggleLanguage(get()) }
         addFactory { ToggleAnimeLanguage(get()) }
+        addFactory { eu.kanade.domain.source.interactor.ToggleNovelLanguage(get()) }
         addFactory { ToggleSource(get()) }
         addFactory { ToggleSourcePin(get()) }
         addFactory { TrustExtension(get(), get()) }
@@ -300,6 +307,12 @@ class DomainModule : InjektModule {
         addFactory { GetAnimeExtensionsByType(get(), get()) }
         addFactory { GetAnimeExtensionLanguages(get(), get()) }
         addFactory { GetAnimeExtensionSources(get()) }
+
+        addSingletonFactory<NovelExtensionRepoRepository> { NovelExtensionRepoRepositoryImpl(get()) }
+        addFactory { GetNovelExtensionRepo(get()) }
+        addFactory { GetNovelExtensionRepoCount(get()) }
+        addFactory { CreateNovelExtensionRepo(get()) }
+        addFactory { DeleteNovelExtensionRepo(get()) }
 
         addFactory { ToggleIncognito(get()) }
         addFactory { GetIncognitoState(get(), get(), get()) }

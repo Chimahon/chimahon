@@ -38,6 +38,11 @@ class LibraryPreferences(
     fun animePortraitColumns() = preferenceStore.getInt("pref_anime_library_columns_portrait_key", 0)
     fun animeLandscapeColumns() = preferenceStore.getInt("pref_anime_library_columns_landscape_key", 0)
 
+    // KMK -->
+    fun novelPortraitColumns() = preferenceStore.getInt("pref_novel_library_columns_portrait_key", 2)
+    fun novelLandscapeColumns() = preferenceStore.getInt("pref_novel_library_columns_landscape_key", 0)
+    // KMK <--
+
     fun lastUpdatedTimestamp() = preferenceStore.getLong(Preference.appStateKey("library_update_last_timestamp"), 0L)
     fun autoUpdateInterval() = preferenceStore.getInt("pref_library_update_interval_key", 0)
 
@@ -89,6 +94,23 @@ class LibraryPreferences(
 
     fun animeUpdateCategoriesExclude() =
         preferenceStore.getStringSet(LIBRARY_UPDATE_ANIME_CATEGORIES_EXCLUDE_PREF_KEY, emptySet())
+
+    fun autoUpdateNovelRestrictions() = preferenceStore.getStringSet(
+        "library_update_novel_restriction",
+        setOf(
+            NOVEL_HAS_UNREAD,
+            NOVEL_NON_COMPLETED,
+            NOVEL_NON_READ,
+            NOVEL_OUTSIDE_RELEASE_PERIOD,
+        ),
+    )
+
+    fun updateNovelCategories() = preferenceStore.getStringSet(LIBRARY_UPDATE_NOVEL_CATEGORIES_PREF_KEY, emptySet())
+
+    fun updateNovelCategoriesExclude() =
+        preferenceStore.getStringSet(LIBRARY_UPDATE_NOVEL_CATEGORIES_EXCLUDE_PREF_KEY, emptySet())
+
+    fun novelExtensionRepos() = preferenceStore.getStringSet("novel_extension_repos", emptySet())
 
     fun updateSeasonOnLibraryUpdate() = preferenceStore.getBoolean("update_season_on_animelib_update", false)
 
@@ -469,6 +491,10 @@ class LibraryPreferences(
         const val ANIME_HAS_UNVIEWED = "anime_fully_viewed"
         const val ANIME_NON_VIEWED = "anime_started"
         const val ANIME_OUTSIDE_RELEASE_PERIOD = "anime_outside_release_period"
+        const val NOVEL_NON_COMPLETED = "novel_ongoing"
+        const val NOVEL_HAS_UNREAD = "novel_fully_read"
+        const val NOVEL_NON_READ = "novel_started"
+        const val NOVEL_OUTSIDE_RELEASE_PERIOD = "novel_outside_release_period"
 
         const val MARK_DUPLICATE_CHAPTER_READ_NEW = "new"
         const val MARK_DUPLICATE_CHAPTER_READ_EXISTING = "existing"
@@ -478,6 +504,8 @@ class LibraryPreferences(
         private const val LIBRARY_UPDATE_CATEGORIES_EXCLUDE_PREF_KEY = "library_update_categories_exclude"
         private const val LIBRARY_UPDATE_ANIME_CATEGORIES_PREF_KEY = "animelib_update_categories"
         private const val LIBRARY_UPDATE_ANIME_CATEGORIES_EXCLUDE_PREF_KEY = "animelib_update_categories_exclude"
+        private const val LIBRARY_UPDATE_NOVEL_CATEGORIES_PREF_KEY = "novel_update_categories"
+        private const val LIBRARY_UPDATE_NOVEL_CATEGORIES_EXCLUDE_PREF_KEY = "novel_update_categories_exclude"
 
         // KMK -->
         private const val FILTER_LIBRARY_CATEGORIES_INCLUDE_PREF_KEY = "pref_filter_library_categories_include"

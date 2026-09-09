@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import chimahon.novel.cache.NovelChapterCache
 import com.google.zxing.client.android.Intents
 import com.hippo.unifile.UniFile
 import com.journeyapps.barcodescanner.ScanContract
@@ -365,6 +366,10 @@ object SettingsDataScreen : SearchableSettings {
         val pagePreviewReadableSize = remember(pagePreviewReadableSizeSema) { pagePreviewCache.readableSize }
         // SY <--
 
+        val novelChapterCache = remember { Injekt.get<NovelChapterCache>() }
+        var novelChapterCacheReadableSizeSema by remember { mutableIntStateOf(0) }
+        val novelChapterCacheReadableSize = remember(novelChapterCacheReadableSizeSema) { novelChapterCache.readableSize }
+
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.pref_storage_usage),
             preferenceItems = persistentListOf(
@@ -418,6 +423,24 @@ object SettingsDataScreen : SearchableSettings {
                     },
                 ),
                 // SY <--
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(SYMR.strings.pref_clear_novel_chapter_cache),
+                    subtitle = stringResource(MR.strings.used_cache, novelChapterCacheReadableSize),
+                    onClick = {
+                        scope.launchNonCancellable {
+                            try {
+                                val deletedFiles = novelChapterCache.clear()
+                                withUIContext {
+                                    context.toast(context.stringResource(MR.strings.cache_deleted, deletedFiles))
+                                    novelChapterCacheReadableSizeSema++
+                                }
+                            } catch (e: Throwable) {
+                                logcat(LogPriority.ERROR, e)
+                                withUIContext { context.toast(MR.strings.cache_delete_error) }
+                            }
+                        }
+                    },
+                ),
                 Preference.PreferenceItem.SwitchPreference(
                     preference = libraryPreferences.autoClearChapterCache(),
                     title = stringResource(MR.strings.pref_auto_clear_chapter_cache),
@@ -779,26 +802,7 @@ object SettingsDataScreen : SearchableSettings {
                     ),
                 ),
             ),
-        ) + getSyncServicePreferences(syncPreferences, syncService) + getTtuSyncPref()
-    }
-
-    @Composable
-    private fun getTtuSyncPref(): List<Preference> {
-        val navigator = LocalNavigator.currentOrThrow
-        return listOf(
-            Preference.PreferenceGroup(
-                title = stringResource(MR.strings.label_novels),
-                preferenceItems = persistentListOf(
-                    Preference.PreferenceItem.TextPreference(
-                        title = "Novel TTU Sync",
-                        subtitle = "Sync progress with Hoshi Reader via Google Drive",
-                        onClick = {
-                            navigator.push(TtuSyncScreen())
-                        },
-                    ),
-                ),
-            ),
-        )
+        ) + getSyncServicePreferences(syncPreferences, syncService)
     }
 
     @Composable

@@ -121,6 +121,8 @@ data object HistoryTab : Tab {
         val state by screenModel.state.collectAsState()
         val animeScreenModel = rememberScreenModel { AnimeHistoryScreenModel() }
         val animeState by animeScreenModel.state.collectAsState()
+        val novelScreenModel = rememberScreenModel { eu.kanade.tachiyomi.ui.history.novel.NovelHistoryScreenModel() }
+        val novelState by novelScreenModel.state.collectAsState()
         val scope = rememberCoroutineScope()
         val pagerState = rememberPagerState(initialPage = TAB_MANGA) { TAB_COUNT }
         val selectedTab = pagerState.currentPage
@@ -128,6 +130,33 @@ data object HistoryTab : Tab {
         val settingsScreenModel = rememberScreenModel { HistorySettingsScreenModel() }
         val usePanoramaCover by settingsScreenModel.historyPreferences.usePanoramaCover().collectAsState()
         // KMK <--
+
+        fun resumeNovelHistory(entry: tachiyomi.domain.novel.model.NovelHistoryEntry) {
+            scope.launch {
+                val target = novelScreenModel.buildResumeBook(entry)
+                if (target != null) {
+                    chimahon.novel.ui.reader.NovelReaderActivity.launch(
+                        context,
+                        target.dir,
+                        target.novelId,
+                        target.chapterIndex,
+                    )
+                } else {
+                    snackbarHostState.showSnackbar(context.stringResource(MR.strings.no_next_chapter))
+                }
+            }
+        }
+
+        fun openNovelCover(entry: tachiyomi.domain.novel.model.NovelHistoryEntry) {
+            scope.launch {
+                val novel = novelScreenModel.getNovel(entry.novelId) ?: return@launch
+                if (novel.source == tachiyomi.domain.novel.model.Novel.LOCAL_SOURCE_ID) {
+                    resumeNovelHistory(entry)
+                } else {
+                    navigator.push(chimahon.novel.ui.detail.NovelDetailScreen.fromDbNovel(novel))
+                }
+            }
+        }
 
         Scaffold(
             topBar = { scrollBehavior ->
@@ -144,11 +173,13 @@ data object HistoryTab : Tab {
                         titleContent = { AppBarTitle(stringResource(MR.strings.history)) },
                         searchQuery = when (selectedTab) {
                             TAB_ANIME -> animeState.searchQuery
+                            TAB_NOVEL -> novelState.searchQuery
                             else -> state.searchQuery
                         },
                         onChangeSearchQuery = {
                             when (selectedTab) {
                                 TAB_ANIME -> animeScreenModel.updateSearchQuery(it)
+                                TAB_NOVEL -> novelScreenModel.updateSearchQuery(it)
                                 else -> screenModel.updateSearchQuery(it)
                             }
                         },
@@ -160,6 +191,13 @@ data object HistoryTab : Tab {
                                         title = stringResource(MR.strings.pref_clear_history),
                                         icon = Icons.Outlined.DeleteSweep,
                                         onClick = { animeScreenModel.setDialog(AnimeHistoryScreenModel.Dialog.DeleteAll) },
+                                    ),
+                                )
+                                TAB_NOVEL -> listOf(
+                                    AppBar.Action(
+                                        title = stringResource(MR.strings.pref_clear_history),
+                                        icon = Icons.Outlined.DeleteSweep,
+                                        onClick = { novelScreenModel.setDialog(eu.kanade.tachiyomi.ui.history.novel.NovelHistoryScreenModel.Dialog.DeleteAll) },
                                     ),
                                 )
                                 else -> listOf(
@@ -214,6 +252,12 @@ data object HistoryTab : Tab {
                         text = { TabText(text = stringResource(MR.strings.label_anime)) },
                         unselectedContentColor = MaterialTheme.colorScheme.onSurface,
                     )
+                    Tab(
+                        selected = selectedTab == TAB_NOVEL,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(TAB_NOVEL) } },
+                        text = { TabText(text = stringResource(MR.strings.label_novels)) },
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
 
                 HorizontalPager(
@@ -231,6 +275,19 @@ data object HistoryTab : Tab {
                             onDialogChange = animeScreenModel::setDialog,
                             onClickFavorite = animeScreenModel::addFavorite,
                         )
+                        TAB_NOVEL -> {
+                            NovelHistoryTabPage(
+                                novelState = novelState,
+                                pagePadding = pagePadding,
+                                onResume = { item -> resumeNovelHistory(item) },
+                                onCover = { item -> openNovelCover(item) },
+                                onDelete = { item ->
+                                    novelScreenModel.setDialog(
+                                        eu.kanade.tachiyomi.ui.history.novel.NovelHistoryScreenModel.Dialog.Delete(item),
+                                    )
+                                },
+                            )
+                        }
                         else -> {
                             when {
                                 state.isLoading -> LoadingScreen(Modifier.padding(pagePadding))
@@ -374,6 +431,23 @@ data object HistoryTab : Tab {
             null -> {}
         }
 
+        val onNovelDismissRequest = { novelScreenModel.setDialog(null) }
+        when (val dialog = novelState.dialog) {
+            is eu.kanade.tachiyomi.ui.history.novel.NovelHistoryScreenModel.Dialog.Delete -> {
+                HistoryDeleteDialog(
+                    onDismissRequest = onNovelDismissRequest,
+                    onDelete = { _ -> novelScreenModel.removeFromHistory(dialog.entry) },
+                )
+            }
+            is eu.kanade.tachiyomi.ui.history.novel.NovelHistoryScreenModel.Dialog.DeleteAll -> {
+                HistoryDeleteAllDialog(
+                    onDismissRequest = onNovelDismissRequest,
+                    onDelete = novelScreenModel::removeAllHistory,
+                )
+            }
+            null -> {}
+        }
+
         // KMK -->
         LaunchedEffect(state.isLoading) {
             if (!state.isLoading) {
@@ -468,4 +542,38 @@ data object HistoryTab : Tab {
 
 private const val TAB_MANGA = 0
 private const val TAB_ANIME = 1
-private const val TAB_COUNT = 2
+private const val TAB_NOVEL = 2
+private const val TAB_COUNT = 3
+
+@Composable
+private fun NovelHistoryTabPage(
+    novelState: eu.kanade.tachiyomi.ui.history.novel.NovelHistoryScreenModel.State,
+    pagePadding: PaddingValues,
+    onResume: (tachiyomi.domain.novel.model.NovelHistoryEntry) -> Unit,
+    onCover: (tachiyomi.domain.novel.model.NovelHistoryEntry) -> Unit,
+    onDelete: (tachiyomi.domain.novel.model.NovelHistoryEntry) -> Unit,
+) {
+    when {
+        novelState.isLoading -> LoadingScreen(Modifier.padding(pagePadding))
+        novelState.list.isEmpty() -> {
+            val msg = if (!novelState.searchQuery.isNullOrEmpty()) {
+                MR.strings.no_results_found
+            } else {
+                MR.strings.information_no_recent_manga
+            }
+            EmptyScreen(
+                stringRes = msg,
+                modifier = Modifier.padding(pagePadding),
+            )
+        }
+        else -> {
+            eu.kanade.presentation.history.NovelHistoryScreen(
+                state = novelState,
+                contentPadding = pagePadding,
+                onClickResume = onResume,
+                onClickCover = onCover,
+                onClickDelete = onDelete,
+            )
+        }
+    }
+}

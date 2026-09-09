@@ -1,0 +1,20 @@
+ALTER TABLE novel_chapters ADD COLUMN progress REAL NOT NULL DEFAULT 0.0;
+UPDATE novel_chapters SET progress = (
+    SELECT progress FROM novel_history WHERE novel_history.novel_chapter_id = novel_chapters._id
+) WHERE EXISTS (
+    SELECT 1 FROM novel_history WHERE novel_history.novel_chapter_id = novel_chapters._id
+);
+CREATE TABLE novel_history_new(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    novel_chapter_id INTEGER NOT NULL UNIQUE,
+    last_read INTEGER NOT NULL,
+    time_read INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(novel_chapter_id) REFERENCES novel_chapters (_id)
+    ON DELETE CASCADE
+);
+INSERT INTO novel_history_new(_id, novel_chapter_id, last_read, time_read)
+    SELECT _id, novel_chapter_id, last_read, time_read FROM novel_history;
+DROP TABLE novel_history;
+ALTER TABLE novel_history_new RENAME TO novel_history;
+CREATE INDEX novel_history_novel_chapter_id_index ON novel_history(novel_chapter_id);
+CREATE INDEX novel_history_last_read_index ON novel_history(last_read) WHERE last_read > 0;

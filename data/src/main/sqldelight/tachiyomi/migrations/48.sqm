@@ -1,0 +1,103 @@
+CREATE TABLE novels(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    source INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT,
+    author TEXT,
+    description TEXT,
+    genre TEXT,
+    status INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT,
+    favorite INTEGER NOT NULL DEFAULT 0,
+    last_update INTEGER NOT NULL DEFAULT 0,
+    next_update INTEGER NOT NULL DEFAULT 0,
+    initialized INTEGER NOT NULL DEFAULT 0,
+    cover_last_modified INTEGER NOT NULL DEFAULT 0,
+    date_added INTEGER NOT NULL DEFAULT 0,
+    total_chapters INTEGER NOT NULL DEFAULT 0,
+    last_modified_at INTEGER NOT NULL DEFAULT 0,
+    favorite_modified_at INTEGER,
+    fetch_interval INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 0,
+    notes TEXT NOT NULL DEFAULT ""
+);
+
+CREATE INDEX novel_library_index ON novels(favorite) WHERE favorite = 1;
+CREATE INDEX novel_url_index ON novels(url);
+CREATE INDEX novel_source_index ON novels(source);
+CREATE UNIQUE INDEX novel_source_url_unique ON novels(source, url);
+
+CREATE TRIGGER update_novel_last_favorited_at
+AFTER UPDATE OF favorite ON novels
+BEGIN
+  UPDATE novels
+  SET favorite_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER update_novel_last_modified_at
+AFTER UPDATE ON novels
+FOR EACH ROW
+BEGIN
+  UPDATE novels
+  SET last_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER update_novel_version AFTER UPDATE ON novels
+BEGIN
+    UPDATE novels SET version = version + 1
+    WHERE _id = new._id AND (
+        new.url != old.url OR
+        new.description != old.description OR
+        new.favorite != old.favorite OR
+        new.title != old.title OR
+        new.thumbnail_url != old.thumbnail_url
+    );
+END;
+
+CREATE TABLE novel_chapters(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    novel_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    name TEXT NOT NULL,
+    scanlator TEXT,
+    read INTEGER NOT NULL DEFAULT 0,
+    bookmark INTEGER NOT NULL DEFAULT 0,
+    last_page_read INTEGER NOT NULL DEFAULT 0,
+    chapter_number REAL NOT NULL DEFAULT 0,
+    source_order INTEGER NOT NULL DEFAULT 0,
+    date_fetch INTEGER NOT NULL DEFAULT 0,
+    date_upload INTEGER NOT NULL DEFAULT 0,
+    last_modified_at INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(novel_id) REFERENCES novels(_id) ON DELETE CASCADE
+);
+
+CREATE INDEX novel_chapters_novel_id_index ON novel_chapters(novel_id);
+CREATE INDEX novel_chapters_unread_by_novel_index ON novel_chapters(novel_id, read) WHERE read = 0;
+CREATE UNIQUE INDEX novel_chapters_novel_url_unique ON novel_chapters(novel_id, url);
+
+CREATE TRIGGER update_novel_chapter_last_modified
+AFTER UPDATE ON novel_chapters
+FOR EACH ROW
+BEGIN
+  UPDATE novel_chapters
+  SET last_modified_at = strftime('%s', 'now')
+  WHERE _id = new._id;
+END;
+
+CREATE TRIGGER update_novel_chapter_and_novel_version AFTER UPDATE ON novel_chapters
+WHEN (
+    new.read != old.read OR
+    new.bookmark != old.bookmark OR
+    new.last_page_read != old.last_page_read
+)
+BEGIN
+    UPDATE novel_chapters SET version = version + 1
+    WHERE _id = new._id;
+
+    UPDATE novels SET version = version + 1
+    WHERE _id = new.novel_id;
+END;

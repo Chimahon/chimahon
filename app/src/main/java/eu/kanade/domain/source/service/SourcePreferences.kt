@@ -28,11 +28,18 @@ class SourcePreferences(
         LocaleHelper.getDefaultEnabledLanguages(),
     )
 
+    fun enabledNovelLanguages() = preferenceStore.getStringSet(
+        "novel_source_languages",
+        LocaleHelper.getDefaultEnabledLanguages(),
+    )
+
     fun disabledSources() = preferenceStore.getStringSet("hidden_catalogues", emptySet())
 
     fun incognitoExtensions() = preferenceStore.getStringSet("incognito_extensions", emptySet())
 
     fun incognitoAnimeExtensions() = preferenceStore.getStringSet("incognito_anime_extensions", emptySet())
+
+    fun incognitoNovelExtensions() = preferenceStore.getStringSet("incognito_novel_extensions", emptySet())
 
     fun pinnedSources() = preferenceStore.getStringSet(
         // KMK -->
@@ -68,6 +75,10 @@ class SourcePreferences(
 
     fun pinnedAnimeSources() = preferenceStore.getStringSet("pinned_anime_catalogues", emptySet())
 
+    fun disabledNovelSources() = preferenceStore.getStringSet("hidden_novel_catalogues", emptySet())
+
+    fun pinnedNovelSources() = preferenceStore.getStringSet("pinned_novel_catalogues", emptySet())
+
     // KMK -->
     fun hideInLibraryFeedItems() = preferenceStore.getBoolean("feed_hide_in_library_items", false)
     // KMK <--
@@ -78,6 +89,10 @@ class SourcePreferences(
     fun extensionUpdatesCount() = preferenceStore.getInt("ext_updates_count", 0)
 
     fun animeExtensionUpdatesCount() = preferenceStore.getInt("anime_ext_updates_count", 0)
+
+    fun novelExtensionUpdatesCount() = preferenceStore.getInt("novel_ext_updates_count", 0)
+
+    fun lastNovelExtensionCheck() = preferenceStore.getLong(Preference.appStateKey("last_novel_ext_check"), 0)
 
     fun trustedExtensions() = preferenceStore.getStringSet(
         Preference.appStateKey("trusted_extensions"),

@@ -607,6 +607,7 @@
     <string name="page_previews">Page previews</string>
     <string name="more_previews">More previews</string>
     <string name="pref_clear_page_preview_cache">Clear page preview cache</string>
+    <string name="pref_clear_novel_chapter_cache">Clear novel chapter cache</string>
     <string name="page_preview_page_go_to">Go to</string>
 
     <!-- Rating 0-10 (0, 0.5, 1, 1.5 and so fourth) -->

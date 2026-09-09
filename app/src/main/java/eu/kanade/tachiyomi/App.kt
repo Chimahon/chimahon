@@ -18,6 +18,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.work.Configuration
 import androidx.work.WorkManager
+import chimahon.novel.source.LocalNovelFiles
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
@@ -27,6 +28,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.allowRgb565
 import coil3.request.crossfade
 import coil3.util.DebugLogger
+import chimahon.novel.data.BookStorage
 import com.elvishew.xlog.LogConfiguration
 import com.elvishew.xlog.LogLevel
 import com.elvishew.xlog.XLog
@@ -223,7 +225,9 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         initializeMigrator()
         
         // Chimahon -->
-        com.canopus.chimareader.data.NovelMigration.migrateOldBooks(this)
+        chimahon.novel.data.NovelMigration.migrateOldBooks(this)
+        // Public local-novels root (manga <base>/local/ mirror); readers resolve it.
+        BookStorage.localBooksRoot = LocalNovelFiles.publicRoot(this)
         chimahon.DictionaryRepository.migrateFlatDictionaries(File(getExternalFilesDir(null), "dictionaries"))
         // Chimahon <--
     }

@@ -4,7 +4,6 @@ import chimahon.dictionary.DeinflectionResult
 import chimahon.dictionary.Deinflector
 import chimahon.dictionary.Rule
 import chimahon.dictionary.RuleDeinflector
-import chimahon.dictionary.arabic.ArabicTextPreprocessors
 
 object ArabicDeinflector : Deinflector {
 

@@ -160,6 +160,12 @@ android {
                 "**/libLiteRtClGlAccelerator.so",
                 "**/liblitert_jni.so",
             )
+            // quickjs-kt (io.github.dokar3:quickjs-kt) and core:common's
+            // quickjs-android (com.github.zhanghai:quickjs-java) both bundle
+            // libquickjs.so at the same JNI path. The two wrappers are different
+            // Java APIs over the same QuickJS engine, so the first native wins.
+            // pickFirsts keeps the build green without dropping either dependency.
+            pickFirsts += listOf("**/libquickjs.so")
         }
     }
 
@@ -269,6 +275,10 @@ dependencies {
     implementation(androidx.profileinstaller)
 
     implementation(androidx.bundles.lifecycle)
+    implementation(libs.datastore.preferences)
+
+    // JS engine for LNReader plugins (Hayai reference)
+    implementation(libs.quickjs.kt)
 
     // Job scheduling
     implementation(androidx.workmanager)

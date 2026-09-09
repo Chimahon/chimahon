@@ -1,0 +1,182 @@
+package chimahon.novel.ui.browse
+
+import android.content.res.Configuration
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.model.StateScreenModel
+import cafe.adriel.voyager.core.model.screenModelScope
+import chimahon.novel.manager.NovelSourceManager
+import eu.kanade.tachiyomi.sourcenovel.NovelSource
+import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
+import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.io.Serializable
+import tachiyomi.domain.library.model.LibraryDisplayMode
+import tachiyomi.domain.library.service.LibraryPreferences
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+
+class BrowseNovelSourceScreenModel(
+    val sourceId: Long,
+    private val initialListing: Listing? = null,
+    private val libraryPreferences: LibraryPreferences = Injekt.get(),
+) : StateScreenModel<BrowseNovelSourceScreenModel.State>(State()) {
+
+    private var currentPage = 1
+
+    private val sourceManager: NovelSourceManager = Injekt.get()
+    val source: NovelSource? get() = sourceManager.getNovelSource(sourceId)
+
+    var displayMode: LibraryDisplayMode by mutableStateOf(LibraryDisplayMode.CompactGrid)
+
+    private val pageSource: NovelsPageSource?
+        get() = source as? NovelsPageSource
+
+    private val coverSemaphore = Semaphore(4)
+    private val coverRequested = mutableSetOf<String>()
+    // Covers that resolved blank (syosetu has none) — never refetch within a
+    // listing lifetime; scrolling normally retriggers LaunchedEffect per item.
+    private val coverFailed = mutableSetOf<String>()
+
+    var currentFilters by mutableStateOf<eu.kanade.tachiyomi.source.model.FilterList>(eu.kanade.tachiyomi.source.model.FilterList())
+        private set
+
+    init {
+        loadFilters()
+        when (val listing = initialListing) {
+            is Listing.Search -> if (listing.query.isNotBlank()) {
+                loadListing(listing, reset = true)
+            } else {
+                loadListing(Listing.Popular, reset = true)
+            }
+            Listing.Latest -> loadListing(Listing.Latest, reset = true)
+            else -> loadListing(Listing.Popular, reset = true)
+        }
+    }
+
+    private fun loadFilters() {
+        val src = source as? eu.kanade.tachiyomi.sourcenovel.NovelsPageSource ?: return
+        currentFilters = try { src.getFilterList() } catch (_: Exception) { eu.kanade.tachiyomi.source.model.FilterList() }
+    }
+
+    fun setFilters(newFilters: eu.kanade.tachiyomi.source.model.FilterList) {
+        currentFilters = newFilters
+    }
+
+    fun resetFilters() {
+        loadFilters()
+    }
+
+    fun requestCover(novel: SNNovel) {
+        if (!novel.thumbnail_url.isNullOrBlank()) return
+        if (novel.url in coverFailed) return
+        val src = source ?: return
+        if (!coverRequested.add(novel.url)) return
+        screenModelScope.launch {
+            try {
+                val cover = coverSemaphore.withPermit { src.getNovelDetails(novel).thumbnail_url }
+                if (cover.isNullOrBlank()) {
+                    coverFailed.add(novel.url)
+                    return@launch
+                }
+                val current = mutableState.value.novels
+                val index = current.indexOfFirst { it.url == novel.url }
+                if (index < 0 || !current[index].thumbnail_url.isNullOrBlank()) return@launch
+                mutableState.value = mutableState.value.copy(
+                    novels = current.toMutableList()
+                        .apply { this[index] = this[index].copy(thumbnail_url = cover) }
+                        .toImmutableList(),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                coverRequested.remove(novel.url)
+            }
+        }
+    }
+
+    fun loadListing(listing: Listing, reset: Boolean = false) {
+        if (reset) {
+            currentPage = 1
+            coverRequested.clear()
+            coverFailed.clear()
+        }
+        val ps = pageSource ?: return
+        screenModelScope.launch {
+            mutableState.value = mutableState.value.copy(isLoading = true, error = null)
+            try {
+                val page = when (listing) {
+                    Listing.Popular -> ps.getPopularNovels(currentPage)
+                    Listing.Latest -> if (ps.supportsLatest) ps.getLatestUpdates(currentPage) else ps.getPopularNovels(currentPage)
+                    is Listing.Search -> ps.getSearchNovels(currentPage, listing.query, currentFilters)
+                }
+                val existingIds = mutableState.value.novels.map { it.url }.toSet()
+                val newNovels = if (reset) page.novels else mutableState.value.novels + page.novels.filter { it.url !in existingIds }
+                mutableState.value = mutableState.value.copy(
+                    novels = newNovels.toImmutableList(),
+                    isLoading = false,
+                    hasNextPage = page.hasNextPage,
+                    listing = listing,
+                )
+                currentPage++
+            } catch (e: Exception) {
+                mutableState.value = mutableState.value.copy(isLoading = false, error = e.message)
+            }
+        }
+    }
+
+    fun loadNextPage() {
+        val s = mutableState.value
+        if (!s.hasNextPage || s.isLoading) return
+        loadListing(s.listing)
+    }
+
+    fun search(query: String) {
+        loadListing(Listing.Search(query), reset = true)
+    }
+
+    fun searchWithFilters(query: String, filters: eu.kanade.tachiyomi.source.model.FilterList) {
+        setFilters(filters)
+        loadListing(Listing.Search(query), reset = true)
+    }
+
+    fun applyFilters(filters: eu.kanade.tachiyomi.source.model.FilterList) {
+        setFilters(filters)
+        val query = (mutableState.value.listing as? Listing.Search)?.query ?: ""
+        loadListing(Listing.Search(query), reset = true)
+    }
+
+    fun getColumnsPreference(orientation: Int): GridCells {
+        val columns = if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            libraryPreferences.novelLandscapeColumns().get()
+        } else {
+            libraryPreferences.novelPortraitColumns().get()
+        }
+        return if (columns == 0) GridCells.Adaptive(128.dp) else GridCells.Fixed(columns)
+    }
+
+    sealed class Listing(open val query: String?) : Serializable {
+        data object Popular : Listing(null)
+        data object Latest : Listing(null)
+        data class Search(override val query: String) : Listing(query)
+    }
+
+    @Immutable
+    data class State(
+        val novels: ImmutableList<SNNovel> = persistentListOf(),
+        val isLoading: Boolean = false,
+        val hasNextPage: Boolean = true,
+        val listing: Listing = Listing.Popular,
+        val error: String? = null,
+    )
+}

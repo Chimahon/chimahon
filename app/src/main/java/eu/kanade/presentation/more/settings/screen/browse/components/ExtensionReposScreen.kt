@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import eu.kanade.presentation.category.components.CategoryFloatingActionButton
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.more.settings.screen.browse.AnimeRepoScreenState
+import eu.kanade.presentation.more.settings.screen.browse.NovelRepoScreenState
+import kotlinx.collections.immutable.ImmutableSet
 import mihon.domain.extensionrepo.model.ExtensionRepo
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.Scaffold
@@ -27,6 +29,47 @@ import tachiyomi.presentation.core.util.plus
 @Composable
 fun ExtensionReposScreen(
     state: AnimeRepoScreenState.Success,
+    onClickCreate: () -> Unit,
+    onOpenWebsite: (ExtensionRepo) -> Unit,
+    onClickDelete: (String) -> Unit,
+    onClickRefresh: () -> Unit,
+    navigateUp: () -> Unit,
+) {
+    ExtensionReposScreen(
+        repos = state.repos,
+        isEmpty = state.isEmpty,
+        onClickCreate = onClickCreate,
+        onOpenWebsite = onOpenWebsite,
+        onClickDelete = onClickDelete,
+        onClickRefresh = onClickRefresh,
+        navigateUp = navigateUp,
+    )
+}
+
+@Composable
+fun ExtensionReposScreen(
+    state: NovelRepoScreenState.Success,
+    onClickCreate: () -> Unit,
+    onOpenWebsite: (ExtensionRepo) -> Unit,
+    onClickDelete: (String) -> Unit,
+    onClickRefresh: () -> Unit,
+    navigateUp: () -> Unit,
+) {
+    ExtensionReposScreen(
+        repos = state.repos,
+        isEmpty = state.isEmpty,
+        onClickCreate = onClickCreate,
+        onOpenWebsite = onOpenWebsite,
+        onClickDelete = onClickDelete,
+        onClickRefresh = onClickRefresh,
+        navigateUp = navigateUp,
+    )
+}
+
+@Composable
+private fun ExtensionReposScreen(
+    repos: ImmutableSet<ExtensionRepo>,
+    isEmpty: Boolean,
     onClickCreate: () -> Unit,
     onOpenWebsite: (ExtensionRepo) -> Unit,
     onClickDelete: (String) -> Unit,
@@ -57,7 +100,7 @@ fun ExtensionReposScreen(
             )
         },
     ) { paddingValues ->
-        if (state.isEmpty) {
+        if (isEmpty) {
             EmptyScreen(
                 MR.strings.information_empty_repos,
                 modifier = Modifier.padding(paddingValues),
@@ -66,7 +109,7 @@ fun ExtensionReposScreen(
         }
 
         ExtensionReposContent(
-            repos = state.repos,
+            repos = repos,
             lazyListState = lazyListState,
             paddingValues = paddingValues + topSmallPaddingValues +
                 PaddingValues(horizontal = MaterialTheme.padding.medium),

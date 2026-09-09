@@ -3,10 +3,9 @@ package eu.kanade.tachiyomi.ui.browse.source
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.canopus.chimareader.data.BookImporter
-import com.canopus.chimareader.data.BookStorage
-import com.canopus.chimareader.data.NovelCategory
-import com.canopus.chimareader.data.NovelCategoryStorage
+import chimahon.novel.interactor.RegisterLocalNovelHome
+import chimahon.novel.source.LocalNovelFiles
+import chimahon.novel.data.BookImporter
 import com.hippo.unifile.UniFile
 import tachiyomi.source.local.LocalSource
 import kotlinx.coroutines.Dispatchers
@@ -102,31 +101,26 @@ object ImportHandler {
     }
 
     suspend fun importNovels(context: Context, uris: List<Uri>) = withContext(Dispatchers.IO) {
-        val novelCategoryStorage: NovelCategoryStorage = Injekt.get()
-        
+        val novelCategoryRepository: tachiyomi.domain.novel.repository.NovelCategoryRepository = Injekt.get()
+
         uris.forEach { uri ->
-            val result = BookImporter.importEpub(context, uri)
+            val result = BookImporter.importEpub(
+                context,
+                uri,
+                targetRootUni = LocalNovelFiles.publicRootUni(context),
+            )
             val bookMetadata = result.metadata ?: return@forEach
-            
-            // Add to default novel category
-            val categories = novelCategoryStorage.loadAllCategories()
-            val defaultCategory = categories.find { it.isSystemCategory } 
-                ?: categories.firstOrNull() // Should always have a system category now
-            
-            if (defaultCategory != null) {
-                val existingCategoryIds = bookMetadata.categoryIds
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                val updatedCategoryIds = if (existingCategoryIds.any { it != NovelCategory.UNCATEGORIZED_ID }) {
-                    existingCategoryIds.filterNot { it == NovelCategory.UNCATEGORIZED_ID }
-                } else {
-                    (existingCategoryIds + defaultCategory.id).distinct()
+
+            // Default category (system 0L); merges with any existing
+            // memberships on reimport.
+            runCatching {
+                val novelId = Injekt.get<RegisterLocalNovelHome>().register(bookMetadata.id)
+                    ?: return@runCatching
+                val current = novelCategoryRepository.getByNovelId(novelId).map { it.id }.toSet()
+                if (0L !in current) {
+                    Injekt.get<chimahon.novel.interactor.SetNovelCategories>()
+                        .await(novelId, (current + 0L).toList())
                 }
-                val updatedMetadata = bookMetadata.copy(
-                    categoryIds = updatedCategoryIds
-                )
-                val bookDir = java.io.File(BookStorage.getBooksDirectory(context), updatedMetadata.id)
-                BookStorage.saveMetadata(updatedMetadata, bookDir)
             }
         }
     }

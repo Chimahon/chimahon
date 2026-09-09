@@ -190,6 +190,11 @@
             android:theme="@style/Theme.Tachiyomi" />
 
         <activity
+            android:name="chimahon.novel.ui.reader.NovelReaderActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+        <activity
             android:name=".ui.player.PlayerActivity"
             android:exported="true"
             android:launchMode="singleTask"

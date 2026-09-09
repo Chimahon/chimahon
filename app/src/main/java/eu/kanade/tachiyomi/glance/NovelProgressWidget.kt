@@ -21,10 +21,15 @@ import androidx.glance.layout.padding
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
-import com.canopus.chimareader.data.BookStorage
-import com.canopus.chimareader.ui.reader.NovelReaderActivity
+import chimahon.novel.data.BookStorage
+import chimahon.novel.manager.NovelSourceManager
+import chimahon.novel.ui.detail.SourceChapterBookBuilder
+import chimahon.novel.ui.reader.NovelReaderActivity
 import eu.kanade.tachiyomi.R
 import tachiyomi.core.common.Constants
+import tachiyomi.domain.novel.model.toSNNovel
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.text.DecimalFormat
 
 class NovelProgressWidget : GlanceAppWidget() {
@@ -37,29 +42,91 @@ class NovelProgressWidget : GlanceAppWidget() {
         }
 
         val lastNovel = BookStorage.loadAllBooks(context).maxByOrNull { it.lastAccess }
-        val bookDir = lastNovel?.let { book ->
-            BookStorage.getBookDirectory(context, book.folder ?: book.id)
-        }
-        val bookmark = bookDir?.let { BookStorage.loadBookmark(it) }
-        // Same basis as StatsScreenModel: precomputed chapterStarts + explored char count
-        // (no EPUB parse / TOC helpers). Fallback: 1-based spine index.
-        val chapterText = bookmark?.let {
-            novelChapterLabelFromStarts(
-                chapterStarts = lastNovel?.chapterStarts,
-                exploredChars = it.characterCount,
-                spineChapterIndex = it.chapterIndex,
+        // Latest history row carries the real chapter name + progress; the
+        // sidecar is only a legacy fallback.
+        data class WidgetResume(
+            val title: String?,
+            val chapterLabel: String,
+            val progress: Double,
+            val bookDir: java.io.File?,
+            val novelId: Long?,
+            val chapterIndex: Int?,
+        )
+        val resume: WidgetResume? = runCatching {
+            val historyRepo = Injekt.get<tachiyomi.domain.novel.repository.NovelHistoryRepository>()
+            val chapterRepo = Injekt.get<tachiyomi.domain.novel.repository.NovelChapterRepository>()
+            val novelRepo = Injekt.get<tachiyomi.domain.novel.repository.NovelRepository>()
+            val latest = historyRepo.getHistoryWithRelations("").firstOrNull()
+            if (latest != null) {
+                val novel = runCatching { novelRepo.getNovelById(latest.novelId) }.getOrNull()
+                val dir = novel?.let {
+                    if (it.isLocal || it.source == tachiyomi.domain.novel.model.Novel.LOCAL_SOURCE_ID) {
+                        it.localFolder?.takeIf { f -> f.isNotBlank() }?.let { folder ->
+                            // Content gate (not mere existence): epub-only
+                            // public dirs parse nothing until extracted.
+                            BookStorage.getBookDirectory(context, folder)
+                                .takeIf { d -> BookStorage.hasImportedBookContent(d) }
+                        }
+                    } else {
+                        val source = runCatching {
+                            Injekt.get<NovelSourceManager>().getNovelSource(it.source)
+                        }.getOrNull()
+                        if (source != null) {
+                            val bookId = SourceChapterBookBuilder.bookId(source, it.toSNNovel())
+                            BookStorage.getBookDirectory(context, bookId)
+                                .takeIf { d -> BookStorage.hasImportedBookContent(d) }
+                        } else {
+                            null
+                        }
+                    }
+                }
+                val chapterIndex = runCatching {
+                    chapterRepo.getChaptersByNovelId(latest.novelId)
+                        .sortedBy { c -> c.chapterNumber }
+                        .indexOfFirst { c -> c.id == latest.chapterId }
+                        .takeIf { i -> i >= 0 }
+                }.getOrNull()
+                WidgetResume(
+                    title = latest.novelTitle,
+                    chapterLabel = latest.chapterName,
+                    progress = latest.chapterProgress,
+                    bookDir = dir,
+                    novelId = latest.novelId,
+                    chapterIndex = chapterIndex,
+                )
+            } else {
+                null
+            }
+        }.getOrNull() ?: lastNovel?.let { book ->
+            val bookDir = BookStorage.getBookDirectory(context, book.folder ?: book.id)
+            val bookmark = BookStorage.loadBookmark(bookDir)
+            WidgetResume(
+                title = book.title,
+                chapterLabel = bookmark?.let {
+                    novelChapterLabelFromStarts(
+                        chapterStarts = book.chapterStarts,
+                        exploredChars = it.characterCount,
+                        spineChapterIndex = it.chapterIndex,
+                    )
+                } ?: context.getString(R.string.widget_chapter_unknown),
+                progress = bookmark?.progress ?: 0.0,
+                bookDir = bookDir.takeIf { BookStorage.hasImportedBookContent(it) },
+                novelId = null,
+                chapterIndex = bookmark?.chapterIndex,
             )
         }
+        val bookDir = resume?.bookDir
 
         val noRecentNovels = context.getString(R.string.widget_no_recent_novels)
         val currentNovelLabel = context.getString(R.string.widget_current_novel)
         val unknownTitle = context.getString(R.string.widget_unknown_title)
-        val chapterUnknown = context.getString(R.string.widget_chapter_unknown)
 
         provideContent {
             val intent = if (bookDir != null) {
                 Intent(context, NovelReaderActivity.activityClass).apply {
-                    putExtra("extra_book_dir", bookDir.absolutePath)
+                    putExtra(NovelReaderActivity.EXTRA_BOOK_DIR, bookDir.absolutePath)
+                    resume?.novelId?.let { putExtra(NovelReaderActivity.EXTRA_NOVEL_ID, it) }
+                    resume?.chapterIndex?.let { putExtra(NovelReaderActivity.EXTRA_CHAPTER_INDEX, it) }
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
             } else {
@@ -71,7 +138,7 @@ class NovelProgressWidget : GlanceAppWidget() {
                     .widgetContainer()
                     .clickable(actionStartActivity(intent)),
             ) {
-                if (lastNovel == null) {
+                if (resume == null) {
                     WidgetEmptyState(noRecentNovels)
                 } else {
                     Column(
@@ -87,7 +154,7 @@ class NovelProgressWidget : GlanceAppWidget() {
                             modifier = GlanceModifier.padding(bottom = 4.dp),
                         )
                         Text(
-                            text = lastNovel.title ?: unknownTitle,
+                            text = resume.title ?: unknownTitle,
                             style = TextStyle(
                                 color = GlanceTheme.OnSurface,
                                 fontSize = 18.sp,
@@ -98,8 +165,8 @@ class NovelProgressWidget : GlanceAppWidget() {
 
                         Spacer(modifier = GlanceModifier.defaultWeight())
 
-                        val chapterLabel = chapterText ?: chapterUnknown
-                        val progressPercent = PROGRESS_FORMAT.format((bookmark?.progress ?: 0.0) * 100)
+                        val chapterLabel = resume.chapterLabel
+                        val progressPercent = PROGRESS_FORMAT.format(resume.progress * 100)
 
                         Row(
                             modifier = GlanceModifier.fillMaxWidth().padding(top = 8.dp),

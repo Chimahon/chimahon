@@ -16,6 +16,7 @@ data class RestoreOptions(
     // SY <--
     // Chimahon -->
     val novels: Boolean = true,
+    val sourceNovelLibrary: Boolean = true,
     val history: Boolean = true,
     // Chimahon <--
     val animeEntries: Boolean = true,
@@ -32,6 +33,7 @@ data class RestoreOptions(
         // SY <--
         // Chimahon -->
         novels,
+        sourceNovelLibrary,
         // Chimahon <--
         animeEntries,
     )
@@ -44,6 +46,7 @@ data class RestoreOptions(
             sourceSettings /* SY --> */ ||
             savedSearchesFeeds /* SY <-- */ ||
             novels ||
+            sourceNovelLibrary ||
             animeEntries
 
     companion object {
@@ -93,6 +96,11 @@ data class RestoreOptions(
                 getter = RestoreOptions::novels,
                 setter = { options, enabled -> options.copy(novels = enabled) },
             ),
+            Entry(
+                label = MR.strings.backup_option_source_novel_library,
+                getter = RestoreOptions::sourceNovelLibrary,
+                setter = { options, enabled -> options.copy(sourceNovelLibrary = enabled) },
+            ),
             // Chimahon <--
         )
 
@@ -107,8 +115,9 @@ data class RestoreOptions(
             // SY <--
             // Chimahon -->
             novels = array.getOrElse(6) { true },
+            sourceNovelLibrary = array.getOrElse(7) { true },
             // Chimahon <--
-            animeEntries = array.getOrElse(7) { true },
+            animeEntries = array.getOrElse(8) { true },
         )
     }
 

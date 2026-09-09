@@ -66,11 +66,14 @@ import eu.kanade.tachiyomi.ui.browse.animemigration.sources.migrateAnimeSourceTa
 import eu.kanade.tachiyomi.ui.browse.animesource.animeSourcesTab
 import eu.kanade.tachiyomi.ui.browse.extension.ExtensionsScreenModel
 import eu.kanade.tachiyomi.ui.browse.extension.extensionsTab
+import eu.kanade.tachiyomi.ui.browse.novelextension.NovelExtensionsScreenModel
+import eu.kanade.tachiyomi.ui.browse.novelextension.novelExtensionsTab
 import eu.kanade.tachiyomi.ui.browse.feed.FeedScreenModel
 import eu.kanade.tachiyomi.ui.browse.feed.feedTab
 import eu.kanade.tachiyomi.ui.browse.migration.sources.migrateSourceTab
 import eu.kanade.tachiyomi.ui.browse.source.globalsearch.GlobalSearchScreen
 import eu.kanade.tachiyomi.ui.browse.source.sourcesTab
+import chimahon.novel.ui.browse.novelSourcesTab
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -89,6 +92,7 @@ import uy.kohesive.injekt.api.get
 enum class BrowseViewMode(val labelRes: StringResource) {
     Sources(MR.strings.manga_singular),
     Anime(MR.strings.label_anime),
+    Novels(MR.strings.novel_singular),
 }
 
 data object BrowseTab : Tab {
@@ -138,6 +142,8 @@ data object BrowseTab : Tab {
 
         val feedScreenModel = rememberScreenModel { FeedScreenModel() }
         val bulkFavoriteScreenModel = rememberScreenModel { BulkFavoriteScreenModel() }
+        val novelExtensionsScreenModel = rememberScreenModel { NovelExtensionsScreenModel() }
+        val novelExtensionsState by novelExtensionsScreenModel.state.collectAsState()
 
         val feedState by feedScreenModel.state.collectAsState()
         val bulkFavoriteState by bulkFavoriteScreenModel.state.collectAsState()
@@ -180,6 +186,10 @@ data object BrowseTab : Tab {
                 animeExtensionsTab(animeExtensionsScreenModel),
                 migrateAnimeSourceTab(),
             )
+            BrowseViewMode.Novels -> persistentListOf(
+                novelSourcesTab(),
+                novelExtensionsTab(novelExtensionsScreenModel),
+            )
         }
         val pagerState = rememberPagerState { currentTabs.size }
 
@@ -190,11 +200,13 @@ data object BrowseTab : Tab {
         val searchQuery: String? = when {
             browseMode == BrowseViewMode.Anime && currentTab?.titleRes == MR.strings.label_extensions -> animeExtensionsState.searchQuery
             browseMode == BrowseViewMode.Sources && currentTab?.titleRes == MR.strings.label_extensions -> extensionsState.searchQuery
+            browseMode == BrowseViewMode.Novels && currentTab?.titleRes == MR.strings.label_extensions -> novelExtensionsState.searchQuery
             else -> null
         }
         val onChangeSearchQuery: (String?) -> Unit = when {
             browseMode == BrowseViewMode.Anime && currentTab?.titleRes == MR.strings.label_extensions -> animeExtensionsScreenModel::search
             browseMode == BrowseViewMode.Sources && currentTab?.titleRes == MR.strings.label_extensions -> extensionsScreenModel::search
+            browseMode == BrowseViewMode.Novels && currentTab?.titleRes == MR.strings.label_extensions -> novelExtensionsScreenModel::search
             else -> { _ -> }
         }
 

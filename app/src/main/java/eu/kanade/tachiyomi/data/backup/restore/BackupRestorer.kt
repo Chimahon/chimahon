@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.data.backup.models.BackupFeed
 import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSavedSearch
+import eu.kanade.tachiyomi.data.backup.models.BackupSourceNovel
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
 import eu.kanade.tachiyomi.data.backup.restore.restorers.CategoriesRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.ExtensionStoreRestorer
@@ -20,8 +21,10 @@ import eu.kanade.tachiyomi.data.backup.restore.restorers.AnimeExtensionRepoResto
 import eu.kanade.tachiyomi.data.backup.restore.restorers.AnimeRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.FeedRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.MangaRestorer
+import eu.kanade.tachiyomi.data.backup.restore.restorers.NovelExtensionRepoRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.PreferenceRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.SavedSearchRestorer
+import eu.kanade.tachiyomi.data.backup.restore.restorers.SourceNovelRestorer
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.createFileInCacheDir
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +52,7 @@ class BackupRestorer(
     private val preferenceRestorer: PreferenceRestorer = PreferenceRestorer(context),
     private val extensionStoreRestorer: ExtensionStoreRestorer = ExtensionStoreRestorer(),
     private val animeExtensionRepoRestorer: AnimeExtensionRepoRestorer = AnimeExtensionRepoRestorer(),
+    private val novelExtensionRepoRestorer: NovelExtensionRepoRestorer = NovelExtensionRepoRestorer(),
     private val mangaRestorer: MangaRestorer = MangaRestorer(isSync),
     private val animeRestorer: AnimeRestorer = AnimeRestorer(),
     // SY -->
@@ -60,6 +64,7 @@ class BackupRestorer(
     // Chimahon -->
     private val novelRestorer: eu.kanade.tachiyomi.data.backup.restore.restorers.NovelRestorer = eu.kanade.tachiyomi.data.backup.restore.restorers.NovelRestorer(context),
     private val upsertSearchHistory: UpsertSearchHistory = Injekt.get(),
+    private val sourceNovelRestorer: SourceNovelRestorer = SourceNovelRestorer(isSync),
     // Chimahon <--
 ) {
 
@@ -122,6 +127,7 @@ class BackupRestorer(
         if (options.extensionStores) {
             restoreAmount += backup.backupExtensionStores.size
             restoreAmount += backup.backupAnimeExtensionRepo.size
+            restoreAmount += backup.backupNovelExtensionRepo.size
         }
         if (options.sourceSettings) {
             restoreAmount += 1
@@ -132,6 +138,9 @@ class BackupRestorer(
             if (backup.backupNovelCategories.isNotEmpty()) {
                 restoreAmount += 1
             }
+        }
+        if (options.sourceNovelLibrary) {
+            restoreAmount += backup.backupSourceNovels.size
         }
         if (options.appSettings) {
             if (backup.backupMangaStats.isNotEmpty()) restoreAmount += 1
@@ -170,6 +179,7 @@ class BackupRestorer(
             if (options.extensionStores) {
                 restoreExtensionStores(backup.backupExtensionStores)
                 restoreAnimeExtensionRepos(backup.backupAnimeExtensionRepo)
+                restoreNovelExtensionRepos(backup.backupNovelExtensionRepo)
             }
             if (options.animeEntries) {
                 restoreAnime(backup.backupAnime, if (options.categories) backup.backupAnimeCategories else emptyList())
@@ -177,6 +187,9 @@ class BackupRestorer(
             // Chimahon -->
             if (options.novels) {
                 restoreNovels(backup.backupNovels, backup.backupNovelCategories)
+            }
+            if (options.sourceNovelLibrary) {
+                restoreSourceNovels(backup.backupSourceNovels)
             }
             if (options.history && backup.backupSearchHistory.isNotEmpty()) {
                 restoreSearchHistory(backup.backupSearchHistory)
@@ -403,6 +416,32 @@ class BackupRestorer(
             }
     }
 
+    private fun CoroutineScope.restoreNovelExtensionRepos(
+        backupExtensionRepo: List<BackupExtensionRepos>,
+    ) = launch {
+        backupExtensionRepo
+            .forEach {
+                ensureActive()
+
+                try {
+                    novelExtensionRepoRestorer(it)
+                } catch (e: Exception) {
+                    errors.add(Date() to "Error Adding Novel Repo: ${it.name} : ${e.message}")
+                }
+
+                restoreProgress += 1
+                with(notifier) {
+                    showRestoreProgress(
+                        context.stringResource(MR.strings.extensionRepo_settings),
+                        restoreProgress,
+                        restoreAmount,
+                        isSync,
+                    )
+                        .show(Notifications.ID_RESTORE_PROGRESS)
+                }
+            }
+    }
+
     // Chimahon -->
     private fun CoroutineScope.restoreNovels(
         backupNovels: List<eu.kanade.tachiyomi.data.backup.models.BackupNovel>,
@@ -440,6 +479,31 @@ class BackupRestorer(
                 ).show(Notifications.ID_RESTORE_PROGRESS)
             }
         }
+    }
+
+    private fun CoroutineScope.restoreSourceNovels(
+        backupNovels: List<BackupSourceNovel>,
+    ) = launch {
+        sourceNovelRestorer.sortByNew(backupNovels)
+            .forEach {
+                ensureActive()
+
+                try {
+                    sourceNovelRestorer.restore(it)
+                } catch (e: Exception) {
+                    errors.add(Date() to "${it.title} [${it.source}]: ${e.message}")
+                }
+
+                restoreProgress += 1
+                with(notifier) {
+                    showRestoreProgress(
+                        it.title,
+                        restoreProgress,
+                        restoreAmount,
+                        isSync,
+                    ).show(Notifications.ID_RESTORE_PROGRESS)
+                }
+            }
     }
 
     private fun CoroutineScope.restoreGlobalStats(

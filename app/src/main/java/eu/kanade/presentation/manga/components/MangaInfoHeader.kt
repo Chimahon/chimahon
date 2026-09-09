@@ -1011,7 +1011,7 @@ private fun MangaSummary(
 private val DefaultTagChipModifier = Modifier.padding(vertical = 4.dp)
 
 @Composable
-private fun RowScope.MangaActionButton(
+internal fun RowScope.MangaActionButton(
     title: String,
     icon: ImageVector,
     color: Color,

@@ -56,7 +56,9 @@ import cafe.adriel.voyager.navigator.NavigatorDisposeBehavior
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.connections.service.ConnectionsPreferences
+import chimahon.novel.plugin.NovelPluginManager
 import eu.kanade.domain.source.interactor.GetIncognitoState
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.presentation.components.AppStateBanners
@@ -83,6 +85,7 @@ import eu.kanade.tachiyomi.data.coil.MangaCoverMetadata
 import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
+import eu.kanade.tachiyomi.data.library.NovelUpdateJob
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateJob
 import eu.kanade.tachiyomi.data.notification.NotificationReceiver
 import eu.kanade.tachiyomi.data.updater.AppUpdateChecker
@@ -139,7 +142,9 @@ import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import java.time.Instant
 import java.util.LinkedList
+import kotlin.time.Duration.Companion.days
 
 class MainActivity : BaseActivity() {
 
@@ -521,6 +526,9 @@ class MainActivity : BaseActivity() {
                     if (!AnimeLibraryUpdateJob.isPeriodicUpdateScheduled(context)) {
                         AnimeLibraryUpdateJob.setupTask(context)
                     }
+                    if (!NovelUpdateJob.isPeriodicUpdateScheduled(context)) {
+                        NovelUpdateJob.setupTask(context)
+                    }
                 } catch (e: Exception) {
                     logcat(LogPriority.ERROR, e)
                     withContext(Dispatchers.Main) {
@@ -582,6 +590,23 @@ class MainActivity : BaseActivity() {
         LaunchedEffect(Unit) {
             try {
                 ExtensionApi().checkForUpdates(context)
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e)
+            }
+        }
+
+        // Novel plugin updates (JS): same once-a-day throttle as manga
+        LaunchedEffect(Unit) {
+            try {
+                val preferences = Injekt.get<SourcePreferences>()
+                if (Instant.now().toEpochMilli() < preferences.lastNovelExtensionCheck().get() + 1.days.inWholeMilliseconds) {
+                    return@LaunchedEffect
+                }
+                val pluginManager = Injekt.get<NovelPluginManager>()
+                pluginManager.refresh()
+                val updates = pluginManager.catalog.value.installed.count { pluginManager.hasUpdate(it.descriptor.id) }
+                preferences.novelExtensionUpdatesCount().set(updates)
+                preferences.lastNovelExtensionCheck().set(Instant.now().toEpochMilli())
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e)
             }

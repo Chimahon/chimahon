@@ -96,7 +96,7 @@ fun SubtitleSettingsTypographyCard(
     }
     val context = LocalContext.current
     LaunchedEffect(Unit) {
-        val fontsDir = com.canopus.chimareader.data.FontManager.getFontsDir(context)
+        val fontsDir = chimahon.novel.data.FontManager.getFontsDir(context)
         withContext(Dispatchers.IO) {
             val fontFiles = fontsDir.listFiles()
             if (fontFiles != null) {

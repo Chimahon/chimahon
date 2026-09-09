@@ -57,5 +57,7 @@ val migrations: List<Migration>
         SyncPrefKeyMigration(),
         ChapterUrlHashMigration(),
         MoveJimakuApiKeyToPrivateMigration(),
+        MigrateNovelPluginRegistryMigration(),
+        MigrateNovelBookJsonMigration(),
         // KMK <--
     )

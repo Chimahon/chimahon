@@ -11,16 +11,23 @@ import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.extension.model.LoadResult
 import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.SourceFactory
+import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.util.lang.Hash
 import eu.kanade.tachiyomi.util.storage.copyAndSetReadOnlyTo
 import eu.kanade.tachiyomi.util.system.ChildFirstPathClassLoader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.domain.extension.interactor.GetExtensionStores
 import mihon.domain.extension.model.ExtensionStore
+import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.injectLazy
 import java.io.File
@@ -42,6 +49,7 @@ import java.io.File
 internal object ExtensionLoader {
 
     private val preferences: SourcePreferences by injectLazy()
+    private val preferenceStore: PreferenceStore by injectLazy()
     private val trustExtension: TrustExtension by injectLazy()
 
     // KMK -->
@@ -62,6 +70,9 @@ internal object ExtensionLoader {
     private const val METADATA_CONTENT_WARNING = "tachiyomix.contentWarning"
 
     private val SUPPORTED_LIB_VERSIONS = listOf(1.4, 1.6)
+
+    const val LIB_VERSION_MIN = 1.4
+    const val LIB_VERSION_MAX = 1.6
 
     @Suppress("DEPRECATION")
     private val PACKAGE_FLAGS = PackageManager.GET_CONFIGURATIONS or
@@ -258,9 +269,16 @@ internal object ExtensionLoader {
         val pkgInfo = extensionInfo.packageInfo
         val appInfo = pkgInfo.applicationInfo!!
         val pkgName = pkgInfo.packageName
+        val contentType = getContentType(pkgInfo) ?: return LoadResult.Error
 
-        val extName = appInfo.metaData.getString(METADATA_NAME)
-            ?: pkgManager.getApplicationLabel(appInfo).toString().substringAfter("Tachiyomi: ")
+        val extName = when (contentType) {
+            Extension.ContentType.MANGA -> appInfo.metaData.getString(METADATA_NAME)
+                ?: pkgManager.getApplicationLabel(appInfo).toString().substringAfter("Tachiyomi: ")
+            Extension.ContentType.NOVEL -> appInfo.metaData
+                ?.getString("source.name")
+                ?.takeIf { it.isNotBlank() }
+                ?: pkgManager.getApplicationLabel(appInfo).toString().substringAfter("IReader: ").substringBefore(" (")
+        }
         val versionName = pkgInfo.versionName
         val versionCode = PackageInfoCompat.getLongVersionCode(pkgInfo)
 
@@ -270,44 +288,59 @@ internal object ExtensionLoader {
         }
 
         // Validate lib version
-        val libVersion = appInfo.metaData.getFloat(METADATA_EXTENSION_LIB)
-            .takeUnless { it == 0.0f }
-            ?.toString()
-            ?.toDouble()
-            ?: versionName.substringBeforeLast('.').toDoubleOrNull()
-        if (libVersion == null || libVersion !in SUPPORTED_LIB_VERSIONS) {
+        val libVersion = when (contentType) {
+            Extension.ContentType.MANGA -> appInfo.metaData.getFloat(METADATA_EXTENSION_LIB)
+                .takeUnless { it == 0.0f }
+                ?.toString()
+                ?.toDouble()
+                ?: versionName.substringBeforeLast('.').toDoubleOrNull()
+            Extension.ContentType.NOVEL -> versionName.substringBeforeLast('.', versionName).toDoubleOrNull()
+        }
+        val libVersionOk = when (contentType) {
+            Extension.ContentType.MANGA -> libVersion != null && libVersion in SUPPORTED_LIB_VERSIONS
+            Extension.ContentType.NOVEL ->
+                libVersion != null &&
+                    libVersion in 1.0..2.0
+        }
+        if (!libVersionOk) {
             logcat(LogPriority.WARN) {
                 "Lib version is $libVersion, while only version(s) ${SUPPORTED_LIB_VERSIONS.joinToString()} are supported"
             }
             return LoadResult.Error
         }
+        val loadedLibVersion = libVersion ?: return LoadResult.Error
 
         val signatures = getSignatures(pkgInfo)
         if (signatures.isNullOrEmpty()) {
             logcat(LogPriority.WARN) { "Package $pkgName isn't signed" }
             return LoadResult.Error
-        } else if (!trustExtension.isTrusted(pkgInfo, signatures)) {
+        } else if (!isTrusted(contentType, pkgInfo, signatures)) {
             val extension = Extension.Untrusted(
                 extName,
                 pkgName,
                 versionName,
                 versionCode,
-                libVersion,
+                loadedLibVersion,
                 signatures.last(),
                 // KMK -->
                 storeName = stores.firstOrNull { store ->
                     signatures.all { it == store.signingKey }
                 }?.let { store ->
                     store.badgeLabel.takeIf(String::isNotBlank) ?: store.name
-                },
+                } ?: iReaderStoreName(contentType, signatures),
                 // KMK <--
+                contentType = contentType,
             )
             logcat(LogPriority.WARN) { "Extension $pkgName isn't trusted" }
             return LoadResult.Untrusted(extension)
         }
 
-        val isNsfw = appInfo.metaData.getInt(METADATA_CONTENT_WARNING) > 0 ||
-            appInfo.metaData.getInt(METADATA_NSFW) == 1
+        val isNsfw = when (contentType) {
+            Extension.ContentType.MANGA -> appInfo.metaData.getInt(METADATA_CONTENT_WARNING) > 0 ||
+                appInfo.metaData.getInt(METADATA_NSFW) == 1
+            Extension.ContentType.NOVEL ->
+                appInfo.metaData?.getInt("source.nsfw", 0) == 1
+        }
         if (!loadNsfwSource && isNsfw) {
             logcat(LogPriority.WARN) { "NSFW extension $pkgName not allowed" }
             return LoadResult.Error
@@ -320,16 +353,69 @@ internal object ExtensionLoader {
             return LoadResult.Error
         }
 
-        val sources = appInfo.metaData.getString(METADATA_SOURCE_CLASS)!!
-            .split(";")
-            .map {
-                val sourceClass = it.trim()
-                if (sourceClass.startsWith(".")) {
-                    pkgInfo.packageName + sourceClass
-                } else {
-                    sourceClass
+        val loadedSources = when (contentType) {
+            Extension.ContentType.MANGA -> {
+                val mangaSources = loadMangaSources(appInfo, pkgInfo, classLoader, extName)
+                    ?: return LoadResult.Error
+                val langs = mangaSources.filterIsInstance<CatalogueSource>()
+                    .map { it.lang }
+                    .toSet()
+                val sourceLang = when (langs.size) {
+                    0 -> ""
+                    1 -> langs.first()
+                    else -> "all"
                 }
+                LoadedExtensionSources(mangaSources = mangaSources, lang = sourceLang)
             }
+            Extension.ContentType.NOVEL -> {
+                // LNReader JS plugins are handled by NovelPluginManager, not APK loader
+                LoadedExtensionSources(
+                    novelSources = emptyList(),
+                    lang = appInfo.metaData?.getString("source.lang").orEmpty(),
+                )
+            }
+        }
+
+        val extension = Extension.Installed(
+            name = extName,
+            pkgName = pkgName,
+            versionName = versionName,
+            versionCode = versionCode,
+            libVersion = loadedLibVersion,
+            lang = loadedSources.lang,
+            isNsfw = isNsfw,
+            sources = loadedSources.mangaSources,
+            pkgFactory = if (contentType == Extension.ContentType.MANGA) {
+                appInfo.metaData.getString(METADATA_SOURCE_FACTORY)
+            } else {
+                null
+            },
+            icon = appInfo.loadIcon(pkgManager),
+            isShared = extensionInfo.isShared,
+            // KMK -->
+            signatureHash = signatures.last(),
+            storeName = stores.firstOrNull { store ->
+                signatures.all { it == store.signingKey }
+            }?.let { store ->
+                store.badgeLabel.takeIf(String::isNotBlank) ?: store.name
+            } ?: iReaderStoreName(contentType, signatures),
+            // KMK <--
+            novelSources = loadedSources.novelSources,
+            contentType = contentType,
+        )
+        return LoadResult.Success(extension)
+    }
+
+    private fun loadMangaSources(
+        appInfo: ApplicationInfo,
+        pkgInfo: PackageInfo,
+        classLoader: ClassLoader,
+        extName: String,
+    ): List<Source>? {
+        val sourceClasses = appInfo.metaData.getString(METADATA_SOURCE_CLASS) ?: return null
+        return sourceClasses
+            .split(";")
+            .map { it.toAbsoluteClassName(pkgInfo.packageName) }
             .flatMap {
                 try {
                     when (val obj = Class.forName(it, false, classLoader).getDeclaredConstructor().newInstance()) {
@@ -339,39 +425,33 @@ internal object ExtensionLoader {
                     }
                 } catch (e: Throwable) {
                     logcat(LogPriority.ERROR, e) { "Extension load error: $extName ($it)" }
-                    return LoadResult.Error
+                    return null
                 }
             }
+    }
 
-        val langs = sources.map { it.lang }.toSet()
-        val lang = when (langs.size) {
-            0 -> ""
-            1 -> langs.first()
-            else -> "all"
+    private suspend fun isTrusted(
+        contentType: Extension.ContentType,
+        pkgInfo: PackageInfo,
+        signatures: List<String>,
+    ): Boolean {
+        if (
+            contentType == Extension.ContentType.NOVEL &&
+            signatures.all { it == "f4527fa6edd6de2a8ec987f9967bfdb8836dfef88e437a87ac81bba70557c17c" }
+        ) {
+            return true
         }
+        return trustExtension.isTrusted(pkgInfo, signatures)
+    }
 
-        val extension = Extension.Installed(
-            name = extName,
-            pkgName = pkgName,
-            versionName = versionName,
-            versionCode = versionCode,
-            libVersion = libVersion,
-            lang = lang,
-            isNsfw = isNsfw,
-            sources = sources,
-            pkgFactory = appInfo.metaData.getString(METADATA_SOURCE_FACTORY),
-            icon = appInfo.loadIcon(pkgManager),
-            isShared = extensionInfo.isShared,
-            // KMK -->
-            signatureHash = signatures.last(),
-            storeName = stores.firstOrNull { store ->
-                signatures.all { it == store.signingKey }
-            }?.let { store ->
-                store.badgeLabel.takeIf(String::isNotBlank) ?: store.name
-            },
-            // KMK <--
-        )
-        return LoadResult.Success(extension)
+    private fun iReaderStoreName(
+        contentType: Extension.ContentType,
+        signatures: List<String>,
+    ): String? {
+        return "IReader".takeIf {
+            contentType == Extension.ContentType.NOVEL &&
+                signatures.all { signature -> signature == "f4527fa6edd6de2a8ec987f9967bfdb8836dfef88e437a87ac81bba70557c17c" }
+        }
     }
 
     /**
@@ -402,7 +482,21 @@ internal object ExtensionLoader {
      * @param pkgInfo The package info of the application.
      */
     private fun isPackageAnExtension(pkgInfo: PackageInfo): Boolean {
-        return pkgInfo.reqFeatures.orEmpty().any { it.name == EXTENSION_FEATURE }
+        return getContentType(pkgInfo) != null
+    }
+
+    private fun getContentType(pkgInfo: PackageInfo): Extension.ContentType? {
+        val features = pkgInfo.reqFeatures.orEmpty().map { it.name }.toSet()
+        return when {
+            EXTENSION_FEATURE in features -> Extension.ContentType.MANGA
+            "ireader.extension" in features || "lnreader.js.plugin" in features -> Extension.ContentType.NOVEL
+            else -> null
+        }
+    }
+
+    private fun String.toAbsoluteClassName(packageName: String): String {
+        val sourceClass = trim()
+        return if (sourceClass.startsWith(".")) packageName + sourceClass else sourceClass
     }
 
     /**
@@ -443,5 +537,11 @@ internal object ExtensionLoader {
     private data class ExtensionInfo(
         val packageInfo: PackageInfo,
         val isShared: Boolean,
+    )
+
+    private data class LoadedExtensionSources(
+        val mangaSources: List<Source> = emptyList(),
+        val novelSources: List<NovelSource> = emptyList(),
+        val lang: String,
     )
 }

@@ -58,6 +58,8 @@ fun LibraryToolbar(
     updateLibraryTitle: String? = null,
     onClickNovelDefaultCategory: (() -> Unit)? = null,
     novelDefaultCategoryTitle: String? = null,
+    onClickBrowseSources: (() -> Unit)? = null,
+    browseSourcesTitle: String? = null,
 ) = when {
     selectedCount > 0 -> LibrarySelectionToolbar(
         selectedCount = selectedCount,
@@ -87,6 +89,8 @@ fun LibraryToolbar(
         editCategoriesTitle = editCategoriesTitle,
         updateCategoryTitle = updateCategoryTitle,
         updateLibraryTitle = updateLibraryTitle,
+        onClickBrowseSources = onClickBrowseSources,
+        browseSourcesTitle = browseSourcesTitle,
     )
 }
 
@@ -115,6 +119,8 @@ private fun LibraryRegularToolbar(
     updateLibraryTitle: String? = null,
     onClickNovelDefaultCategory: (() -> Unit)? = null,
     novelDefaultCategoryTitle: String? = null,
+    onClickBrowseSources: (() -> Unit)? = null,
+    browseSourcesTitle: String? = null,
 ) {
     val context = LocalContext.current
     val pillAlpha = if (isSystemInDarkTheme()) 0.12f else 0.08f
@@ -209,6 +215,14 @@ private fun LibraryRegularToolbar(
                             AppBar.OverflowAction(
                                 title = novelDefaultCategoryTitle ?: stringResource(MR.strings.default_category),
                                 onClick = onClickNovelDefaultCategory,
+                            ),
+                        )
+                    }
+                    if (onClickBrowseSources != null) {
+                        add(
+                            AppBar.OverflowAction(
+                                title = browseSourcesTitle ?: "Browse Sources",
+                                onClick = onClickBrowseSources,
                             ),
                         )
                     }

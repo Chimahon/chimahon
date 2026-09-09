@@ -23,6 +23,7 @@ data class BackupOptions(
     // SY <--
     // Chimahon -->
     val novels: Boolean = true,
+    val sourceNovelLibrary: Boolean = true,
     // Chimahon <--
     val animeEntries: Boolean = true,
 ) {
@@ -44,12 +45,13 @@ data class BackupOptions(
         // SY <--
         // Chimahon -->
         novels,
+        sourceNovelLibrary,
         // Chimahon <--
         animeEntries,
     )
 
     fun canCreate() =
-        libraryEntries || animeEntries || categories || appSettings || extensionStores || sourceSettings || savedSearchesFeeds || novels
+        libraryEntries || animeEntries || categories || appSettings || extensionStores || sourceSettings || savedSearchesFeeds || novels || sourceNovelLibrary
 
     companion object {
         val libraryOptions = persistentListOf(
@@ -113,6 +115,11 @@ data class BackupOptions(
                 getter = BackupOptions::novels,
                 setter = { options, enabled -> options.copy(novels = enabled) },
             ),
+            Entry(
+                label = MR.strings.backup_option_source_novel_library,
+                getter = BackupOptions::sourceNovelLibrary,
+                setter = { options, enabled -> options.copy(sourceNovelLibrary = enabled) },
+            ),
             // Chimahon <--
         )
 
@@ -157,8 +164,9 @@ data class BackupOptions(
             // SY <--
             // Chimahon -->
             novels = array.getOrElse(12) { true },
+            sourceNovelLibrary = array.getOrElse(13) { true },
             // Chimahon <--
-            animeEntries = array.getOrElse(13) { true },
+            animeEntries = array.getOrElse(14) { true },
         )
     }
 

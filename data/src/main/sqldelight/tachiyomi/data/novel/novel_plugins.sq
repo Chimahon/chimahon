@@ -1,0 +1,43 @@
+CREATE TABLE novel_plugins(
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    site TEXT NOT NULL,
+    lang TEXT NOT NULL,
+    version TEXT NOT NULL,
+    code_url TEXT NOT NULL DEFAULT "",
+    icon_url TEXT NOT NULL DEFAULT "",
+    sha256 TEXT NOT NULL DEFAULT "",
+    repository_url TEXT NOT NULL DEFAULT "",
+    installed_at INTEGER NOT NULL DEFAULT 0
+);
+
+getInstalledPlugins:
+SELECT *
+FROM novel_plugins
+ORDER BY name ASC;
+
+getInstalledPluginById:
+SELECT *
+FROM novel_plugins
+WHERE id = :id;
+
+upsertInstalledPlugin:
+INSERT INTO novel_plugins(id, name, site, lang, version, code_url, icon_url, sha256, repository_url, installed_at)
+VALUES (:id, :name, :site, :lang, :version, :codeUrl, :iconUrl, :sha256, :repositoryUrl, :installedAt)
+ON CONFLICT(id)
+DO UPDATE
+SET
+    name = :name,
+    site = :site,
+    lang = :lang,
+    version = :version,
+    code_url = :codeUrl,
+    icon_url = :iconUrl,
+    sha256 = :sha256,
+    repository_url = :repositoryUrl,
+    installed_at = :installedAt
+WHERE id = id;
+
+deleteInstalledPluginById:
+DELETE FROM novel_plugins
+WHERE id = :id;

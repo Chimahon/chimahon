@@ -100,19 +100,30 @@ fun ExtensionIcon(
             )
         }
         is Extension.Installed -> {
-            val icon by extension.getIcon(density)
-            when (icon) {
-                is Result.Loading -> Box(modifier = modifier)
-                is Result.Success -> Image(
-                    bitmap = (icon as Result.Success<ImageBitmap>).value,
+            if (!extension.iconUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = extension.iconUrl,
                     contentDescription = null,
-                    modifier = modifier,
+                    placeholder = ColorPainter(Color(0x1F888888)),
+                    error = rememberResourceBitmapPainter(id = R.drawable.cover_error),
+                    modifier = modifier
+                        .clip(MaterialTheme.shapes.extraSmall),
                 )
-                is Result.Error -> Image(
-                    bitmap = ImageBitmap.imageResource(id = R.mipmap.ic_default_source),
-                    contentDescription = null,
-                    modifier = modifier,
-                )
+            } else {
+                val icon by extension.getIcon(density)
+                when (icon) {
+                    is Result.Loading -> Box(modifier = modifier)
+                    is Result.Success -> Image(
+                        bitmap = (icon as Result.Success<ImageBitmap>).value,
+                        contentDescription = null,
+                        modifier = modifier,
+                    )
+                    is Result.Error -> Image(
+                        bitmap = ImageBitmap.imageResource(id = R.mipmap.ic_default_source),
+                        contentDescription = null,
+                        modifier = modifier,
+                    )
+                }
             }
         }
         is Extension.Untrusted -> Image(
