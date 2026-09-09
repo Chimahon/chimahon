@@ -760,8 +760,8 @@ class AnilistApi(val client: OkHttpClient, interceptor: AnilistInterceptor) {
     }
 
     companion object {
-        // Registered under KMK's MAL account
-        private const val CLIENT_ID = "16801"
+        // Registered under Chimahon AniList account
+        private const val CLIENT_ID = "50688"
         private const val API_URL = "https://graphql.anilist.co/"
         private const val BASE_URL = "https://anilist.co/api/v2/"
         private const val BASE_MANGA_URL = "https://anilist.co/manga/"

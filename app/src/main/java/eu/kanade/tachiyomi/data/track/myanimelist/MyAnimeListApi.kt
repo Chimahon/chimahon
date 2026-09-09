@@ -463,8 +463,8 @@ class MyAnimeListApi(
     }
 
     companion object {
-        // Registered under KMK's MAL account
-        private const val CLIENT_ID = "2be14959235191ece14eebdc2eea0466"
+        // Registered under Chimahon MAL account
+        private const val CLIENT_ID = "3342466cfb744b714350df413002f5ef"
 
         private const val BASE_OAUTH_URL = "https://myanimelist.net/v1/oauth2"
         private const val BASE_API_URL = "https://api.myanimelist.net/v2"
