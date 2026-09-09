@@ -88,7 +88,7 @@ import chimahon.anki.LapisPreset
 import chimahon.anki.Marker
 import chimahon.dictionary.readDictionaryIndex
 import chimahon.ocr.CropPresets
-import com.canopus.chimareader.data.FontManager
+import chimahon.novel.data.FontManager
 import com.hippo.unifile.UniFile
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.tachiyomi.network.NetworkHelper

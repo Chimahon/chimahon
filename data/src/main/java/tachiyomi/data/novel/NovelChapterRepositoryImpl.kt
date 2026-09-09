@@ -34,6 +34,22 @@ class NovelChapterRepositoryImpl(
         return handler.subscribeToList { novel_chaptersQueries.getUnreadChaptersByNovelId(novelId, NovelChapterMapper::mapChapter) }
     }
 
+    override suspend fun getUnreadCountByNovelId(novelId: Long): Long {
+        return handler.awaitOne { novel_chaptersQueries.getUnreadCountByNovelId(novelId) }
+    }
+
+    override suspend fun getUnreadCountsByNovelIds(novelIds: List<Long>): Map<Long, Long> {
+        return if (novelIds.isEmpty()) {
+            emptyMap()
+        } else {
+            handler.awaitList {
+                novel_chaptersQueries.getUnreadCountsByNovelIds(novelIds) { novel_id, unreadCount ->
+                    novel_id to unreadCount
+                }
+            }.toMap()
+        }
+    }
+
     override suspend fun insertAll(chapters: List<NovelChapter>) {
         handler.await(inTransaction = true) {
             chapters.forEach { chapter ->
@@ -50,6 +66,7 @@ class NovelChapterRepositoryImpl(
                     dateFetch = chapter.dateFetch,
                     dateUpload = chapter.dateUpload,
                     version = chapter.version,
+                    progress = chapter.progress,
                 )
             }
         }
@@ -63,6 +80,20 @@ class NovelChapterRepositoryImpl(
             logcat(LogPriority.ERROR, e)
             false
         }
+    }
+
+    override suspend fun updateAll(updates: List<NovelChapterUpdate>): Boolean {
+        return try {
+            partialUpdate(*updates.toTypedArray())
+            true
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e)
+            false
+        }
+    }
+
+    override suspend fun deleteChapterById(id: Long) {
+        handler.await { novel_chaptersQueries.deleteById(id) }
     }
 
     override suspend fun deleteChaptersByNovelId(novelId: Long) {
@@ -90,6 +121,7 @@ class NovelChapterRepositoryImpl(
                     dateFetch = value.dateFetch,
                     dateUpload = value.dateUpload,
                     version = value.version,
+                    progress = value.progress,
                 )
             }
         }

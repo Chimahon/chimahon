@@ -1,0 +1,43 @@
+CREATE TABLE novel_history(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    novel_chapter_id INTEGER NOT NULL UNIQUE,
+    last_read INTEGER NOT NULL,
+    time_read INTEGER NOT NULL DEFAULT 0,
+    progress REAL NOT NULL DEFAULT 0.0,
+    FOREIGN KEY(novel_chapter_id) REFERENCES novel_chapters (_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX novel_history_novel_chapter_id_index ON novel_history(novel_chapter_id);
+CREATE INDEX novel_history_last_read_index ON novel_history(last_read) WHERE last_read > 0;
+
+CREATE TABLE novel_categories(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    sort INTEGER NOT NULL,
+    flags INTEGER NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0
+);
+
+-- Insert system category (id 0 = Default, matching chimareader's UNCATEGORIZED_ID slot)
+INSERT OR IGNORE INTO novel_categories(_id, name, sort, flags, hidden) VALUES (0, "", -1, 0, 0);
+CREATE TRIGGER IF NOT EXISTS novel_system_category_delete_trigger BEFORE DELETE
+ON novel_categories
+BEGIN SELECT CASE
+    WHEN old._id <= 0 THEN
+        RAISE(ABORT, "System category can't be deleted")
+    END;
+END;
+
+CREATE TABLE novels_categories(
+    novel_id INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    FOREIGN KEY(novel_id) REFERENCES novels(_id) ON DELETE CASCADE,
+    FOREIGN KEY(category_id) REFERENCES novel_categories(_id) ON DELETE CASCADE
+);
+
+CREATE INDEX novels_categories_novel_id_index ON novels_categories(novel_id);
+CREATE INDEX novels_categories_category_id_index ON novels_categories(category_id);
+
+ALTER TABLE novels ADD COLUMN is_local INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE novels ADD COLUMN local_folder TEXT;

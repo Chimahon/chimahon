@@ -26,6 +26,8 @@ class BackupChapter(
     @ProtoNumber(11) var lastModifiedAt: Long = 0,
     @ProtoNumber(12) var version: Long = 0,
     @ProtoNumber(13) var memo: ByteArray = JsonObjectEmptyBytes,
+    // Novel-only resume fraction (manga chapters ignore it)
+    @ProtoNumber(14) var progress: Double = 0.0,
 ) {
     fun toChapterImpl(): Chapter {
         return Chapter.create().copy(

@@ -38,9 +38,8 @@ class BackupFileValidator(
                 if (id == null) {
                     it
                 } else {
-                    sourceManager.get(id)?.let { sourceManager.getOrStub(id).toString() }
-                        ?: novelSourceManager.getNovelSource(id)?.name
-                        ?: it
+                    novelSourceManager.getNovelSource(id)?.name
+                        ?: sourceManager.getOrStub(id).toString()
                 }
             }
             .plus(

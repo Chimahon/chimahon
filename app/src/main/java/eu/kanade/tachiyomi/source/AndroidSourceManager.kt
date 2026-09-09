@@ -76,7 +76,7 @@ class AndroidSourceManager(
 
     init {
         scope.launch {
-            extensionManager.installedMangaExtensionsFlow
+            extensionManager.installedExtensionsFlow
                 // SY -->
                 .combine(exhPreferences.enableExhentai().changes()) { extensions, enableExhentai ->
                     extensions to enableExhentai

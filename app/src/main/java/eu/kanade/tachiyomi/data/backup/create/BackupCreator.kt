@@ -83,6 +83,7 @@ class BackupCreator(
     // KMK <--
     // Chimahon -->
     private val novelBackupCreator: eu.kanade.tachiyomi.data.backup.create.creators.NovelBackupCreator = eu.kanade.tachiyomi.data.backup.create.creators.NovelBackupCreator(context),
+    private val novelExtensionRepoBackupCreator: eu.kanade.tachiyomi.data.backup.create.creators.NovelExtensionRepoBackupCreator = eu.kanade.tachiyomi.data.backup.create.creators.NovelExtensionRepoBackupCreator(),
     private val getSearchHistory: GetSearchHistory = Injekt.get(),
     private val sourceNovelBackupCreator: SourceNovelBackupCreator = SourceNovelBackupCreator(),
     // Chimahon <--
@@ -151,6 +152,7 @@ class BackupCreator(
                 backupNovels = backupNovels(options),
                 backupNovelCategories = backupNovelCategories(options),
                 backupSourceNovels = backupSourceNovels,
+                backupNovelExtensionRepo = backupNovelExtensionRepos(options),
                 backupMangaStats = backupMangaStats(options),
                 backupAnkiStats = backupAnkiStats(options),
                 backupSearchHistory = backupSearchHistory(options),
@@ -244,6 +246,12 @@ class BackupCreator(
         return animeExtensionRepoBackupCreator()
     }
 
+    suspend fun backupNovelExtensionRepos(options: BackupOptions): List<BackupExtensionRepos> {
+        if (!options.extensionStores) return emptyList<BackupExtensionRepos>()
+
+        return novelExtensionRepoBackupCreator()
+    }
+
     fun backupSourcePreferences(options: BackupOptions): List<BackupSourcePreferences> {
         if (!options.sourceSettings) return emptyList()
 
@@ -270,13 +278,13 @@ class BackupCreator(
     // KMK <--
 
     // Chimahon -->
-    fun backupNovels(options: BackupOptions): List<eu.kanade.tachiyomi.data.backup.models.BackupNovel> {
+    suspend fun backupNovels(options: BackupOptions): List<eu.kanade.tachiyomi.data.backup.models.BackupNovel> {
         if (!options.novels) return emptyList()
 
         return novelBackupCreator.backupNovels()
     }
 
-    fun backupNovelCategories(options: BackupOptions): List<eu.kanade.tachiyomi.data.backup.models.BackupNovelCategory> {
+    suspend fun backupNovelCategories(options: BackupOptions): List<eu.kanade.tachiyomi.data.backup.models.BackupNovelCategory> {
         if (!options.novels) return emptyList()
 
         return novelBackupCreator.backupCategories()

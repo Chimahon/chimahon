@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.ui.library.novels
 
-import com.canopus.chimareader.data.BookMetadata
+import chimahon.novel.data.BookMetadata
 import tachiyomi.domain.novel.model.Novel
 import tachiyomi.domain.novel.model.NovelChapter
 
@@ -12,7 +12,6 @@ sealed class NovelLibraryItem {
 
     data class LocalBook(
         val metadata: BookMetadata,
-        val unreadCount: Int = 0,
     ) : NovelLibraryItem() {
         override val id: String get() = metadata.id
         override val title: String get() = metadata.title ?: metadata.folder ?: "Unknown"
@@ -24,6 +23,7 @@ sealed class NovelLibraryItem {
         val novel: Novel,
         val chapters: List<NovelChapter> = emptyList(),
         val unreadCount: Int = 0,
+        val downloadCount: Int = 0,
     ) : NovelLibraryItem() {
         override val id: String get() = sourceNovelLibraryItemId(novel.id)
         override val title: String get() = novel.title

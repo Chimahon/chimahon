@@ -143,6 +143,7 @@ data object BrowseTab : Tab {
         val feedScreenModel = rememberScreenModel { FeedScreenModel() }
         val bulkFavoriteScreenModel = rememberScreenModel { BulkFavoriteScreenModel() }
         val novelExtensionsScreenModel = rememberScreenModel { NovelExtensionsScreenModel() }
+        val novelExtensionsState by novelExtensionsScreenModel.state.collectAsState()
 
         val feedState by feedScreenModel.state.collectAsState()
         val bulkFavoriteState by bulkFavoriteScreenModel.state.collectAsState()
@@ -199,11 +200,13 @@ data object BrowseTab : Tab {
         val searchQuery: String? = when {
             browseMode == BrowseViewMode.Anime && currentTab?.titleRes == MR.strings.label_extensions -> animeExtensionsState.searchQuery
             browseMode == BrowseViewMode.Sources && currentTab?.titleRes == MR.strings.label_extensions -> extensionsState.searchQuery
+            browseMode == BrowseViewMode.Novels && currentTab?.titleRes == MR.strings.label_extensions -> novelExtensionsState.searchQuery
             else -> null
         }
         val onChangeSearchQuery: (String?) -> Unit = when {
             browseMode == BrowseViewMode.Anime && currentTab?.titleRes == MR.strings.label_extensions -> animeExtensionsScreenModel::search
             browseMode == BrowseViewMode.Sources && currentTab?.titleRes == MR.strings.label_extensions -> extensionsScreenModel::search
+            browseMode == BrowseViewMode.Novels && currentTab?.titleRes == MR.strings.label_extensions -> novelExtensionsScreenModel::search
             else -> { _ -> }
         }
 

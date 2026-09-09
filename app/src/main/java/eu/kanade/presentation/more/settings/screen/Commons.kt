@@ -82,3 +82,34 @@ fun getAnimeCategoriesLabel(
     return stringResource(MR.strings.include, includedItemsText) + "\n" +
         stringResource(MR.strings.exclude, excludedItemsText)
 }
+
+@ReadOnlyComposable
+@Composable
+fun getNovelCategoriesLabel(
+    allCategories: List<tachiyomi.domain.novel.model.NovelCategory>,
+    included: Set<String>,
+    excluded: Set<String>,
+): String {
+    val includedCategories = included
+        .mapNotNull { id -> allCategories.find { it.id.toString() == id } }
+        .sortedBy { it.order }
+    val excludedCategories = excluded
+        .mapNotNull { id -> allCategories.find { it.id.toString() == id } }
+        .sortedBy { it.order }
+    val allExcluded = excludedCategories.size == allCategories.size
+
+    val includedItemsText = when {
+        includedCategories.isNotEmpty() && includedCategories.size != allCategories.size ->
+            includedCategories.joinToString { it.name }
+        includedCategories.size == allCategories.size -> stringResource(MR.strings.all)
+        allExcluded -> stringResource(MR.strings.none)
+        else -> stringResource(MR.strings.all)
+    }
+    val excludedItemsText = when {
+        excludedCategories.isEmpty() -> stringResource(MR.strings.none)
+        allExcluded -> stringResource(MR.strings.all)
+        else -> excludedCategories.joinToString { it.name }
+    }
+    return stringResource(MR.strings.include, includedItemsText) + "\n" +
+        stringResource(MR.strings.exclude, excludedItemsText)
+}

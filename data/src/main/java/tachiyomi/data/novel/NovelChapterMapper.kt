@@ -18,6 +18,7 @@ object NovelChapterMapper {
         date_upload: Long,
         last_modified_at: Long,
         version: Long,
+        progress: Double,
     ): NovelChapter = NovelChapter(
         id = _id,
         novelId = novel_id,
@@ -33,5 +34,6 @@ object NovelChapterMapper {
         dateUpload = date_upload,
         lastModifiedAt = last_modified_at,
         version = version,
+        progress = progress,
     )
 }

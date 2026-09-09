@@ -18,6 +18,8 @@ data class SNNovel(
     var lastUpdate: Long = 0,
     var viewerFlags: Long = 0,
     var chapterFlags: Long = 0,
+    /** BCP-47-ish language (EPUB `dc:language`, plugin descriptor); null when unknown. */
+    var lang: String? = null,
 ) : Serializable {
     val thumbnailUrl get() = thumbnail_url
     val init get() = initialized

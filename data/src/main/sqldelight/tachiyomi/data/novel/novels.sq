@@ -20,7 +20,14 @@ CREATE TABLE novels(
     favorite_modified_at INTEGER,
     fetch_interval INTEGER NOT NULL DEFAULT 0,
     version INTEGER NOT NULL DEFAULT 0,
-    notes TEXT NOT NULL DEFAULT ""
+    notes TEXT NOT NULL DEFAULT "",
+    is_local INTEGER NOT NULL DEFAULT 0,
+    local_folder TEXT,
+    chapter_sort_mode INTEGER NOT NULL DEFAULT 0,
+    chapter_sort_descending INTEGER NOT NULL DEFAULT 1,
+    chapter_filter_unread INTEGER NOT NULL DEFAULT 0,
+    chapter_filter_bookmarked INTEGER NOT NULL DEFAULT 0,
+    lang TEXT
 );
 
 CREATE INDEX novel_library_index ON novels(favorite) WHERE favorite = 1;
@@ -69,6 +76,12 @@ WHERE url = :url
 AND source = :source
 LIMIT 1;
 
+getNovelByLocalFolder:
+SELECT *
+FROM novels
+WHERE local_folder = :folder
+LIMIT 1;
+
 getFavorites:
 SELECT *
 FROM novels
@@ -84,8 +97,8 @@ FROM novels
 WHERE source = :sourceId;
 
 insert:
-INSERT INTO novels(source, url, title, artist, author, description, genre, status, thumbnail_url, favorite, last_update, next_update, initialized, cover_last_modified, date_added, total_chapters, last_modified_at, version, notes)
-VALUES (:source, :url, :title, :artist, :author, :description, :genre, :status, :thumbnailUrl, :favorite, :lastUpdate, :nextUpdate, :initialized, :coverLastModified, :dateAdded, :totalChapters, 0, :version, :notes);
+INSERT INTO novels(source, url, title, artist, author, description, genre, status, thumbnail_url, favorite, last_update, next_update, initialized, cover_last_modified, date_added, total_chapters, last_modified_at, version, notes, is_local, local_folder, chapter_sort_mode, chapter_sort_descending, chapter_filter_unread, chapter_filter_bookmarked, lang)
+VALUES (:source, :url, :title, :artist, :author, :description, :genre, :status, :thumbnailUrl, :favorite, :lastUpdate, :nextUpdate, :initialized, :coverLastModified, :dateAdded, :totalChapters, 0, :version, :notes, :isLocal, :localFolder, :chapterSortMode, :chapterSortDescending, :chapterFilterUnread, :chapterFilterBookmarked, :lang);
 
 update:
 UPDATE novels SET
@@ -107,7 +120,14 @@ UPDATE novels SET
     total_chapters = coalesce(:totalChapters, total_chapters),
     fetch_interval = coalesce(:fetchInterval, fetch_interval),
     version = coalesce(:version, version),
-    notes = coalesce(:notes, notes)
+    notes = coalesce(:notes, notes),
+    is_local = coalesce(:isLocal, is_local),
+    local_folder = coalesce(:localFolder, local_folder),
+    chapter_sort_mode = coalesce(:chapterSortMode, chapter_sort_mode),
+    chapter_sort_descending = coalesce(:chapterSortDescending, chapter_sort_descending),
+    chapter_filter_unread = coalesce(:chapterFilterUnread, chapter_filter_unread),
+    chapter_filter_bookmarked = coalesce(:chapterFilterBookmarked, chapter_filter_bookmarked),
+    lang = coalesce(:lang, lang)
 WHERE _id = :novelId;
 
 deleteById:

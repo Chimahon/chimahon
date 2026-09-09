@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="novel_extension_apk">APK</string>
+    <string name="novel_extension_javascript">JavaScript</string>
+    <string name="novel_extension_catalog_problem">Extension catalog: %1$s</string>
+    <string name="novel_extension_load_failed">Load failed</string>
+    <string name="novel_extension_uninstall_confirmation">Remove %1$s from Hayai?</string>
+    <string name="novel_extension_available">Available</string>
+    <!-- Novel APK extensions -->
+    <string name="novel_novel_extensions_title">Novel extensions</string>
+    <string name="novel_novel_repository_management">Extension repositories</string>
+    <string name="novel_novel_repository_management_summary">Manage APK extension and LNReader plugin repositories</string>
+    <string name="novel_add_repository">Add repository</string>
+    <string name="novel_cancel_installation">Cancel installation</string>
+    <string name="novel_refreshing">Refreshing…</string>
+    <string name="novel_novel_extension_catalog_status">%1$d installed · %2$d updates</string>
+    <string name="novel_trust_signature">Trust signature</string>
+    <string name="novel_trust_extension_signature_title">Trust extension signature?</string>
+    <string name="novel_remove_repository">Remove repository</string>
+    <string name="novel_extension_install_failed">%1$s: installation failed. The package was not activated.</string>
+    <string name="novel_extension_install_complete">%1$s: installation complete.</string>
+    <string name="novel_extension_install_status">%1$s: %2$s</string>
+    <string name="novel_extension_install_loading">Loading</string>
+    <string name="novel_extension_install_failed_step">Failed</string>
+    <string name="novel_extension_install_stopped">%1$s: installation stopped before completion.</string>
+    <string name="novel_extension_install_canceled">%1$s: installation canceled.</string>
+    <string name="novel_extension_install_error">%1$s: installation failed. %2$s</string>
+    <string name="novel_unknown_installer_error">Unknown installer error</string>
+    <string name="novel_add_novel_extension_repository">Add novel extension repository</string>
+    <string name="novel_novel_extension_repository_warning">Only add repositories whose publisher and signing policy you trust.</string>
+    <string name="novel_remove_named_item">Remove %1$s?</string>
+    <string name="novel_remove_extension_message">The source becomes unavailable until reinstalled. Library data is kept.</string>
+
+    <!-- LNReader-compatible plugin repositories -->
+    <string name="novel_repository_error">%1$s: %2$s</string>
+
+    <!-- Custom novel source builder -->
+    <string name="novel_custom_novel_source">Custom novel source</string>
+    <string name="novel_custom_source_instructions">Define the source with URL templates and CSS selectors. Validate and preview against the real site before installing.</string>
+    <string name="novel_custom_source_advanced_hint">Advanced definition JSON for optional cover, dates, removal selectors, and headers</string>
+    <string name="novel_custom_source_load_json">Load advanced JSON into form</string>
+    <string name="novel_custom_source_update_json">Update advanced JSON from form</string>
+    <string name="novel_validate">Validate</string>
+    <string name="novel_preview_popular_page">Preview popular page</string>
+    <string name="novel_install_source">Install source</string>
+    <string name="novel_valid_source_definition">Valid source definition for %1$s</string>
+    <string name="novel_loading_preview">Loading preview…</string>
+    <string name="novel_custom_source_found_preview">Found %1$s\n%2$s</string>
+    <string name="novel_field_issue">%1$s: %2$s</string>
+    <string name="novel_http_status_error">HTTP %1$d</string>
+    <string name="novel_preview_response_too_large">Preview response is too large</string>
+    <string name="novel_install_named_item">Install %1$s?</string>
+    <string name="novel_custom_source_install_warning">This source can access the network and execute generated parsing code. Review the definition first.</string>
+    <string name="novel_installing">Installing…</string>
+    <string name="novel_custom_source_field_id">Source ID</string>
+    <string name="novel_custom_source_field_name">Source name</string>
+    <string name="novel_custom_source_field_language">Language code</string>
+    <string name="novel_custom_source_field_base_url">Base URL</string>
+    <string name="novel_custom_source_field_popular_path">Popular-page path</string>
+    <string name="novel_custom_source_field_search_path">Search path</string>
+    <string name="novel_custom_source_field_list_item">Novel-list item selector</string>
+    <string name="novel_custom_source_field_list_title">Novel-list title selector</string>
+    <string name="novel_custom_source_field_list_link">Novel-list link selector</string>
+    <string name="novel_custom_source_field_details_title">Details title selector</string>
+    <string name="novel_custom_source_field_chapter_item">Chapter-list item selector</string>
+    <string name="novel_custom_source_field_chapter_title">Chapter title selector</string>
+    <string name="novel_custom_source_field_chapter_link">Chapter link selector</string>
+    <string name="novel_custom_source_field_content_body">Chapter content selector</string>
+    <string name="novel_custom_source_field_content_remove">Removed-content selectors</string>
+    <string name="novel_custom_source_field_headers">Request headers</string>
+    <string name="novel_custom_source_invalid_id">Use letters, numbers, dots, underscores, or hyphens.</string>
+    <string name="novel_custom_source_invalid_name">Name must contain 1 to 128 characters.</string>
+    <string name="novel_custom_source_invalid_language">Use a two- or three-letter language code.</string>
+    <string name="novel_custom_source_invalid_base_url">Use an absolute HTTP or HTTPS URL without credentials.</string>
+    <string name="novel_custom_source_invalid_path">Use a bounded root-relative path.</string>
+    <string name="novel_custom_source_query_required">Search path must contain {query}.</string>
+    <string name="novel_custom_source_invalid_selector">Enter a valid non-empty CSS selector.</string>
+    <string name="novel_custom_source_invalid_remove_selectors">Use at most 32 valid CSS selectors.</string>
+    <string name="novel_custom_source_invalid_headers">Use portable, non-credential request headers without line breaks or transport overrides.</string>
+    <string name="novel_custom_source_no_preview_item">No matching item was found.</string>
+    <string name="novel_custom_source_preview_title_missing">The first item has no title.</string>
+    <string name="novel_custom_source_preview_link_missing">The first item has no resolvable link.</string>
+
+    <!-- Import and EPUB tools -->
+    <string name="novel_novel_data_tools">Novel data tools</string>
+    <string name="novel_import_tsundoku_lnreader">Import Tsundoku or LNReader</string>
+    <string name="novel_inspecting_import">Inspecting import without changing data</string>
+    <string name="novel_import_preview">Import preview</string>
+    <string name="novel_import_format_tsundoku" translatable="false">Tsundoku</string>
+    <string name="novel_import_format_lnreader" translatable="false">LNReader</string>
+    <string name="novel_import_error">Error</string>
+    <string name="novel_import_issue">%1$s: %2$s: %3$s</string>
+    <plurals name="novel_missing_category_assignments">
+        <item quantity="one">%1$d category assignment referenced a missing novel</item>
+        <item quantity="other">%1$d category assignments referenced missing novels</item>
+    </plurals>
+    <string name="novel_import_preview_details">Format: %1$s\nNovels: %2$d\nChapters: %3$d\nCategories: %4$d\n\n%5$s</string>
+    <string name="novel_no_validation_warnings">No validation warnings.</string>
+    <string name="novel_import_dry_run_complete">Dry run complete. No source data was changed.</string>
+    <string name="novel_applying_import">Applying import atomically</string>
+    <string name="novel_import_already_applied">This exact import was already applied. No duplicate data was written.</string>
+    <plurals name="novel_imported_novels">
+        <item quantity="one">Imported %1$d novel</item>
+        <item quantity="other">Imported %1$d novels</item>
+    </plurals>
+    <plurals name="novel_imported_chapters">
+        <item quantity="one">%1$d chapter</item>
+        <item quantity="other">%1$d chapters</item>
+    </plurals>
+    <plurals name="novel_imported_categories">
+        <item quantity="one">%1$d category</item>
+        <item quantity="other">%1$d categories</item>
+    </plurals>
+    <plurals name="novel_skipped_novels">
+        <item quantity="one">%1$d novel was skipped.</item>
+        <item quantity="other">%1$d novels were skipped.</item>
+    </plurals>
+    <string name="novel_import_result">%1$s, %2$s, and %3$s. %4$s Missing sources: %5$s</string>
+    <string name="novel_source_has_no_novel_text">The source does not provide novel text</string>
+    <string name="novel_preparing_named_item">Preparing %1$s</string>
+    <string name="novel_novel_text_too_large">Novel text is too large for in-memory export</string>
+    <string name="novel_writing_epub">Writing EPUB</string>
+    <string name="novel_epub_export_complete">EPUB export complete</string>
+    <string name="novel_operation_canceled">Operation canceled.</string>
+    <string name="novel_operation_canceled_removed">Operation canceled. The incomplete destination was removed.</string>
+    <string name="novel_operation_failed">Operation failed</string>
+    <string name="novel_embedded_asset_too_large">Embedded asset is too large</string>
+    <string name="novel_export_novel_missing">The novel no longer exists.</string>
+    <string name="novel_export_no_chapters">The novel has no chapters to export.</string>
+    <string name="novel_export_assets_too_large">The novel’s embedded assets exceed the export size limit.</string>
+    <string name="novel_export_destination_error">The EPUB destination could not be opened.</string>
+    <string name="novel_local_novel_source_name">local novel source</string>
+    <string name="novel_unknown_source">unknown source</string>
+
+    <!-- Translation and dictionary settings -->
+    <string name="novel_novel_language_tools">Novel language tools</string>
+    <string name="novel_source_language">Source language</string>
+    <string name="novel_target_language">Target language</string>
+    <string name="novel_provider_endpoint">Provider endpoint</string>
+    <string name="novel_api_key">API key</string>
+    <string name="novel_model">Model</string>
+    <string name="novel_dictionary_provider">Dictionary provider</string>
+    <string name="novel_web_fallback">Web fallback</string>
+    <string name="novel_settings_saved">Settings saved</string>
+    <string name="novel_language_settings_invalid">The language-tool settings are invalid.</string>
+    <string name="novel_translation_endpoint_https">The translation endpoint must use HTTPS or local loopback HTTP.</string>
+    <string name="novel_translation_endpoint_credentials">The translation endpoint must not contain credentials.</string>
+    <string name="novel_translation_google_web">Google web</string>
+    <string name="novel_translation_libretranslate">LibreTranslate</string>
+    <string name="novel_translation_openai_compatible">OpenAI-compatible</string>
+    <string name="novel_translation_deepl">DeepL</string>
+    <string name="novel_dictionary_system">System dictionary</string>
+    <string name="novel_dictionary_aard2">Aard 2</string>
+    <string name="novel_dictionary_colordict">ColorDict</string>
+    <string name="novel_dictionary_livio">Livio</string>
+    <string name="novel_dictionary_google_web">Google web dictionary</string>
+    <string name="novel_dictionary_wiktionary">Wiktionary</string>
+
+    <!-- Source settings -->
+    <string name="novel_source_settings_not_exposed">This source does not expose settings.</string>
+    <string name="novel_source_settings_load_failed">The source settings could not be loaded. Reinstall or update the source and try again.</string>
+    <string name="novel_source_type_no_options">%1$s source has no configurable options.</string>
+    <string name="novel_source_no_options">This source has no configurable options.</string>
+    <string name="novel_no_settings_available">No settings available</string>
+    <string name="novel_source_badge_bundled">Bundled</string>
+    <string name="novel_source_badge_javascript" translatable="false">JS</string>
+    <string name="novel_source_badge_novel">Novel</string>
+    <string name="novel_source_badge_adult">Adult</string>
+    <string name="novel_source_badge_enhanced">Enhanced</string>
+    <string name="novel_page_range">%1$d–%2$d</string>
+    <string name="novel_eh_filter_tags_hint">Search tags and namespaces. Add up to %1$d tags; prefix with - to exclude or ~ to match any.</string>
+    <string name="novel_eh_filter_invalid_tag">Enter one valid E-Hentai tag.</string>
+
+    <!-- Source metadata -->
+    <string name="novel_source_metadata_title">Source metadata</string>
+    <string name="novel_source_metadata_more_info">More information</string>
+    <string name="novel_source_metadata_failed">Source metadata could not be loaded.</string>
+    <string name="novel_source_metadata_translated">Translated</string>
+    <string name="novel_source_metadata_visibility">Visibility</string>
+    <string name="novel_source_metadata_base_url">Base url</string>
+    <string name="novel_source_metadata_path">Path</string>
+    <string name="novel_source_metadata_thumbnail_url">Thumbnail url</string>
+    <string name="novel_source_metadata_token">Token</string>
+    <string name="novel_source_metadata_url">Url</string>
+    <string name="novel_source_metadata_is_exhentai">is Exhentai gallery</string>
+    <string name="novel_source_metadata_parent">Parent</string>
+    <string name="novel_source_metadata_yes">Yes</string>
+    <string name="novel_source_metadata_no">No</string>
+    <string name="novel_source_metadata_field">%1$s: %2$s</string>
+    <plurals name="novel_source_browse_pages">
+        <item quantity="one">%1$d page</item>
+        <item quantity="other">%1$d pages</item>
+    </plurals>
+    <string name="novel_source_type_doujinshi">Doujinshi</string>
+    <string name="novel_source_type_manga">Manga</string>
+    <string name="novel_source_type_artist_cg">Artist CG</string>
+    <string name="novel_source_type_game_cg">Game CG</string>
+    <string name="novel_source_type_western">Western</string>
+    <string name="novel_source_type_non_h">Non-H</string>
+    <string name="novel_source_type_image_set">Image Set</string>
+    <string name="novel_source_type_cosplay">Cosplay</string>
+    <string name="novel_source_type_asian_porn">Asian Porn</string>
+    <string name="novel_source_type_misc">Misc</string>
+
+    <!-- Enhanced-source description labels -->
+    <string name="novel_enhanced_label_alternative_title">Alternative title</string>
+    <string name="novel_enhanced_label_alternative_titles">Alternative titles</string>
+    <string name="novel_enhanced_label_archive_type">Archive type</string>
+    <string name="novel_enhanced_label_english_title">English title</string>
+    <string name="novel_enhanced_label_favorites">Favorites</string>
+    <string name="novel_enhanced_label_file">File</string>
+    <string name="novel_enhanced_label_file_size">File size</string>
+    <string name="novel_enhanced_label_id" translatable="false">ID</string>
+    <string name="novel_enhanced_id_format" translatable="false">#%1$s</string>
+    <string name="novel_enhanced_label_japanese_title">Japanese title</string>
+    <string name="novel_enhanced_label_media_id">Media ID</string>
+    <string name="novel_enhanced_label_pages">Pages</string>
+    <string name="novel_enhanced_label_posted">Posted</string>
+    <string name="novel_enhanced_label_rating">Rating</string>
+    <string name="novel_enhanced_label_rating_count">Rating count</string>
+    <string name="novel_enhanced_label_scanlator">Scanlator</string>
+    <string name="novel_enhanced_label_short_title">Short title</string>
+    <string name="novel_enhanced_label_summary">Summary</string>
+    <string name="novel_enhanced_label_uploader">Uploader</string>
+
+    <!-- Novel trackers -->
+    <string name="novel_tracker_search_query_required">Search query is required.</string>
+    <string name="novel_tracker_search_query_too_long">Search query must contain at most %1$d characters.</string>
+    <string name="novel_tracker_credentials_invalid">The tracker credentials or session are invalid.</string>
+    <string name="novel_tracker_credential_required">%1$s is required.</string>
+    <string name="novel_tracker_credential_invalid_characters">%1$s contains invalid characters.</string>
+    <string name="novel_tracker_session_token">Session token</string>
+    <string name="novel_tracker_novellist_access_token">NovelList access token</string>
+    <string name="novel_tracker_ranobedb_session_cookie">RanobeDB session cookie</string>
+    <string name="novel_tracker_novelupdates_session_cookies">NovelUpdates session cookies</string>
+    <string name="novel_tracker_novellist_token_required">NovelList requires the access token from your NovelList session.</string>
+    <string name="novel_tracker_novellist_token_malformed">The NovelList access token is malformed.</string>
+    <string name="novel_tracker_novellist_token_expired">The NovelList access token has expired.</string>
+    <string name="novel_tracker_ranobedb_cookie_required">RanobeDB requires the auth_session cookie.</string>
+    <string name="novel_tracker_novelupdates_cookies_expired">The NovelUpdates session cookies have expired.</string>
+    <string name="novel_tracker_novelupdates_cookie_header_required">NovelUpdates requires the Cookie header from an authenticated session.</string>
+    <string name="novel_tracker_session_expired">The tracker session expired. Sign in again.</string>
+    <string name="novel_tracker_rate_limited">The tracker rate limit was reached. Try again later.</string>
+    <plurals name="novel_tracker_rate_limited_seconds">
+        <item quantity="one">The tracker rate limit was reached. Try again in %1$d second.</item>
+        <item quantity="other">The tracker rate limit was reached. Try again in %1$d seconds.</item>
+    </plurals>
+    <string name="novel_tracker_response_too_large">The tracker returned more than %1$d bytes.</string>
+    <string name="novel_tracker_http_error">The tracker returned HTTP %1$d.</string>
+    <string name="novel_tracker_network_error">The tracker could not be reached.</string>
+    <string name="novel_tracker_link_missing_remote_id">The tracker link does not contain a remote identifier.</string>
+    <string name="novel_tracker_novellist_user_invalid">NovelList returned an invalid authenticated-user response.</string>
+    <string name="novel_tracker_novellist_invalid_json">NovelList returned invalid JSON.</string>
+    <string name="novel_tracker_novellist_expected_object">NovelList did not return the expected object.</string>
+    <string name="novel_tracker_novellist_invalid_remote_id">The NovelList entry has an invalid remote identifier.</string>
+    <string name="novel_tracker_novellist_unknown_status">NovelList returned an unknown reading status.</string>
+    <string name="novel_tracker_ranobedb_missing_series_id">RanobeDB did not return a series identifier.</string>
+    <string name="novel_tracker_ranobedb_invalid_json">RanobeDB returned invalid JSON.</string>
+    <string name="novel_tracker_ranobedb_expected_object">RanobeDB did not return the expected object.</string>
+    <string name="novel_tracker_ranobedb_invalid_remote_id">The RanobeDB entry has an invalid remote identifier.</string>
+    <string name="novel_tracker_novelupdates_missing_remove_action">NovelUpdates did not expose a reading-list remove action.</string>
+    <string name="novel_tracker_novelupdates_invalid_remote_id">The NovelUpdates entry has an invalid remote identifier.</string>
+    <string name="novel_tracker_novelupdates_missing_novel_id">NovelUpdates did not expose the novel identifier.</string>
+    <string name="novel_tracker_novelupdates_unknown_list_state">NovelUpdates returned an unknown reading-list state.</string>
+    <string name="novel_tracker_novelupdates_unknown_list_id">NovelUpdates returned an unknown reading-list identifier.</string>
+    <string name="novel_tracker_novelupdates_notes_expected_object">NovelUpdates notes did not return the expected object.</string>
+    <string name="novel_tracker_novelupdates_notes_invalid_json">NovelUpdates notes returned invalid JSON.</string>
+    <string name="novel_tracker_record_not_found">Tracking record not found.</string>
+    <string name="novel_tracker_removal_refused">The tracker refused removal.</string>
+    <string name="novel_tracker_unavailable">The tracker is unavailable.</string>
+    <string name="novel_tracker_not_logged_in">The tracker is not signed in.</string>
+    <string name="novel_tracker_search_query_invalid">Search query is invalid.</string>
+    <string name="novel_tracker_progress_invalid">Novel progress is invalid.</string>
+
+    <!-- Accessibility-only brand labels -->
+    <string name="novel_accessibility_x" translatable="false">X</string>
+    <string name="novel_accessibility_facebook" translatable="false">Facebook</string>
+    <string name="novel_accessibility_reddit" translatable="false">Reddit</string>
+    <string name="novel_accessibility_github" translatable="false">GitHub</string>
+    <string name="novel_accessibility_mihon" translatable="false">Mihon</string>
+
+    <!-- Typed novel operation failures -->
+    <string name="novel_failure_import_plan_invalid">The import cannot be applied because it has validation errors.</string>
+    <string name="novel_failure_import_empty">The import file is empty.</string>
+    <string name="novel_failure_import_invalid_tsundoku">The selected file is not a valid Tsundoku backup.</string>
+    <string name="novel_failure_import_too_many_chapters">The import contains too many chapters.</string>
+    <string name="novel_failure_import_too_many_files">The LNReader backup contains too many files.</string>
+    <string name="novel_failure_import_expanded_too_large">The LNReader backup expands beyond the supported limit.</string>
+    <string name="novel_failure_import_unsafe_zip">The LNReader backup contains an unsafe ZIP path.</string>
+    <string name="novel_failure_import_too_many_novels">The LNReader backup contains too many novels.</string>
+    <string name="novel_failure_import_too_many_categories">The import contains too many categories.</string>
+    <string name="novel_failure_import_invalid_field">The import contains an invalid %1$s.</string>
+    <string name="novel_failure_import_data_too_large">Import data exceeds %1$d MiB.</string>
+    <string name="novel_failure_import_novel_identity">Identity conflict for %1$s. Existing title “%2$s” does not match “%3$s”.</string>
+    <string name="novel_failure_import_chapter_identity">Chapter identity conflict for %1$s.</string>
+    <string name="novel_failure_export_duplicate_asset_name">The EPUB contains duplicate asset filename %1$s.</string>
+    <string name="novel_failure_export_duplicate_asset_url">The EPUB contains duplicate asset source URL %1$s.</string>
+    <string name="novel_import_field_manga_url">manga URL</string>
+    <string name="novel_import_field_chapter_url">chapter URL</string>
+    <string name="novel_import_field_chapter_title">chapter title</string>
+    <string name="novel_import_field_novel_path">novel path</string>
+    <string name="novel_import_field_novel_name">novel name</string>
+    <string name="novel_import_field_chapter_path">chapter path</string>
+    <string name="novel_import_field_chapter_name">chapter name</string>
+    <string name="novel_import_field_category">category</string>
+    <string name="category">Category</string>
+    <string name="novel_failure_extension_refresh">The extension catalog could not be refreshed.</string>
+    <string name="novel_failure_extension_repository_https">Novel extension repositories must use HTTPS.</string>
+    <string name="novel_failure_extension_not_configured">The extension is not from a configured novel repository.</string>
+    <string name="novel_failure_extension_no_update">No update is available.</string>
+    <string name="novel_failure_plugin_repository_name">Enter a repository name between 1 and 256 characters.</string>
+    <string name="novel_failure_plugin_repository_missing">The repository no longer exists.</string>
+    <string name="novel_failure_plugin_unavailable">The plugin is not available.</string>
+    <string name="novel_failure_plugin_refresh_required">Refresh repositories before installing this plugin.</string>
+    <string name="novel_failure_plugin_code_size">Plugin code is empty or too large.</string>
+    <string name="novel_failure_plugin_checksum">The plugin checksum does not match the repository metadata.</string>
+    <string name="novel_failure_plugin_restore_settings">Plugin settings could not be restored.</string>
+    <string name="novel_failure_plugin_rollback_settings">Plugin settings could not be rolled back.</string>
+    <string name="novel_failure_plugin_remove_code">The plugin code could not be removed.</string>
+    <string name="novel_failure_plugin_remove_metadata">The plugin metadata could not be removed.</string>
+    <string name="novel_failure_plugin_repository_array">The repository has no plugins array.</string>
+    <string name="novel_failure_plugin_repository_document">The repository document is invalid.</string>
+    <string name="novel_failure_plugin_repository_too_many">The repository contains too many plugins.</string>
+    <string name="novel_failure_plugin_repository_mixed_keys">The repository mixes multiple signing keys.</string>
+    <string name="novel_failure_plugin_http">The repository returned HTTP %1$d.</string>
+    <string name="novel_failure_plugin_response_too_large">The repository response is too large.</string>
+    <string name="novel_failure_plugin_id">Plugin IDs may contain only letters, numbers, dots, underscores, or hyphens.</string>
+    <string name="novel_failure_plugin_name">The plugin name is invalid.</string>
+    <string name="novel_failure_plugin_language">The plugin language is invalid.</string>
+    <string name="novel_failure_plugin_version">The plugin version is invalid.</string>
+    <string name="novel_failure_plugin_sha256">The plugin SHA-256 value is invalid.</string>
+    <string name="novel_failure_plugin_signing_pair">The plugin signing key and signature must be supplied together.</string>
+    <string name="novel_failure_plugin_public_key">The Ed25519 public key is invalid.</string>
+    <string name="novel_failure_plugin_signature">The Ed25519 signature is invalid.</string>
+    <string name="novel_failure_plugin_css_too_large">The plugin CSS is too large.</string>
+    <string name="novel_failure_plugin_javascript_too_large">The plugin custom JavaScript is too large.</string>
+    <string name="novel_failure_plugin_base64">The plugin signature metadata is not valid Base64.</string>
+    <string name="novel_failure_plugin_url_length">The URL is empty or too long.</string>
+    <string name="novel_failure_plugin_absolute_url">Enter a valid absolute URL without credentials.</string>
+    <string name="novel_failure_plugin_https_only">Only HTTPS URLs are allowed. Local loopback HTTP is also accepted.</string>
+    <string name="novel_failure_plugin_website_url">The source website URL is invalid.</string>
+    <string name="novel_failure_plugin_website_scheme">Source websites must use HTTP or HTTPS.</string>
+    <string name="novel_failure_plugin_repository_untrusted">The repository is not trusted.</string>
+    <string name="novel_failure_plugin_unsigned_from_signed">A signed repository returned an unsigned plugin.</string>
+    <string name="novel_failure_plugin_signature_untrusted">The repository signature is not trusted.</string>
+    <string name="novel_failure_plugin_signing_key_changed">The repository signing key changed. Remove and trust the repository again after verifying it.</string>
+    <string name="novel_failure_plugin_public_key_unsupported">The Ed25519 public key is unsupported or invalid.</string>
+    <string name="novel_failure_plugin_signature_failed">Plugin signature verification failed.</string>
+    <string name="novel_failure_plugin_trust_persist">The repository trust state could not be saved.</string>
+    <string name="novel_failure_plugin_execution_timeout">Plugin execution timed out after %1$d ms.</string>
+    <string name="novel_failure_plugin_execution_error">Plugin error while executing %1$s: %2$s</string>
+    <string name="novel_failure_plugin_chapter_url_empty">Chapter content is unavailable because its URL is empty.</string>
+    <string name="novel_failure_plugin_asset_too_large">The novel asset exceeds the %1$d-byte limit.</string>
+    <string name="novel_failure_offline_saved_verify">The saved chapter could not be verified.</string>
+    <string name="novel_failure_offline_download">The chapter could not be downloaded.</string>
+    <string name="novel_failure_offline_chapter_url">A chapter URL is required for offline storage.</string>
+    <string name="novel_failure_offline_text_too_large">The novel chapter text exceeds the offline size limit.</string>
+    <string name="novel_failure_offline_staging">The novel download staging directory could not be created.</string>
+    <string name="novel_failure_offline_preserve_previous">The previous novel download could not be preserved.</string>
+    <string name="novel_failure_offline_publish_preserved">The novel download could not be published. The previous copy remains in %1$s.</string>
+    <string name="novel_failure_offline_publish">The novel download could not be published.</string>
+    <string name="novel_failure_offline_assets_too_large">The novel chapter assets exceed the offline size limit.</string>
+    <string name="novel_failure_offline_remove">The offline chapter could not be removed.</string>
+    <string name="novel_failure_offline_still_present">The removed chapter is still present.</string>
+    <string name="novel_failure_offline_removal">The offline chapter could not be removed.</string>
+    <string name="novel_failure_local_no_text_files">No supported text files were found in %1$s.</string>
+    <string name="novel_failure_local_asset_too_large">The novel asset exceeds the size limit.</string>
+    <string name="novel_failure_local_cover_size">The EPUB cover has an invalid size.</string>
+    <string name="novel_failure_local_cover_format">The EPUB cover is not a supported image.</string>
+    <string name="novel_failure_archive_empty">The archive is empty or its size is unavailable.</string>
+    <string name="novel_failure_archive_missing">The archive does not exist: %1$s</string>
+    <string name="novel_failure_dictionary_unavailable">No dictionary application or browser is available.</string>
+    <string name="novel_dictionary_chooser">Look up in dictionary</string>
+    <string name="novel_failure_custom_source_invalid_document">The custom source definition is invalid.</string>
+    <string name="novel_failure_custom_source_not_found">The custom source could not be found.</string>
+    <string name="novel_failure_custom_source_persist">The custom source could not be saved.</string>
+    <string name="novel_failure_custom_source_remove">The custom source could not be removed.</string>
+    <string name="novel_custom_source_operation_failed">The custom source operation failed.</string>
+    <string name="novel_custom_source_preview_failed">The source preview failed.</string>
+    <string name="novel_custom_source_install_failed">The custom source could not be installed.</string>
+    <string name="novel_failure_quote_already_saved">This quote is already saved in that chapter.</string>
+    <string name="novel_translation_failure_detail">Translation failed.</string>
+    <string name="novel_translation_partial">Translated %1$d of %2$d parts. %3$s</string>
+    <string name="novel_translation_provider_no_text">The translation provider returned no text.</string>
+    <string name="novel_translation_provider_no_choices">The translation provider returned no choices.</string>
+    <string name="novel_translation_provider_no_translations">The translation provider returned no translations.</string>
+    <string name="novel_translation_http_error">The translation provider returned HTTP %1$d.</string>
+    <string name="novel_translation_too_many_requests">The text requires too many translation requests.</string>
+    <string name="novel_translation_response_too_large">The translation response is too large.</string>
+    <string name="novel_failure_quote_save">The quote could not be saved.</string>
+    <string name="novel_failure_quote_selection_empty">Select text before saving a quote.</string>
+    <string name="novel_failure_quote_selection_too_long">The selected quote is too long.</string>
+    <string name="novel_failure_source_not_novel">This source does not provide novel text.</string>
+    <string name="novel_failure_source_chapter_empty">The novel chapter has no pages.</string>
+    <string name="novel_failure_replacement_pattern_too_long">Regular expressions are limited to 512 characters.</string>
+    <string name="novel_failure_replacement_backreference">Backreferences are not supported because they can stall large chapters.</string>
+    <string name="novel_failure_replacement_nested_repetition">Nested repetition is not supported because it can stall large chapters.</string>
+    <string name="novel_failure_replacement_invalid_regex">The regular expression is invalid.</string>
+    <string name="novel_value_configured">Configured</string>
+    <string name="novel_translation_engine">Translation engine</string>
+    <string name="novel_available">Available</string>
+    <string name="novel_novel_data_progress">Progress: %1$d%%</string>
+    <string name="novel_cloudflare_help">Tap here for help with Cloudflare</string>
+</resources>
+

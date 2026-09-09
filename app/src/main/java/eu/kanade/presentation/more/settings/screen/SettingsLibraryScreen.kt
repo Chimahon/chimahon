@@ -19,6 +19,7 @@ import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
+import eu.kanade.tachiyomi.data.library.NovelUpdateJob
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateJob
 import eu.kanade.tachiyomi.ui.category.CategoryScreen
 import eu.kanade.tachiyomi.ui.category.genre.SortTagScreen
@@ -44,6 +45,11 @@ import tachiyomi.domain.library.service.LibraryPreferences.Companion.MANGA_HAS_U
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MANGA_NON_COMPLETED
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MANGA_NON_READ
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MANGA_OUTSIDE_RELEASE_PERIOD
+import tachiyomi.domain.library.service.LibraryPreferences.Companion.NOVEL_HAS_UNREAD
+import tachiyomi.domain.library.service.LibraryPreferences.Companion.NOVEL_NON_COMPLETED
+import tachiyomi.domain.library.service.LibraryPreferences.Companion.NOVEL_NON_READ
+import tachiyomi.domain.library.service.LibraryPreferences.Companion.NOVEL_OUTSIDE_RELEASE_PERIOD
+
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MARK_DUPLICATE_CHAPTER_READ_EXISTING
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MARK_DUPLICATE_CHAPTER_READ_NEW
 import tachiyomi.i18n.MR
@@ -68,12 +74,14 @@ object SettingsLibraryScreen : SearchableSettings {
         val getCategories = remember { Injekt.get<GetCategories>() }
         val getAnimeCategories = remember { Injekt.get<GetAnimeCategories>() }
         val libraryPreferences = remember { Injekt.get<LibraryPreferences>() }
+        val novelCategoryRepository = remember { Injekt.get<tachiyomi.domain.novel.repository.NovelCategoryRepository>() }
         val allCategories by getCategories.subscribe().collectAsState(initial = emptyList())
         val allAnimeCategories by getAnimeCategories.subscribe().collectAsState(initial = emptyList())
+        val allNovelCategories by novelCategoryRepository.subscribe().collectAsState(initial = emptyList())
 
         return listOf(
             getCategoriesGroup(LocalNavigator.currentOrThrow, allCategories, libraryPreferences),
-            getGlobalUpdateGroup(allCategories, allAnimeCategories, libraryPreferences),
+            getGlobalUpdateGroup(allCategories, allAnimeCategories, allNovelCategories, libraryPreferences),
             getSeasonBehaviorGroup(libraryPreferences),
             getBehaviorGroup(libraryPreferences),
             // SY -->
@@ -134,6 +142,7 @@ object SettingsLibraryScreen : SearchableSettings {
     private fun getGlobalUpdateGroup(
         allCategories: List<Category>,
         allAnimeCategories: List<AnimeCategory>,
+        allNovelCategories: List<tachiyomi.domain.novel.model.NovelCategory>,
         libraryPreferences: LibraryPreferences,
     ): Preference.PreferenceGroup {
         val context = LocalContext.current
@@ -143,6 +152,8 @@ object SettingsLibraryScreen : SearchableSettings {
         val autoUpdateCategoriesExcludePref = libraryPreferences.updateCategoriesExclude()
         val autoUpdateAnimeCategoriesPref = libraryPreferences.animeUpdateCategories()
         val autoUpdateAnimeCategoriesExcludePref = libraryPreferences.animeUpdateCategoriesExclude()
+        val autoUpdateNovelCategoriesPref = libraryPreferences.updateNovelCategories()
+        val autoUpdateNovelCategoriesExcludePref = libraryPreferences.updateNovelCategoriesExclude()
 
         val autoUpdateInterval by autoUpdateIntervalPref.collectAsState()
 
@@ -150,8 +161,11 @@ object SettingsLibraryScreen : SearchableSettings {
         val excluded by autoUpdateCategoriesExcludePref.collectAsState()
         val includedAnime by autoUpdateAnimeCategoriesPref.collectAsState()
         val excludedAnime by autoUpdateAnimeCategoriesExcludePref.collectAsState()
+        val includedNovel by autoUpdateNovelCategoriesPref.collectAsState()
+        val excludedNovel by autoUpdateNovelCategoriesExcludePref.collectAsState()
         var showCategoriesDialog by rememberSaveable { mutableStateOf(false) }
         var showAnimeCategoriesDialog by rememberSaveable { mutableStateOf(false) }
+        var showNovelCategoriesDialog by rememberSaveable { mutableStateOf(false) }
         if (showAnimeCategoriesDialog) {
             TriStateListDialog(
                 title = stringResource(MR.strings.anime_categories),
@@ -184,6 +198,22 @@ object SettingsLibraryScreen : SearchableSettings {
                 },
             )
         }
+        if (showNovelCategoriesDialog) {
+            TriStateListDialog(
+                title = stringResource(MR.strings.label_novel_categories),
+                message = stringResource(MR.strings.pref_library_update_categories_details),
+                items = allNovelCategories,
+                initialChecked = includedNovel.mapNotNull { id -> allNovelCategories.find { it.id.toString() == id } },
+                initialInversed = excludedNovel.mapNotNull { id -> allNovelCategories.find { it.id.toString() == id } },
+                itemLabel = { it.name },
+                onDismissRequest = { showNovelCategoriesDialog = false },
+                onValueChanged = { newIncluded, newExcluded ->
+                    autoUpdateNovelCategoriesPref.set(newIncluded.map { it.id.toString() }.toSet())
+                    autoUpdateNovelCategoriesExcludePref.set(newExcluded.map { it.id.toString() }.toSet())
+                    showNovelCategoriesDialog = false
+                },
+            )
+        }
 
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.pref_category_library_update),
@@ -202,6 +232,7 @@ object SettingsLibraryScreen : SearchableSettings {
                     onValueChanged = {
                         LibraryUpdateJob.setupTask(context, it)
                         AnimeLibraryUpdateJob.setupTask(context, it)
+                        NovelUpdateJob.setupTask(context, it)
                         true
                     },
                 ),
@@ -220,6 +251,7 @@ object SettingsLibraryScreen : SearchableSettings {
                         ContextCompat.getMainExecutor(context).execute {
                             LibraryUpdateJob.setupTask(context)
                             AnimeLibraryUpdateJob.setupTask(context)
+                            NovelUpdateJob.setupTask(context)
                         }
                         true
                     },
@@ -241,6 +273,15 @@ object SettingsLibraryScreen : SearchableSettings {
                         excluded = excluded,
                     ),
                     onClick = { showCategoriesDialog = true },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.label_novel_categories),
+                    subtitle = getNovelCategoriesLabel(
+                        allCategories = allNovelCategories,
+                        included = includedNovel,
+                        excluded = excludedNovel,
+                    ),
+                    onClick = { showNovelCategoriesDialog = true },
                 ),
                 // SY -->
                 Preference.PreferenceItem.ListPreference(
@@ -278,6 +319,16 @@ object SettingsLibraryScreen : SearchableSettings {
                         ANIME_OUTSIDE_RELEASE_PERIOD to stringResource(MR.strings.pref_update_only_in_release_period),
                     ),
                     title = stringResource(MR.strings.pref_anime_library_update_smart_update),
+                ),
+                Preference.PreferenceItem.MultiSelectListPreference(
+                    preference = libraryPreferences.autoUpdateNovelRestrictions(),
+                    entries = persistentMapOf(
+                        NOVEL_HAS_UNREAD to stringResource(MR.strings.pref_update_only_completely_read),
+                        NOVEL_NON_READ to stringResource(MR.strings.pref_update_only_started),
+                        NOVEL_NON_COMPLETED to stringResource(MR.strings.pref_update_only_non_completed),
+                        NOVEL_OUTSIDE_RELEASE_PERIOD to stringResource(MR.strings.pref_update_only_in_release_period),
+                    ),
+                    title = stringResource(MR.strings.label_novels) + " " + stringResource(MR.strings.pref_library_update_smart_update),
                 ),
                 Preference.PreferenceItem.SwitchPreference(
                     preference = libraryPreferences.newShowUpdatesCount(),

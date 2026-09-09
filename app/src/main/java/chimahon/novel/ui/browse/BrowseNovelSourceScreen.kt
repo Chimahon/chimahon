@@ -14,10 +14,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -52,10 +54,12 @@ import eu.kanade.presentation.library.components.CommonMangaItemDefaults
 import eu.kanade.presentation.library.components.MangaComfortableGridItem
 import eu.kanade.presentation.library.components.MangaCompactGridItem
 import eu.kanade.presentation.util.Screen
+import eu.kanade.tachiyomi.ui.browse.source.browse.SourceFilterDialog
 import java.security.MessageDigest
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
+import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.manga.model.MangaCover
 import tachiyomi.i18n.MR
@@ -69,6 +73,7 @@ import tachiyomi.presentation.core.util.plus
 data class BrowseNovelSourceScreen(
     private val serverId: String?,
     private val sourceId: Long,
+    private val initialListing: BrowseNovelSourceScreenModel.Listing? = null,
 ) : Screen() {
 
     @Composable
@@ -80,12 +85,14 @@ data class BrowseNovelSourceScreen(
             LoadingScreen()
             return
         }
-        val screenModel = rememberScreenModel { BrowseNovelSourceScreenModel(sourceId) }
+        val screenModel = rememberScreenModel { BrowseNovelSourceScreenModel(sourceId, initialListing) }
         val state by screenModel.state.collectAsState()
 
         val navigator = LocalNavigator.currentOrThrow
         val snackbarHostState = remember { SnackbarHostState() }
-        var searchQuery by rememberSaveable { mutableStateOf<String?>(null) }
+        var searchQuery by rememberSaveable {
+            mutableStateOf((initialListing as? BrowseNovelSourceScreenModel.Listing.Search)?.query)
+        }
 
         Scaffold(
             topBar = {
@@ -107,9 +114,25 @@ data class BrowseNovelSourceScreen(
                         onDisplayModeChange = { screenModel.displayMode = it },
                         navigateUp = navigator::pop,
                         onSearch = screenModel::search,
+                        onWebViewClick = {
+                            val url = when (source) {
+                                is chimahon.novel.plugin.SimpleLNReaderSource -> source.baseUrl
+                                else -> null
+                            }
+                            if (!url.isNullOrBlank()) {
+                                navigator.push(
+                                    eu.kanade.tachiyomi.ui.webview.WebViewScreen(
+                                        url = url,
+                                        initialTitle = source.name,
+                                        sourceId = source.id,
+                                    ),
+                                )
+                            }
+                        }.takeIf { source is chimahon.novel.plugin.SimpleLNReaderSource && source.baseUrl.isNotBlank() },
                     )
 
                     if (source is NovelsPageSource) {
+                        var showFilterSheet by remember { mutableStateOf(false) }
                         Row(
                             modifier = Modifier
                                 .horizontalScroll(rememberScrollState())
@@ -118,7 +141,10 @@ data class BrowseNovelSourceScreen(
                         ) {
                             FilterChip(
                                 selected = state.listing is BrowseNovelSourceScreenModel.Listing.Popular,
-                                onClick = { screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Popular, reset = true) },
+                                onClick = {
+                                    screenModel.resetFilters()
+                                    screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Popular, reset = true)
+                                },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Outlined.Favorite,
@@ -131,7 +157,10 @@ data class BrowseNovelSourceScreen(
                             if (source.supportsLatest) {
                                 FilterChip(
                                     selected = state.listing is BrowseNovelSourceScreenModel.Listing.Latest,
-                                    onClick = { screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Latest, reset = true) },
+                                    onClick = {
+                                        screenModel.resetFilters()
+                                        screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Latest, reset = true)
+                                    },
                                     leadingIcon = {
                                         Icon(
                                             imageVector = Icons.Outlined.NewReleases,
@@ -142,6 +171,47 @@ data class BrowseNovelSourceScreen(
                                     label = { Text(stringResource(MR.strings.latest)) },
                                 )
                             }
+                            if (screenModel.currentFilters.isNotEmpty()) {
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { showFilterSheet = true },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Outlined.FilterList,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                        )
+                                    },
+                                    label = { Text(stringResource(MR.strings.action_filter)) },
+                                )
+                            }
+                        }
+                        if (showFilterSheet) {
+                            SourceFilterDialog(
+                                onDismissRequest = { showFilterSheet = false },
+                                filters = screenModel.currentFilters,
+                                onReset = {
+                                    screenModel.resetFilters()
+                                },
+                                onFilter = {
+                                    val query = (screenModel.state.value.listing as? BrowseNovelSourceScreenModel.Listing.Search)?.query ?: ""
+                                    screenModel.searchWithFilters(query, screenModel.currentFilters)
+                                    showFilterSheet = false
+                                },
+                                onUpdate = {
+                                    // Filters are mutated in-place; trigger recomposition by reassigning
+                                    screenModel.setFilters(screenModel.currentFilters)
+                                },
+                                startExpanded = false,
+                                savedSearches = persistentListOf(),
+                                onSave = {},
+                                onSavedSearch = {},
+                                onSavedSearchPress = {},
+                                onSavedSearchPressDesc = "",
+                                shouldShowSavingButton = false,
+                                openMangaDexRandom = null,
+                                openMangaDexFollows = null,
+                            )
                         }
                         HorizontalDivider()
                     }
@@ -193,9 +263,12 @@ private fun BrowseNovelSourceContent(
         return
     }
 
-    val listState = rememberLazyListState()
-    LaunchedEffect(listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index) {
-        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
+    // The grids below share this state: without it, scroll position is
+    // unreadable and load-more never fires (a detached list state observes
+    // nothing).
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index, novels.size) {
+        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
         if (lastVisible >= novels.size - 3 && hasNextPage && !isLoading) {
             onLoadMore()
         }
@@ -205,6 +278,7 @@ private fun BrowseNovelSourceContent(
         LibraryDisplayMode.ComfortableGrid -> {
             BrowseNovelSourceComfortableGrid(
                 novels = novels,
+                gridState = gridState,
                 sourceId = sourceId,
                 columns = columns,
                 contentPadding = contentPadding,
@@ -216,6 +290,7 @@ private fun BrowseNovelSourceContent(
         else -> {
             BrowseNovelSourceCompactGrid(
                 novels = novels,
+                gridState = gridState,
                 sourceId = sourceId,
                 columns = columns,
                 contentPadding = contentPadding,
@@ -230,6 +305,7 @@ private fun BrowseNovelSourceContent(
 @Composable
 private fun BrowseNovelSourceCompactGrid(
     novels: List<SNNovel>,
+    gridState: LazyGridState,
     sourceId: Long,
     columns: GridCells,
     contentPadding: PaddingValues,
@@ -238,6 +314,7 @@ private fun BrowseNovelSourceCompactGrid(
     onRequestCover: (SNNovel) -> Unit,
 ) {
     LazyVerticalGrid(
+        state = gridState,
         columns = columns,
         contentPadding = contentPadding + PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(CommonMangaItemDefaults.GridVerticalSpacer),
@@ -274,6 +351,7 @@ private fun BrowseNovelSourceCompactGrid(
 @Composable
 private fun BrowseNovelSourceComfortableGrid(
     novels: List<SNNovel>,
+    gridState: LazyGridState,
     sourceId: Long,
     columns: GridCells,
     contentPadding: PaddingValues,
@@ -282,6 +360,7 @@ private fun BrowseNovelSourceComfortableGrid(
     onRequestCover: (SNNovel) -> Unit,
 ) {
     LazyVerticalGrid(
+        state = gridState,
         columns = columns,
         contentPadding = contentPadding + PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(CommonMangaItemDefaults.GridVerticalSpacer),

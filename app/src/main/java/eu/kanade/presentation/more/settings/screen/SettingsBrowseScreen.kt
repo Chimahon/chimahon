@@ -15,10 +15,12 @@ import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.browse.ExtensionStoresScreen
 import eu.kanade.presentation.more.settings.screen.browse.AnimeExtensionReposScreen
+import eu.kanade.presentation.more.settings.screen.browse.NovelExtensionReposScreen
 import eu.kanade.tachiyomi.ui.category.sources.SourceCategoryScreen
 import eu.kanade.tachiyomi.util.system.AuthenticatorUtil.authenticate
 import kotlinx.collections.immutable.persistentListOf
 import mihon.domain.animeextensionrepo.interactor.GetAnimeExtensionRepoCount
+import mihon.domain.novelextensionrepo.interactor.GetNovelExtensionRepoCount
 import mihon.domain.extension.interactor.GetExtensionStoreCountAsFlow
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
@@ -47,9 +49,11 @@ object SettingsBrowseScreen : SearchableSettings {
         val sourcePreferences = remember { Injekt.get<SourcePreferences>() }
         val getExtensionStoreCountAsFlow = remember { Injekt.get<GetExtensionStoreCountAsFlow>() }
         val getAnimeExtensionRepoCount = remember { Injekt.get<GetAnimeExtensionRepoCount>() }
+        val getNovelExtensionRepoCount = remember { Injekt.get<GetNovelExtensionRepoCount>() }
 
         val reposCount by getExtensionStoreCountAsFlow().collectAsState(0L)
         val animeReposCount by getAnimeExtensionRepoCount.subscribe().collectAsState(0L)
+        val novelReposCount by getNovelExtensionRepoCount.subscribe().collectAsState(0)
 
         // SY -->
         val scope = rememberCoroutineScope()
@@ -169,6 +173,13 @@ object SettingsBrowseScreen : SearchableSettings {
                         subtitle = pluralStringResource(MR.plurals.num_repos, animeReposCount.toInt(), animeReposCount),
                         onClick = {
                             navigator.push(AnimeExtensionReposScreen())
+                        },
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = "${stringResource(MR.strings.novel_singular)} ${stringResource(MR.strings.label_extension_repos)}",
+                        subtitle = pluralStringResource(MR.plurals.num_repos, novelReposCount, novelReposCount),
+                        onClick = {
+                            navigator.push(NovelExtensionReposScreen())
                         },
                     ),
                 ),

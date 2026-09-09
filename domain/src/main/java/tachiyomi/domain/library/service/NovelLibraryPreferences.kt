@@ -27,6 +27,10 @@ class NovelLibraryPreferences(
 
     fun defaultCategory() = preferenceStore.getString(NOVEL_DEFAULT_CATEGORY_PREF_KEY, "")
 
+    fun jsonMigrated() = preferenceStore.getBoolean("novel_json_migrated", false)
+
+    fun sidecarsFolded() = preferenceStore.getBoolean("novel_sidecars_folded", false)
+
     companion object {
         const val NOVEL_DEFAULT_CATEGORY_PREF_KEY = "novel_default_category"
     }

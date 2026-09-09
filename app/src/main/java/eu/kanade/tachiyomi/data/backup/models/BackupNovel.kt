@@ -18,6 +18,17 @@ data class BackupNovel(
     @ProtoNumber(9) val stats: List<BackupStatEntry> = emptyList(),
     @ProtoNumber(10) val categoryIds: List<String> = emptyList(),
     @ProtoNumber(11) val lang: String? = null,
+    @ProtoNumber(12) val chapters: List<BackupChapter> = emptyList(),
+    @ProtoNumber(13) val history: List<BackupNovelHistory> = emptyList(),
+)
+
+@Serializable
+data class BackupNovelHistory(
+    @ProtoNumber(1) val chapterUrl: String,
+    @ProtoNumber(2) val lastRead: Long = 0L,
+    @ProtoNumber(3) val timeRead: Long = 0L,
+    // 4 retired: per-chapter position was dropped (manga-type history carries
+    // when + how-long only; resume lives on the chapter row). Never reuse.
 )
 
 @Serializable
@@ -106,6 +117,7 @@ fun NovelChapter.toBackupChapter(): BackupChapter {
         sourceOrder = sourceOrder,
         lastModifiedAt = lastModifiedAt,
         version = version,
+        progress = progress,
     )
 }
 
@@ -124,5 +136,6 @@ fun BackupChapter.toNovelChapter(novelId: Long): NovelChapter {
         sourceOrder = sourceOrder,
         lastModifiedAt = lastModifiedAt,
         version = version,
+        progress = progress,
     )
 }

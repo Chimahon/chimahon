@@ -26,9 +26,14 @@ data class Novel(
     val totalChapters: Int,
     val version: Long,
     val notes: String,
+    val isLocal: Boolean = false,
+    val localFolder: String? = null,
+    val chapterSortMode: Long = 0,
+    val chapterSortDescending: Boolean = true,
+    val chapterFilterUnread: Boolean = false,
+    val chapterFilterBookmarked: Boolean = false,
+    val lang: String? = null,
 ) : Serializable {
-
-    val unreadCount: Int get() = 0
 
     companion object {
         const val UNKNOWN = 0L
@@ -38,6 +43,12 @@ data class Novel(
         const val PUBLISHING_FINISHED = 4L
         const val CANCELLED = 5L
         const val ON_HIATUS = 6L
+
+        /**
+         * Reserved source id for imported/local novels; they never participate in
+         * update jobs or downloads (content is already on disk).
+         */
+        const val LOCAL_SOURCE_ID = -1501L
 
         fun create() = Novel(
             id = -1L,
@@ -64,7 +75,7 @@ data class Novel(
             notes = "",
         )
 
-        fun fromSourceNovel(novel: SNNovel, sourceId: Long): Novel {
+        fun fromSourceNovel(novel: SNNovel, sourceId: Long, lang: String? = null): Novel {
             return create().copy(
                 url = novel.url,
                 source = sourceId,
@@ -76,7 +87,27 @@ data class Novel(
                 status = novel.status.toLong(),
                 thumbnailUrl = novel.thumbnail_url,
                 initialized = novel.initialized,
+                lang = lang?.takeIf { it.isNotBlank() }
+                    ?: novel.lang?.takeIf { it.isNotBlank() },
             )
         }
     }
+}
+
+fun Novel.toSNNovel(): SNNovel {
+    return SNNovel(
+        url = url,
+        title = title,
+        author = author,
+        artist = artist,
+        description = description,
+        genre = genre,
+        status = status.toInt(),
+        thumbnail_url = thumbnailUrl,
+        initialized = initialized,
+        id = id,
+        source = source,
+        favorite = favorite,
+        lastUpdate = lastUpdate,
+    )
 }

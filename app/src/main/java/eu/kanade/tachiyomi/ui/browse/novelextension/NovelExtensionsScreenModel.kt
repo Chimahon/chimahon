@@ -9,14 +9,13 @@ import eu.kanade.presentation.components.SEARCH_DEBOUNCE_MILLIS
 import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.extension.model.InstallStep
-import eu.kanade.tachiyomi.ui.browse.extension.ExtensionsScreenModel
 import eu.kanade.tachiyomi.ui.browse.extension.ExtensionUiModel
+import eu.kanade.tachiyomi.ui.browse.extension.ExtensionsScreenModel
 import eu.kanade.tachiyomi.util.system.LocaleHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,9 +32,10 @@ import uy.kohesive.injekt.api.get
 import kotlin.time.Duration.Companion.seconds
 
 class NovelExtensionsScreenModel(
-    preferences: SourcePreferences = Injekt.get(),
+    private val preferences: SourcePreferences = Injekt.get(),
     basePreferences: BasePreferences = Injekt.get(),
     private val extensionManager: ExtensionManager = Injekt.get(),
+    private val pluginManager: chimahon.novel.plugin.NovelPluginManager = Injekt.get(),
 ) : StateScreenModel<ExtensionsScreenModel.State>(ExtensionsScreenModel.State()) {
 
     private val currentDownloads = MutableStateFlow<Map<String, InstallStep>>(hashMapOf())
@@ -60,42 +60,74 @@ class NovelExtensionsScreenModel(
                     .map { searchQueryPredicate(it ?: "") },
                 currentDownloads,
                 combine(
-                    preferences.enabledLanguages().changes(),
+                    preferences.enabledNovelLanguages().changes(),
                     extensionManager.installedNovelExtensionsFlow,
                     extensionManager.untrustedNovelExtensionsFlow,
                     extensionManager.availableNovelExtensionsFlow,
-                ) { enabledLanguages, _installed, _untrusted, _available ->
-                    val (updates, installed) = _installed
+                    pluginManager.catalog,
+                ) { enabledLanguages, _installedApk, _untrustedApk, _availableApk, catalog ->
+                    // Map JS plugins to Extension.Available / Installed so they appear alongside APK extensions
+                    val jsAvailable = catalog.available.map { desc ->
+                        Extension.Available(
+                            name = desc.name,
+                            pkgName = "js.${desc.id}",
+                            versionName = desc.version,
+                            versionCode = 1,
+                            libVersion = 1.0,
+                            lang = desc.normalizedLanguage(),
+                            isNsfw = false,
+                            sources = emptyList(),
+                            apkUrl = desc.codeUrl,
+                            iconUrl = desc.iconUrl,
+                            signatureHash = "js",
+                            storeName = "LNReader",
+                            contentType = Extension.ContentType.NOVEL,
+                        )
+                    }
+                    val jsInstalled = catalog.installed.map { inst ->
+                        Extension.Installed(
+                            name = inst.descriptor.name,
+                            pkgName = "js.${inst.descriptor.id}",
+                            versionName = inst.descriptor.version,
+                            versionCode = 1,
+                            libVersion = 1.0,
+                            lang = inst.descriptor.normalizedLanguage(),
+                            isNsfw = false,
+                            sources = emptyList(),
+                            pkgFactory = null,
+                            icon = null,
+                            hasUpdate = pluginManager.hasUpdate(inst.descriptor.id),
+                            isObsolete = false,
+                            isShared = false,
+                            store = null,
+                            isRedundant = false,
+                            novelSources = emptyList(),
+                            contentType = Extension.ContentType.NOVEL,
+                            signatureHash = "js",
+                            storeName = "LNReader",
+                            iconUrl = inst.descriptor.iconUrl,
+                        )
+                    }
+                    // Merge APK + JS, deduplicate by pkgName
+                    val available = (_availableApk + jsAvailable)
+                        .filter { extension ->
+                            (_installedApk + jsInstalled).none { it.pkgName == extension.pkgName } &&
+                                _untrustedApk.none { it.pkgName == extension.pkgName } &&
+                                (showNsfwSources || !extension.isNsfw) &&
+                                (extension.lang == "all" || extension.lang in enabledLanguages || "all" in enabledLanguages || enabledLanguages.isEmpty())
+                        }
+                        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+
+                    val installedCombined = (_installedApk + jsInstalled)
                         .filter { showNsfwSources || !it.isNsfw }
                         .sortedWith(
                             compareBy<Extension.Installed> { !it.isObsolete }
                                 .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name },
                         )
-                        .partition { it.hasUpdate }
 
-                    val untrusted = _untrusted
-                        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
-
-                    val available = _available
-                        .filter { extension ->
-                            _installed.none { it.pkgName == extension.pkgName } &&
-                                _untrusted.none { it.pkgName == extension.pkgName } &&
-                                (showNsfwSources || !extension.isNsfw)
-                        }
-                        .flatMap { ext ->
-                            if (ext.sources.isEmpty()) {
-                                return@flatMap if (ext.lang in enabledLanguages) listOf(ext) else emptyList()
-                            }
-                            ext.sources.filter { it.lang in enabledLanguages }
-                                .map {
-                                    ext.copy(
-                                        name = it.name,
-                                        lang = it.lang,
-                                        pkgName = "${ext.pkgName}-${it.id}",
-                                        sources = listOf(it),
-                                    )
-                                }
-                        }
+                    val (updates, installed) = installedCombined.partition { it.hasUpdate }
+                    val untrusted = _untrustedApk
+                        .filter { showNsfwSources || !it.isNsfw }
                         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 
                     Triple(updates, installed, untrusted) to available
@@ -125,9 +157,13 @@ class NovelExtensionsScreenModel(
                     if (availableByLang.isNotEmpty()) {
                         putAll(availableByLang)
                     }
+                    // Show empty hint that points to novel stores if nothing available
+                    if (available.isEmpty() && installed.isEmpty() && untrusted.isEmpty() && updates.isEmpty()) {
+                        // leave items empty -> ExtensionScreen will show empty; NovelExtensionsTab intercepts to show novel empty
+                    }
                 }
             }
-                .collectLatest { items ->
+                .collect { items ->
                     mutableState.update {
                         it.copy(
                             isLoading = false,
@@ -139,7 +175,7 @@ class NovelExtensionsScreenModel(
 
         screenModelScope.launchIO { findAvailableExtensions() }
 
-        preferences.extensionUpdatesCount().changes()
+        preferences.novelExtensionUpdatesCount().changes()
             .onEach { mutableState.update { state -> state.copy(updates = it) } }
             .launchIn(screenModelScope)
 
@@ -163,7 +199,7 @@ class NovelExtensionsScreenModel(
                     is Extension.Installed -> extension.sources.any { source ->
                         source.name.contains(subquery, ignoreCase = true) ||
                             source.id == subquery.toLongOrNull()
-                    }
+                    } || extension.novelSources.any { it.name.contains(subquery, ignoreCase = true) }
 
                     is Extension.Available -> extension.sources.any {
                         it.name.contains(subquery, ignoreCase = true) ||
@@ -193,18 +229,53 @@ class NovelExtensionsScreenModel(
     }
 
     fun installExtension(extension: Extension.Available) {
+        if (extension.pkgName.startsWith("js.")) {
+            val id = extension.pkgName.removePrefix("js.")
+            screenModelScope.launchIO {
+                addDownloadState(extension, InstallStep.Downloading)
+                try {
+                    addDownloadState(extension, InstallStep.Installing)
+                    pluginManager.install(id)
+                    addDownloadState(extension, InstallStep.Installed)
+                } catch (_: Exception) {
+                    addDownloadState(extension, InstallStep.Error)
+                } finally {
+                    kotlinx.coroutines.delay(400)
+                    removeDownloadState(extension)
+                }
+            }
+            return
+        }
         screenModelScope.launchIO {
             extensionManager.installExtension(extension).collectToInstallUpdate(extension)
         }
     }
 
     fun updateExtension(extension: Extension.Installed) {
+        if (extension.pkgName.startsWith("js.")) {
+            val id = extension.pkgName.removePrefix("js.")
+            screenModelScope.launchIO {
+                addDownloadState(extension, InstallStep.Downloading)
+                try {
+                    addDownloadState(extension, InstallStep.Installing)
+                    pluginManager.update(id)
+                    addDownloadState(extension, InstallStep.Installed)
+                } catch (_: Exception) {
+                    addDownloadState(extension, InstallStep.Error)
+                } finally {
+                    kotlinx.coroutines.delay(400)
+                    removeDownloadState(extension)
+                }
+            }
+            return
+        }
         screenModelScope.launchIO {
             extensionManager.updateExtension(extension).collectToInstallUpdate(extension)
         }
     }
 
     fun cancelInstallUpdateExtension(extension: Extension) {
+        if (extension.pkgName.startsWith("js.")) return
         extensionManager.cancelInstallUpdateExtension(extension)
         removeDownloadState(extension)
     }
@@ -228,13 +299,25 @@ class NovelExtensionsScreenModel(
             .collect()
 
     fun uninstallExtension(extension: Extension) {
+        if (extension.pkgName.startsWith("js.")) {
+            val id = extension.pkgName.removePrefix("js.")
+            screenModelScope.launchIO {
+                try { pluginManager.uninstall(id) } catch (_: Exception) {}
+            }
+            return
+        }
         extensionManager.uninstallExtension(extension)
     }
 
     fun findAvailableExtensions() {
         screenModelScope.launchIO {
             mutableState.update { it.copy(isRefreshing = true) }
-            extensionManager.findAvailableExtensions()
+            try { extensionManager.findAvailableExtensions() } catch (_: Exception) {}
+            try { pluginManager.refresh() } catch (_: Exception) {}
+            try {
+                val updates = pluginManager.catalog.value.installed.count { pluginManager.hasUpdate(it.descriptor.id) }
+                preferences.novelExtensionUpdatesCount().set(updates)
+            } catch (_: Exception) {}
             delay(1.seconds)
             mutableState.update { it.copy(isRefreshing = false) }
         }
@@ -244,5 +327,14 @@ class NovelExtensionsScreenModel(
         screenModelScope.launch {
             extensionManager.trust(extension)
         }
+    }
+
+    /** Site URL for a JS plugin row (`js.<id>`), backing the WebView action. */
+    fun getJsPluginSite(pkgName: String): String? {
+        val id = pkgName.removePrefix("js.")
+        val catalog = pluginManager.catalog.value
+        return (catalog.installed.find { it.descriptor.id == id }?.descriptor
+            ?: catalog.available.find { it.id == id })
+            ?.site?.takeIf { it.isNotBlank() }
     }
 }

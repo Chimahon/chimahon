@@ -100,31 +100,30 @@ fun ExtensionIcon(
             )
         }
         is Extension.Installed -> {
-            val inMemoryIcon = extension.icon
-            if (inMemoryIcon != null) {
-                val bitmap = remember(inMemoryIcon) {
-                    inMemoryIcon.toBitmap().asImageBitmap()
+            if (!extension.iconUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = extension.iconUrl,
+                    contentDescription = null,
+                    placeholder = ColorPainter(Color(0x1F888888)),
+                    error = rememberResourceBitmapPainter(id = R.drawable.cover_error),
+                    modifier = modifier
+                        .clip(MaterialTheme.shapes.extraSmall),
+                )
+            } else {
+                val icon by extension.getIcon(density)
+                when (icon) {
+                    is Result.Loading -> Box(modifier = modifier)
+                    is Result.Success -> Image(
+                        bitmap = (icon as Result.Success<ImageBitmap>).value,
+                        contentDescription = null,
+                        modifier = modifier,
+                    )
+                    is Result.Error -> Image(
+                        bitmap = ImageBitmap.imageResource(id = R.mipmap.ic_default_source),
+                        contentDescription = null,
+                        modifier = modifier,
+                    )
                 }
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = null,
-                    modifier = modifier,
-                )
-                return
-            }
-            val icon by extension.getIcon(density)
-            when (icon) {
-                is Result.Loading -> Box(modifier = modifier)
-                is Result.Success -> Image(
-                    bitmap = (icon as Result.Success<ImageBitmap>).value,
-                    contentDescription = null,
-                    modifier = modifier,
-                )
-                is Result.Error -> Image(
-                    bitmap = ImageBitmap.imageResource(id = R.mipmap.ic_default_source),
-                    contentDescription = null,
-                    modifier = modifier,
-                )
             }
         }
         is Extension.Untrusted -> Image(
@@ -139,22 +138,16 @@ fun ExtensionIcon(
 @Composable
 private fun Extension.getIcon(density: Int = DisplayMetrics.DENSITY_DEFAULT): State<Result<ImageBitmap>> {
     val context = LocalContext.current
-    val stableKey = "${pkgName}:${signatureHash}"
-    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, stableKey) {
+    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, this) {
         withIOContext {
             value = try {
-                val inMemoryIcon = (this@getIcon as? Extension.Installed)?.icon
-                if (inMemoryIcon != null) {
-                    Result.Success(inMemoryIcon.toBitmap().asImageBitmap())
-                } else {
-                    val appInfo = ExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!
-                    val appResources = context.packageManager.getResourcesForApplication(appInfo)
-                    Result.Success(
-                        appResources.getDrawableForDensity(appInfo.icon, density, null)!!
-                            .toBitmap()
-                            .asImageBitmap(),
-                    )
-                }
+                val appInfo = ExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!
+                val appResources = context.packageManager.getResourcesForApplication(appInfo)
+                Result.Success(
+                    appResources.getDrawableForDensity(appInfo.icon, density, null)!!
+                        .toBitmap()
+                        .asImageBitmap(),
+                )
             } catch (e: Exception) {
                 Result.Error
             }
@@ -218,8 +211,7 @@ fun AnimeExtensionIcon(
 @Composable
 private fun AnimeExtension.getIcon(density: Int = DisplayMetrics.DENSITY_DEFAULT): State<Result<ImageBitmap>> {
     val context = LocalContext.current
-    val stableKey = "${pkgName}:${signatureHash}"
-    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, stableKey) {
+    return produceState<Result<ImageBitmap>>(initialValue = Result.Loading, this) {
         withIOContext {
             value = try {
                 val appInfo = AnimeExtensionLoader.getExtensionPackageInfoFromPkgName(context, pkgName)!!.applicationInfo!!

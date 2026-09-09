@@ -1,0 +1,85 @@
+CREATE TABLE novel_categories(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    sort INTEGER NOT NULL,
+    flags INTEGER NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT OR IGNORE INTO novel_categories(_id, name, sort, flags, hidden) VALUES (0, "", -1, 0, 0);
+CREATE TRIGGER IF NOT EXISTS novel_system_category_delete_trigger BEFORE DELETE
+ON novel_categories
+BEGIN SELECT CASE
+    WHEN old._id <= 0 THEN
+        RAISE(ABORT, "System category can't be deleted")
+    END;
+END;
+
+CREATE TABLE novels_categories(
+    novel_id INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    FOREIGN KEY(novel_id) REFERENCES novels(_id) ON DELETE CASCADE,
+    FOREIGN KEY(category_id) REFERENCES novel_categories(_id) ON DELETE CASCADE
+);
+
+CREATE INDEX novels_categories_novel_id_index ON novels_categories(novel_id);
+CREATE INDEX novels_categories_category_id_index ON novels_categories(category_id);
+
+getNovelCategory:
+SELECT _id, name, sort AS `order`, flags, hidden
+FROM novel_categories
+WHERE _id = :categoryId
+LIMIT 1;
+
+getNovelCategories:
+SELECT _id, name, sort AS `order`, flags, hidden
+FROM novel_categories
+ORDER BY sort;
+
+getNovelCategoriesByNovelId:
+SELECT
+C._id AS id,
+C.name,
+C.sort AS `order`,
+C.flags,
+C.hidden
+FROM novel_categories C
+JOIN novels_categories NC
+ON C._id = NC.category_id
+WHERE NC.novel_id = :novelId;
+
+insertNovelCategory:
+INSERT INTO novel_categories(name, sort, flags, hidden)
+VALUES (:name, :order, :flags, :hidden);
+
+insertRawNovelCategory:
+INSERT OR REPLACE INTO novel_categories(_id, name, sort, flags, hidden)
+VALUES (:id, :name, :sort, :flags, :hidden);
+
+getNovelCategoryPairs:
+SELECT novel_id, category_id
+FROM novels_categories
+WHERE novel_id IN :novelIds;
+
+deleteNovelCategory:
+DELETE FROM novel_categories
+WHERE _id = :categoryId;
+
+updateNovelCategory:
+UPDATE novel_categories
+SET name = coalesce(:name, name),
+    sort = coalesce(:order, sort),
+    flags = coalesce(:flags, flags),
+    hidden = coalesce(:hidden, hidden)
+WHERE _id = :categoryId;
+
+selectLastInsertedNovelCategoryId:
+SELECT last_insert_rowid();
+
+insertNovelsCategories:
+INSERT INTO novels_categories(novel_id, category_id)
+VALUES (:novelId, :categoryId);
+
+deleteNovelsCategoriesByNovelId:
+DELETE FROM novels_categories
+WHERE novel_id = :novelId;

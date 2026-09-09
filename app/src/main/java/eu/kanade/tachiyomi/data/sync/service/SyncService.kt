@@ -1,9 +1,9 @@
 package eu.kanade.tachiyomi.data.sync.service
 
 import android.content.Context
-import com.canopus.chimareader.data.NovelCategory
-import com.canopus.chimareader.data.md5Hex
+import chimahon.novel.data.NovelCategory
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.util.lang.Hash
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupAnime
 import eu.kanade.tachiyomi.data.backup.models.BackupAnimeSource
@@ -831,7 +831,7 @@ abstract class SyncService(
         val title = novel.title.trim().lowercase()
         val author = novel.author?.trim()?.lowercase().orEmpty()
         return if (title.isNotEmpty() || author.isNotEmpty()) {
-            md5Hex("$title|$author")
+            Hash.md5("$title|$author")
         } else {
             novel.id
         }

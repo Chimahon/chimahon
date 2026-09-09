@@ -15,6 +15,8 @@ data class NovelChapter(
     val scanlator: String?,
     val lastModifiedAt: Long,
     val version: Long,
+    /** Resume fraction 0.0-1.0 within the chapter (manga `last_page_read` equivalent). */
+    val progress: Double,
 ) {
     val isRecognizedNumber: Boolean
         get() = chapterNumber >= 0f
@@ -45,6 +47,7 @@ data class NovelChapter(
             scanlator = null,
             lastModifiedAt = 0,
             version = 1,
+            progress = 0.0,
         )
     }
 }

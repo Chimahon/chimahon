@@ -134,6 +134,7 @@ class SyncManager(
             backupNovels = backupCreator.backupNovels(backupOptions),
             backupNovelCategories = backupCreator.backupNovelCategories(backupOptions),
             backupSourceNovels = backupSourceNovels,
+            backupNovelExtensionRepo = backupCreator.backupNovelExtensionRepos(backupOptions),
             // Chimahon <--
         )
         logcat(LogPriority.DEBUG) { "End create backup" }

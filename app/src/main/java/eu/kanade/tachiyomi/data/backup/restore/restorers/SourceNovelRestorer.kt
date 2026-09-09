@@ -151,6 +151,7 @@ class SourceNovelRestorer(
                     when {
                         dbChapter.read && !it.read -> it.copy(read = true, lastPageRead = dbChapter.lastPageRead)
                         it.lastPageRead == 0L && dbChapter.lastPageRead != 0L -> it.copy(lastPageRead = dbChapter.lastPageRead)
+                        it.progress == 0.0 && dbChapter.progress != 0.0 -> it.copy(progress = dbChapter.progress)
                         else -> it
                     }
                 }
@@ -181,6 +182,7 @@ class SourceNovelRestorer(
             chapterNumber = chapterNumber,
             scanlator = scanlator,
             version = version,
+            progress = progress,
         )
     }
 

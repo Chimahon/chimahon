@@ -19,9 +19,10 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
 import com.canopus.chimareader.data.AnkiStatsStorage
-import com.canopus.chimareader.data.BookStorage
 import com.canopus.chimareader.data.MangaStatsStorage
 import eu.kanade.tachiyomi.R
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import tachiyomi.core.common.Constants
 import java.time.LocalDate
 import java.util.concurrent.TimeUnit
@@ -117,19 +118,16 @@ class ReadingStatsWidget : GlanceAppWidget() {
 
     private data class NovelDayTotals(val characters: Int, val timeMs: Long)
 
-    private fun loadNovelStatsForDay(context: Context, dateKey: String): NovelDayTotals {
-        var characters = 0
-        var timeSeconds = 0.0
-        for (book in BookStorage.loadAllBooks(context)) {
-            val dir = BookStorage.getBookDirectory(context, book.folder ?: book.id)
-            val dayStats = BookStorage.loadStatistics(dir)?.filter { it.dateKey == dateKey }.orEmpty()
-            characters += dayStats.sumOf { it.charactersRead }
-            timeSeconds += dayStats.sumOf { it.readingTime }
-        }
-        return NovelDayTotals(
-            characters = characters,
-            timeMs = (timeSeconds * 1000.0).toLong(),
-        )
+    private suspend fun loadNovelStatsForDay(context: Context, dateKey: String): NovelDayTotals {
+        // The reader upserts live; no file fallback.
+        return runCatching {
+            val repo = Injekt.get<tachiyomi.domain.novel.repository.NovelReadingStatsRepository>()
+            val dbStats = repo.getForDay(dateKey)
+            NovelDayTotals(
+                characters = dbStats.sumOf { it.charactersRead },
+                timeMs = (dbStats.sumOf { it.readingTime } * 1000.0).toLong(),
+            )
+        }.getOrDefault(NovelDayTotals(0, 0L))
     }
 
     companion object {

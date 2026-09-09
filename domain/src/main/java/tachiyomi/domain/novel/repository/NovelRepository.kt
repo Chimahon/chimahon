@@ -12,6 +12,8 @@ interface NovelRepository {
 
     suspend fun getNovelByUrlAndSourceId(url: String, sourceId: Long): Novel?
 
+    suspend fun getNovelByLocalFolder(folder: String): Novel?
+
     fun getNovelByUrlAndSourceIdAsFlow(url: String, sourceId: Long): Flow<Novel?>
 
     suspend fun getFavorites(): List<Novel>

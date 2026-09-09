@@ -52,6 +52,7 @@ sealed class Extension {
         // SY <--
         val novelSources: List<NovelSource> = emptyList(),
         override val contentType: ContentType = ContentType.MANGA,
+        val iconUrl: String? = null,
     ) : Extension()
 
     data class Available(

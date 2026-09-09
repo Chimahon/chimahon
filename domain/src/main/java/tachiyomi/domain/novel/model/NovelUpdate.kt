@@ -21,6 +21,13 @@ data class NovelUpdate(
     val totalChapters: Int? = null,
     val version: Long? = null,
     val notes: String? = null,
+    val isLocal: Boolean? = null,
+    val localFolder: String? = null,
+    val chapterSortMode: Long? = null,
+    val chapterSortDescending: Boolean? = null,
+    val chapterFilterUnread: Boolean? = null,
+    val chapterFilterBookmarked: Boolean? = null,
+    val lang: String? = null,
 )
 
 fun Novel.toNovelUpdate(): NovelUpdate {
@@ -45,5 +52,12 @@ fun Novel.toNovelUpdate(): NovelUpdate {
         totalChapters = totalChapters,
         version = version,
         notes = notes,
+        isLocal = isLocal,
+        localFolder = localFolder,
+        chapterSortMode = chapterSortMode,
+        chapterSortDescending = chapterSortDescending,
+        chapterFilterUnread = chapterFilterUnread,
+        chapterFilterBookmarked = chapterFilterBookmarked,
+        lang = lang,
     )
 }

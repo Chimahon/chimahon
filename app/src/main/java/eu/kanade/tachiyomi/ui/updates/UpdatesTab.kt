@@ -48,6 +48,7 @@ import eu.kanade.presentation.updates.UpdateScreen
 import eu.kanade.presentation.updates.UpdatesDeleteConfirmationDialog
 import eu.kanade.presentation.updates.UpdatesFilterDialog
 import eu.kanade.presentation.updates.anime.AnimeUpdateScreen
+import eu.kanade.presentation.updates.novel.NovelUpdatesScreen
 import eu.kanade.presentation.util.Tab
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
@@ -60,6 +61,7 @@ import eu.kanade.tachiyomi.ui.manga.MangaScreen
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.updates.UpdatesScreenModel.Event
 import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesScreenModel
+import eu.kanade.tachiyomi.ui.updates.novel.NovelUpdatesScreenModel
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -99,6 +101,7 @@ data object UpdatesTab : Tab {
         val navigator = LocalNavigator.currentOrThrow
         val screenModel = rememberScreenModel { UpdatesScreenModel() }
         val animeScreenModel = rememberScreenModel { AnimeUpdatesScreenModel() }
+        val novelScreenModel = rememberScreenModel { NovelUpdatesScreenModel() }
         val settingsScreenModel = rememberScreenModel { UpdatesSettingsScreenModel() }
         val state by screenModel.state.collectAsState()
         val animeState by animeScreenModel.state.collectAsState()
@@ -200,6 +203,12 @@ data object UpdatesTab : Tab {
                         text = { TabText(text = stringResource(MR.strings.label_anime)) },
                         unselectedContentColor = MaterialTheme.colorScheme.onSurface,
                     )
+                    Tab(
+                        selected = selectedTab == TAB_NOVEL,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(TAB_NOVEL) } },
+                        text = { TabText(text = stringResource(MR.strings.novel_singular)) },
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
 
                 HorizontalPager(
@@ -223,6 +232,22 @@ data object UpdatesTab : Tab {
                             onUpdateSelected = animeScreenModel::toggleSelection,
                             onOpenEpisode = { _, _ ->
                                 // TODO: wire up episode player for anime updates
+                            },
+                        )
+                        TAB_NOVEL -> NovelUpdatesScreen(
+                            isLoading = novelScreenModel.state.collectAsState().value.isLoading,
+                            items = novelScreenModel.state.collectAsState().value.items,
+                            onClickItem = { update ->
+                                navigator.push(
+                                    chimahon.novel.ui.detail.NovelDetailScreen(
+                                        novel = eu.kanade.tachiyomi.sourcenovel.model.SNNovel(
+                                            url = update.novelUrl,
+                                            title = update.novelTitle,
+                                            source = update.sourceId,
+                                        ),
+                                        sourceId = update.sourceId,
+                                    ),
+                                )
                             },
                         )
                         else -> UpdateScreen(
@@ -409,4 +434,5 @@ private fun UpdatesSelectionToolbar(
 
 private const val TAB_MANGA = 0
 private const val TAB_ANIME = 1
-private const val TAB_COUNT = 2
+private const val TAB_NOVEL = 2
+private const val TAB_COUNT = 3

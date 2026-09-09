@@ -121,7 +121,7 @@ abstract class SearchScreenModel(
         }
 
         // SY -->
-        val filteredSourceIds = extensionManager.installedMangaExtensionsFlow.value
+        val filteredSourceIds = extensionManager.installedExtensionsFlow.value
             .filter { it.pkgName == filter }
             .flatMap { it.sources }
             .map { it.id }

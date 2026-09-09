@@ -6,7 +6,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
-import com.canopus.chimareader.data.FontManager
+import chimahon.novel.data.FontManager
 import com.materialkolor.PaletteStyle
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.ThemeMode

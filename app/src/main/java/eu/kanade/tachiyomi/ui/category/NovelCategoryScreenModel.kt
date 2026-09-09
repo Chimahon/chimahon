@@ -1,12 +1,9 @@
 package eu.kanade.tachiyomi.ui.category
 
-import android.app.Application
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
-import com.canopus.chimareader.data.BookStorage
-import com.canopus.chimareader.data.NovelCategory
-import com.canopus.chimareader.data.NovelCategoryStorage
+import chimahon.novel.data.NovelCategory
 import dev.icerock.moko.resources.StringResource
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -14,13 +11,21 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tachiyomi.domain.novel.model.NovelCategory as DbNovelCategory
+import tachiyomi.domain.novel.repository.NovelCategoryRepository
+import tachiyomi.domain.novel.repository.NovelRepository
 import tachiyomi.i18n.MR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
+/**
+ * Novel categories backed by the DB repository. The UI keeps the existing
+ * [NovelCategory] shape; string ids are DB ids stringified with "default"
+ * for the system slot — same mapping the library already uses.
+ */
 class NovelCategoryScreenModel(
-    private val app: Application = Injekt.get(),
-    private val categoryStorage: NovelCategoryStorage = Injekt.get(),
+    private val novelCategoryRepository: NovelCategoryRepository = Injekt.get(),
+    private val novelRepository: NovelRepository = Injekt.get(),
 ) : StateScreenModel<NovelCategoryScreenState>(NovelCategoryScreenState.Loading) {
 
     private val _events: Channel<NovelCategoryEvent> = Channel()
@@ -30,13 +35,32 @@ class NovelCategoryScreenModel(
         loadCategories()
     }
 
+    private fun DbNovelCategory.toUiCategory(): NovelCategory {
+        return NovelCategory(
+            id = if (id == DbNovelCategory.SYSTEM_CATEGORY_ID) NovelCategory.UNCATEGORIZED_ID else id.toString(),
+            name = name,
+            order = order,
+            flags = flags,
+            hidden = hidden,
+        )
+    }
+
+    private fun NovelCategory.toDbId(): Long? {
+        return if (id == NovelCategory.UNCATEGORIZED_ID) {
+            DbNovelCategory.SYSTEM_CATEGORY_ID
+        } else {
+            id.toLongOrNull()
+        }
+    }
+
     private fun loadCategories() {
         screenModelScope.launch {
-            val categories = categoryStorage.loadAllCategories()
+            val categories = runCatching { novelCategoryRepository.getAll() }.getOrDefault(emptyList())
             mutableState.update {
                 NovelCategoryScreenState.Success(
                     categories = categories
-                        .filterNot(NovelCategory::isSystemCategory)
+                        .filterNot { it.isSystemCategory }
+                        .map { it.toUiCategory() }
                         .toImmutableList(),
                 )
             }
@@ -45,66 +69,68 @@ class NovelCategoryScreenModel(
 
     fun createCategory(name: String) {
         screenModelScope.launch {
-            categoryStorage.createCategory(name)
+            val order = runCatching { novelCategoryRepository.getAll() }.getOrDefault(emptyList())
+                .maxOfOrNull { it.order }?.plus(1) ?: 0
+            runCatching { novelCategoryRepository.create(name, order, false) }
             loadCategories()
         }
     }
 
     fun deleteCategory(category: NovelCategory) {
         if (category.isSystemCategory) return
+        val dbId = category.toDbId() ?: return
         screenModelScope.launch {
-            // Transfer books to default category before deleting
-            val allBooks = BookStorage.loadAllBooks(app)
-            allBooks.filter { it.categoryIds.contains(category.id) }.forEach { book ->
-                val bookDir = BookStorage.getBookDirectory(app, book.id)
-                val remainingIds = book.categoryIds - category.id
-                val updatedCategories = if (remainingIds.isEmpty()) {
-                    listOf(NovelCategory.UNCATEGORIZED_ID)
-                } else {
-                    remainingIds
+            // Transfer books to default (absence of join rows, manga convention).
+            runCatching {
+                val novels = novelRepository.getAll()
+                val categoryMap = novelCategoryRepository.getCategoryIdsByNovelIds(novels.map { it.id })
+                novels.forEach { novel ->
+                    val remaining = (categoryMap[novel.id].orEmpty() - dbId)
+                    novelCategoryRepository.setNovelCategories(novel.id, remaining)
                 }
-                BookStorage.saveMetadata(book.copy(categoryIds = updatedCategories), bookDir)
+                novelCategoryRepository.delete(dbId)
             }
-            categoryStorage.deleteCategory(category.id)
             loadCategories()
         }
     }
 
     fun renameCategory(category: NovelCategory, name: String) {
         if (category.isSystemCategory) return
+        val dbId = category.toDbId() ?: return
         screenModelScope.launch {
-            val categories = categoryStorage.loadAllCategories()
-            val updated = categories.map {
-                if (it.id == category.id) it.copy(name = name) else it
+            runCatching {
+                val current = novelCategoryRepository.getAll().firstOrNull { it.id == dbId } ?: return@launch
+                novelCategoryRepository.update(current.copy(name = name))
             }
-            categoryStorage.saveCategories(updated)
             loadCategories()
         }
     }
 
     fun reorderCategory(category: NovelCategory, newIndex: Int) {
+        if (category.isSystemCategory) return
         screenModelScope.launch {
-            val categories = categoryStorage.loadAllCategories()
-            val systemCategories = categories.filter { it.isSystemCategory }
-            val userCategories = categories.filterNot { it.isSystemCategory }.toMutableList()
-            val oldIndex = userCategories.indexOfFirst { it.id == category.id }
+            val all = runCatching { novelCategoryRepository.getAll() }.getOrNull() ?: return@launch
+            val userCategories = all.filterNot { it.isSystemCategory }.toMutableList()
+            val oldIndex = userCategories.indexOfFirst { it.id == category.toDbId() }
             if (oldIndex != -1) {
                 val item = userCategories.removeAt(oldIndex)
                 userCategories.add(newIndex.coerceIn(0, userCategories.size), item)
-                val reorderedUserCategories = userCategories.mapIndexed { index, cat ->
-                    cat.copy(order = index)
+                userCategories.forEachIndexed { index, cat ->
+                    runCatching { novelCategoryRepository.update(cat.copy(order = index)) }
                 }
-                val reorderedSystemCategories = systemCategories.map { it.copy(order = -1) }
-                categoryStorage.saveCategories(reorderedSystemCategories + reorderedUserCategories)
-                loadCategories()
             }
+            loadCategories()
         }
     }
 
     fun hideCategory(category: NovelCategory) {
         if (category.isSystemCategory) return
+        val dbId = category.toDbId() ?: return
         screenModelScope.launch {
-            categoryStorage.setCategoryHidden(category.id, !category.hidden)
+            runCatching {
+                val current = novelCategoryRepository.getAll().firstOrNull { it.id == dbId } ?: return@launch
+                novelCategoryRepository.update(current.copy(hidden = !current.hidden))
+            }
             loadCategories()
         }
     }

@@ -26,6 +26,13 @@ object NovelMapper {
         fetch_interval: Long,
         version: Long,
         notes: String,
+        is_local: Long,
+        local_folder: String?,
+        chapter_sort_mode: Long,
+        chapter_sort_descending: Long,
+        chapter_filter_unread: Long,
+        chapter_filter_bookmarked: Long,
+        lang: String?,
     ): Novel = Novel(
         id = _id,
         source = source,
@@ -49,5 +56,12 @@ object NovelMapper {
         fetchInterval = fetch_interval.toInt(),
         version = version,
         notes = notes,
+        isLocal = is_local != 0L,
+        localFolder = local_folder,
+        chapterSortMode = chapter_sort_mode,
+        chapterSortDescending = chapter_sort_descending != 0L,
+        chapterFilterUnread = chapter_filter_unread != 0L,
+        chapterFilterBookmarked = chapter_filter_bookmarked != 0L,
+        lang = lang,
     )
 }

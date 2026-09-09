@@ -26,6 +26,12 @@ class NovelRepositoryImpl(
         }
     }
 
+    override suspend fun getNovelByLocalFolder(folder: String): Novel? {
+        return handler.awaitOneOrNull {
+            novelsQueries.getNovelByLocalFolder(folder, NovelMapper::mapNovel)
+        }
+    }
+
     override fun getNovelByUrlAndSourceIdAsFlow(url: String, sourceId: Long): Flow<Novel?> {
         return handler.subscribeToOneOrNull {
             novelsQueries.getNovelByUrlAndSource(url, sourceId, NovelMapper::mapNovel)
@@ -73,6 +79,13 @@ class NovelRepositoryImpl(
                 totalChapters = novel.totalChapters.toLong(),
                 version = novel.version,
                 notes = novel.notes,
+                isLocal = if (novel.isLocal) 1L else 0L,
+                localFolder = novel.localFolder,
+                chapterSortMode = novel.chapterSortMode,
+                chapterSortDescending = if (novel.chapterSortDescending) 1L else 0L,
+                chapterFilterUnread = if (novel.chapterFilterUnread) 1L else 0L,
+                chapterFilterBookmarked = if (novel.chapterFilterBookmarked) 1L else 0L,
+                lang = novel.lang,
             )
             novelsQueries.selectLastInsertedRowId().executeAsOne()
         }
@@ -126,6 +139,13 @@ class NovelRepositoryImpl(
                     fetchInterval = null,
                     version = null,
                     notes = null,
+                    isLocal = null,
+                    localFolder = null,
+                    chapterSortMode = null,
+                    chapterSortDescending = null,
+                    chapterFilterUnread = null,
+                    chapterFilterBookmarked = null,
+                    lang = null,
                 )
             }
             true
@@ -159,6 +179,13 @@ class NovelRepositoryImpl(
                     fetchInterval = value.fetchInterval?.toLong(),
                     version = value.version,
                     notes = value.notes,
+                    isLocal = value.isLocal?.let { if (it) 1L else 0L },
+                    localFolder = value.localFolder,
+                    chapterSortMode = value.chapterSortMode,
+                    chapterSortDescending = value.chapterSortDescending?.let { if (it) 1L else 0L },
+                    chapterFilterUnread = value.chapterFilterUnread?.let { if (it) 1L else 0L },
+                    chapterFilterBookmarked = value.chapterFilterBookmarked?.let { if (it) 1L else 0L },
+                    lang = value.lang,
                 )
             }
         }

@@ -786,7 +786,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun setupFontsDirectory() {
-        val fontsDir = com.canopus.chimareader.data.FontManager.getFontsDir(applicationContext)
+        val fontsDir = chimahon.novel.data.FontManager.getFontsDir(applicationContext)
         if (!fontsDir.exists()) fontsDir.mkdirs()
         MPVLib.setPropertyString(
             "sub-fonts-dir",

@@ -207,14 +207,13 @@ private fun ExtensionDetails(
                 extension = extension,
                 extIncognitoMode = incognitoMode,
                 onClickUninstall = onClickUninstall,
-                showUninstall = !extension.isBuiltIn,
                 onClickAppInfo = {
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", extension.pkgName, null)
                         context.startActivity(this)
                     }
                     Unit
-                }.takeIf { extension.isShared && !extension.isBuiltIn },
+                }.takeIf { extension.isShared },
                 onClickAgeRating = {
                     showNsfwWarning = true
                 },
@@ -250,7 +249,6 @@ private fun DetailsHeader(
     extIncognitoMode: Boolean,
     onClickAgeRating: () -> Unit,
     onClickUninstall: () -> Unit,
-    showUninstall: Boolean,
     onClickAppInfo: (() -> Unit)?,
     onExtIncognitoChange: (Boolean) -> Unit,
 ) {
@@ -355,32 +353,28 @@ private fun DetailsHeader(
             }
         }
 
-        if (showUninstall || onClickAppInfo != null) {
-            Row(
-                modifier = Modifier
-                    .padding(horizontal = MaterialTheme.padding.medium)
-                    .padding(top = MaterialTheme.padding.small),
-                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
+        Row(
+            modifier = Modifier
+                .padding(horizontal = MaterialTheme.padding.medium)
+                .padding(top = MaterialTheme.padding.small),
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
+        ) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = onClickUninstall,
             ) {
-                if (showUninstall) {
-                    OutlinedButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = onClickUninstall,
-                    ) {
-                        Text(stringResource(MR.strings.ext_uninstall))
-                    }
-                }
+                Text(stringResource(MR.strings.ext_uninstall))
+            }
 
-                if (onClickAppInfo != null) {
-                    Button(
-                        modifier = Modifier.weight(1f),
-                        onClick = onClickAppInfo,
-                    ) {
-                        Text(
-                            text = stringResource(MR.strings.ext_app_info),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    }
+            if (onClickAppInfo != null) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onClickAppInfo,
+                ) {
+                    Text(
+                        text = stringResource(MR.strings.ext_app_info),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
                 }
             }
         }

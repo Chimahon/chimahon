@@ -60,6 +60,8 @@ object Notifications {
      */
     const val CHANNEL_NEW_CHAPTERS = "new_chapters_channel"
     const val CHANNEL_NEW_EPISODES = "new_episodes_channel"
+    const val CHANNEL_NEW_NOVEL_CHAPTERS = "novel_new_chapters_channel"
+    const val ID_NOVEL_UPDATES_TO_EXTS = -402
     const val ID_NEW_CHAPTERS = -301
     const val ID_NEW_EPISODES = -302
     const val GROUP_NEW_CHAPTERS = "eu.kanade.tachiyomi.NEW_CHAPTERS"
@@ -114,12 +116,22 @@ object Notifications {
     const val CHANNEL_ANIME_EXTENSIONS_UPDATE = "anime_ext_apk_update_channel"
     const val ID_UPDATES_TO_ANIME_EXTS = -904
 
+    const val CHANNEL_NOVEL_EXTENSIONS_UPDATE = "novel_ext_update_channel"
+    const val ID_UPDATES_TO_NOVEL_EXTS = -954
+
     private const val GROUP_ANIME_DOWNLOADER = "group_anime_downloader"
     const val CHANNEL_ANIME_DOWNLOADER_PROGRESS = "anime_downloader_progress_channel"
     const val CHANNEL_ANIME_DOWNLOADER_ERROR = "anime_downloader_error_channel"
     const val ID_ANIME_DOWNLOAD_PROGRESS = -901
     const val ID_ANIME_DOWNLOAD_PAUSED = -902
     const val ID_ANIME_DOWNLOAD_ERROR = -903
+
+    private const val GROUP_NOVEL_DOWNLOADER = "group_novel_downloader"
+    const val CHANNEL_NOVEL_DOWNLOADER_PROGRESS = "novel_downloader_progress_channel"
+    const val CHANNEL_NOVEL_DOWNLOADER_ERROR = "novel_downloader_error_channel"
+    const val ID_NOVEL_DOWNLOAD_PROGRESS = -951
+    const val ID_NOVEL_DOWNLOAD_PAUSED = -952
+    const val ID_NOVEL_DOWNLOAD_ERROR = -953
     /**
      * Notification channel and ids used for dictionary auto-updates.
      */
@@ -171,6 +183,9 @@ object Notifications {
                 buildNotificationChannelGroup(GROUP_ANIME_DOWNLOADER) {
                     setName(context.stringResource(MR.strings.download_notifier_downloader_title))
                 },
+                buildNotificationChannelGroup(GROUP_NOVEL_DOWNLOADER) {
+                    setName(context.stringResource(MR.strings.download_notifier_downloader_title))
+                },
             ),
         )
 
@@ -198,6 +213,9 @@ object Notifications {
                 },
                 buildNotificationChannel(CHANNEL_NEW_EPISODES, IMPORTANCE_DEFAULT) {
                     setName(context.stringResource(MR.strings.channel_new_episodes))
+                },
+                buildNotificationChannel(CHANNEL_NEW_NOVEL_CHAPTERS, IMPORTANCE_DEFAULT) {
+                    setName(context.stringResource(MR.strings.channel_new_chapters))
                 },
                 buildNotificationChannel(CHANNEL_DOWNLOADER_PROGRESS, IMPORTANCE_LOW) {
                     setName(context.stringResource(MR.strings.channel_progress))
@@ -240,6 +258,10 @@ object Notifications {
                     setGroup(GROUP_APK_UPDATES)
                     setName(context.stringResource(MR.strings.channel_anime_ext_updates))
                 },
+                buildNotificationChannel(CHANNEL_NOVEL_EXTENSIONS_UPDATE, IMPORTANCE_DEFAULT) {
+                    setGroup(GROUP_APK_UPDATES)
+                    setName(context.stringResource(MR.strings.channel_ext_updates))
+                },
                 buildNotificationChannel(CHANNEL_ANIME_DOWNLOADER_PROGRESS, IMPORTANCE_LOW) {
                     setName(context.stringResource(MR.strings.channel_progress))
                     setGroup(GROUP_ANIME_DOWNLOADER)
@@ -248,6 +270,16 @@ object Notifications {
                 buildNotificationChannel(CHANNEL_ANIME_DOWNLOADER_ERROR, IMPORTANCE_LOW) {
                     setName(context.stringResource(MR.strings.channel_errors))
                     setGroup(GROUP_ANIME_DOWNLOADER)
+                    setShowBadge(false)
+                },
+                buildNotificationChannel(CHANNEL_NOVEL_DOWNLOADER_PROGRESS, IMPORTANCE_LOW) {
+                    setName(context.stringResource(MR.strings.channel_progress))
+                    setGroup(GROUP_NOVEL_DOWNLOADER)
+                    setShowBadge(false)
+                },
+                buildNotificationChannel(CHANNEL_NOVEL_DOWNLOADER_ERROR, IMPORTANCE_LOW) {
+                    setName(context.stringResource(MR.strings.channel_errors))
+                    setGroup(GROUP_NOVEL_DOWNLOADER)
                     setShowBadge(false)
                 },
                 // AM (DISCORD) -->

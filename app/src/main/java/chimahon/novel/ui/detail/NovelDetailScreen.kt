@@ -6,50 +6,48 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Public
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SmallExtendedFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.animateFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -57,49 +55,67 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastAny
+import tachiyomi.presentation.core.components.material.padding
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import chimahon.novel.download.NovelDownloadManager
 import chimahon.novel.ui.browse.BrowseNovelSourceScreen
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import com.canopus.chimareader.ui.reader.NovelReaderActivity
+import chimahon.novel.ui.browse.BrowseNovelSourceScreenModel
+import chimahon.novel.data.BookStorage
+import chimahon.novel.ui.reader.NovelReaderActivity
+import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.presentation.category.components.ChangeCategoryDialog
 import eu.kanade.presentation.components.relativeDateText
-import eu.kanade.presentation.manga.components.MangaBottomActionMenu
+import eu.kanade.presentation.entries.components.EntryBottomActionMenu
+import eu.kanade.presentation.entries.components.EntryToolbar
+import eu.kanade.presentation.entries.components.ItemHeader
+import eu.kanade.presentation.entries.novel.components.ExpandableNovelDescription
+import eu.kanade.presentation.entries.novel.components.NovelActionRow
+import eu.kanade.presentation.entries.novel.components.NovelCoverDialog
+import eu.kanade.presentation.entries.novel.components.NovelFetchIntervalDialog
+import eu.kanade.presentation.entries.novel.components.NovelInfoBox
+import eu.kanade.tachiyomi.util.system.copyToClipboard
+import eu.kanade.presentation.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.manga.components.MangaChapterListItem
-import eu.kanade.presentation.manga.components.MangaCover
+import tachiyomi.presentation.core.components.FastScrollLazyColumn
+import tachiyomi.presentation.core.util.shouldExpandFAB
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.sourcenovel.HttpNovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
+import eu.kanade.tachiyomi.ui.category.CategoryScreen
 import eu.kanade.tachiyomi.ui.webview.WebViewScreen
 import kotlinx.coroutines.launch
+import tachiyomi.domain.episode.service.missingEpisodesCount
 import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.domain.novel.model.Novel
+import tachiyomi.domain.source.novel.model.StubNovelSource
 import tachiyomi.i18n.MR
+import tachiyomi.presentation.core.components.SortItem
 import tachiyomi.presentation.core.components.material.PullRefresh
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.LoadingScreen
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import kotlin.math.roundToInt
 
 data class NovelDetailScreen(
     private val novel: SNNovel,
@@ -110,8 +126,30 @@ data class NovelDetailScreen(
         fun fromSourceId(novel: SNNovel, sourceId: Long): NovelDetailScreen? {
             return NovelDetailScreen(novel, sourceId)
         }
+
+        fun fromDbNovel(dbNovel: Novel): NovelDetailScreen {
+            return NovelDetailScreen(
+                SNNovel(
+                    url = dbNovel.url,
+                    title = dbNovel.title,
+                    author = dbNovel.author,
+                    artist = dbNovel.artist,
+                    description = dbNovel.description,
+                    genre = dbNovel.genre,
+                    status = dbNovel.status.toInt(),
+                    thumbnail_url = dbNovel.thumbnailUrl,
+                    initialized = dbNovel.initialized,
+                    id = dbNovel.id,
+                    source = dbNovel.source,
+                    favorite = dbNovel.favorite,
+                    lastUpdate = dbNovel.lastUpdate,
+                ),
+                dbNovel.source,
+            )
+        }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Content() {
         val sourceManager = remember { Injekt.get<chimahon.novel.manager.NovelSourceManager>() }
@@ -121,6 +159,8 @@ data class NovelDetailScreen(
             LoadingScreen()
             return
         }
+        // Local EPUBs are already on disk: no downloads, no fetch interval.
+        val isLocalSource = source.id == Novel.LOCAL_SOURCE_ID
         val navigator = LocalNavigator.currentOrThrow
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
@@ -145,108 +185,256 @@ data class NovelDetailScreen(
         val selectedChapterCount = remember(chapters, state.selectedChapters) {
             chapters.count { it.id in state.selectedChapters }
         }
+        val libraryPreferences = remember { Injekt.get<LibraryPreferences>() }
+        val swipeStartAction by remember { libraryPreferences.swipeToStartAction().changes() }
+            .collectAsState(initial = libraryPreferences.swipeToStartAction().get())
+        val swipeEndAction by remember { libraryPreferences.swipeToEndAction().changes() }
+            .collectAsState(initial = libraryPreferences.swipeToEndAction().get())
+        val downloadManager = remember { Injekt.get<NovelDownloadManager>() }
+        val downloadQueue by downloadManager.queueState.collectAsState()
+        val visibleChapters = remember(chapters, state.unreadOnly, state.bookmarkedOnly) {
+            chapters.filter { (!state.unreadOnly || !it.isRead) && (!state.bookmarkedOnly || it.isBookmarked) }
+        }
+        val uiPreferences = remember { Injekt.get<UiPreferences>() }
+        var layoutSize by remember { mutableStateOf(IntSize.Zero) }
+        var fabSize by remember { mutableStateOf(IntSize.Zero) }
+        var positionOnScreen by remember { mutableStateOf(Offset.Zero) }
+        var offsetX by remember { mutableFloatStateOf(0f) }
+        val readButtonPosition = remember { uiPreferences.readButtonPosition() }
+        val fabPosition by remember { readButtonPosition.changes() }
+            .collectAsState(initial = readButtonPosition.get())
+        val snackbarHostState = remember { SnackbarHostState() }
+        var openingChapter by remember { mutableStateOf(false) }
+        var openGeneration by remember { mutableIntStateOf(0) }
+        fun openChapterWithFeedback(item: NovelChapterItem) {
+            if (openingChapter) return
+            val generation = openGeneration + 1
+            openGeneration = generation
+            openChapter(
+                context, source, state.novel, item, chapters, screenModel,
+                onStart = { openingChapter = true },
+                onDone = { if (openGeneration == generation) openingChapter = false },
+                onError = { message ->
+                    if (openGeneration != generation) return@openChapter
+                    openingChapter = false
+                    scope.launch { snackbarHostState.showSnackbar(message) }
+                },
+            )
+        }
+        var showChapterSettings by remember { mutableStateOf(false) }
+        var showIntervalDialog by remember { mutableStateOf(false) }
+        if (showChapterSettings) {
+            NovelChapterSettingsDialog(
+                sortMode = state.sortMode,
+                sortDescending = state.sortDescending,
+                unreadOnly = state.unreadOnly,
+                bookmarkedOnly = state.bookmarkedOnly,
+                onDismiss = { showChapterSettings = false },
+                onSortModeSelected = { mode ->
+                    screenModel.setSortMode(mode)
+                    showChapterSettings = false
+                },
+                onFilterChanged = { unread, bookmarked ->
+                    screenModel.setChapterFilter(unread, bookmarked)
+                },
+            )
+        }
 
         BackHandler(enabled = isAnySelected) {
             screenModel.clearSelection()
         }
 
+        BackHandler(enabled = openingChapter) {
+            openGeneration++
+            openingChapter = false
+        }
+
+        if (showIntervalDialog) {
+            state.dbNovel?.let { dbNovel ->
+                NovelFetchIntervalDialog(
+                    currentInterval = dbNovel.fetchInterval,
+                    onDismiss = { showIntervalDialog = false },
+                    onConfirm = screenModel::setFetchInterval,
+                )
+            }
+        }
+
+        (state.dialog as? Dialog.ChangeCategory)?.let { dialog ->
+            ChangeCategoryDialog(
+                initialSelection = dialog.initialSelection,
+                onDismissRequest = screenModel::dismissDialog,
+                onEditCategories = {
+                    screenModel.dismissDialog()
+                    navigator.push(CategoryScreen(CategoryScreen.Tab.NOVELS))
+                },
+                onConfirm = { include, _ ->
+                    screenModel.setNovelCategories(include)
+                },
+            )
+        }
+
+        if (state.dialog is Dialog.SetDictionaryProfile) {
+            val prefs = remember { Injekt.get<eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences>() }
+            val profiles = remember { prefs.profileStore.getProfiles() }
+            val dbNovel = state.dbNovel
+            val overrideId = remember(dbNovel) {
+                val key = chimahon.dictionary.DictionaryProfileResolver.novelOverrideKey(
+                    dbNovel?.localFolder?.takeIf { it.isNotBlank() } ?: dbNovel?.id.toString().orEmpty(),
+                )
+                prefs.rawProfileOverride(key).get()
+            }
+            eu.kanade.presentation.manga.components.DictionaryProfileDialog(
+                profiles = profiles,
+                currentOverrideId = overrideId,
+                resolvedAutoProfile = screenModel.resolveAutoNovelProfile(),
+                onDismissRequest = screenModel::dismissDialog,
+                onConfirm = screenModel::setNovelDictionaryProfile,
+            )
+        }
+
         Scaffold(
             topBar = {
-                if (isAnySelected) {
-                    TopAppBar(
-                        title = { Text("$selectedChapterCount selected") },
-                        navigationIcon = {
-                            IconButton(onClick = { screenModel.clearSelection() }) {
-                                Icon(Icons.Filled.Close, contentDescription = "Close selection")
-                            }
-                        },
-                        actions = {
-                            TextButton(onClick = { screenModel.selectAll() }) {
-                                Text("Select all")
-                            }
-                            TextButton(onClick = { screenModel.invertSelection() }) {
-                                Text("Invert")
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                        ),
-                    )
-                } else {
-                    TopAppBar(
-                        title = { Text(state.novel.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        navigationIcon = {
-                            IconButton(onClick = { navigator.pop() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                            }
-                        },
-                        actions = {
-                            val httpSource = source as? HttpNovelSource
-                            if (!state.isLoading && httpSource != null) {
-                                IconButton(
-                                    onClick = {
-                                        runCatching { httpSource.getNovelUrl(state.novel) }
-                                            .getOrNull()
-                                            ?.takeIf { it.isNotBlank() }
-                                            ?.let { url ->
-                                                navigator.push(
-                                                    WebViewScreen(
-                                                        url = url,
-                                                        initialTitle = state.novel.title,
-                                                    ),
-                                                )
-                                            }
-                                    },
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.Public,
-                                        contentDescription = stringResource(MR.strings.action_open_in_web_view),
-                                    )
-                                }
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                        ),
-                    )
+                val isFirstItemVisible by remember {
+                    derivedStateOf { chapterListState.firstVisibleItemIndex == 0 }
                 }
+                val isFirstItemScrolled by remember {
+                    derivedStateOf { chapterListState.firstVisibleItemScrollOffset > 0 }
+                }
+                val titleAlpha by animateFloatAsState(
+                    if (!isFirstItemVisible) 1f else 0f,
+                    label = "Top Bar Title",
+                )
+                val backgroundAlpha by animateFloatAsState(
+                    if (!isFirstItemVisible || isFirstItemScrolled) 1f else 0f,
+                    label = "Top Bar Background",
+                )
+                EntryToolbar(
+                    title = state.novel.title,
+                    hasFilters = state.sortMode != NovelSort.SORT_SOURCE || !state.sortDescending ||
+                        state.unreadOnly || state.bookmarkedOnly,
+                    navigateUp = navigator::pop,
+                    onClickFilter = { showChapterSettings = true },
+                    onClickShare = { shareNovel(context, state.novel, source) },
+                    onClickDownload = (
+                        { action: eu.kanade.presentation.entries.DownloadAction ->
+                            screenModel.downloadChapters(action)
+                        }
+                        ).takeIf { state.dbNovel != null && !isLocalSource },
+                    onClickEditCategory = if (state.isFavorite) {
+                        { navigator.push(CategoryScreen(CategoryScreen.Tab.NOVELS)) }
+                    } else {
+                        null
+                    },
+                    onClickRefresh = { screenModel.refresh() },
+                    onClickMigrate = null,
+                    onClickSettings = null,
+                    changeAnimeSkipIntro = null,
+                    onClickDictionaryProfile = { screenModel.showSetDictionaryProfileDialog() },
+                    onClickRelatedAnime = null,
+                    actionModeCounter = selectedChapterCount,
+                    onCancelActionMode = screenModel::clearSelection,
+                    onSelectAll = screenModel::selectAll,
+                    onInvertSelection = screenModel::invertSelection,
+                    titleAlphaProvider = { titleAlpha },
+                    backgroundAlphaProvider = { backgroundAlpha },
+                    isManga = true,
+                )
             },
             bottomBar = {
                 val selectedItems = remember(chapters, state.selectedChapters) {
                     chapters.filter { it.id in state.selectedChapters }
                 }
-                MangaBottomActionMenu(
+                EntryBottomActionMenu(
                     visible = isAnySelected,
+                    isManga = true,
                     onBookmarkClicked = {
                         screenModel.markSelectedChaptersBookmark(true)
                     }.takeIf { selectedItems.fastAny { !it.isBookmarked } },
                     onRemoveBookmarkClicked = {
                         screenModel.markSelectedChaptersBookmark(false)
                     }.takeIf { selectedItems.fastAll { it.isBookmarked } },
-                    onMarkAsReadClicked = {
+                    onMarkAsViewedClicked = {
                         screenModel.markSelectedChaptersRead(true)
                     }.takeIf { selectedItems.fastAny { !it.isRead } },
-                    onMarkAsUnreadClicked = {
+                    onMarkAsUnviewedClicked = {
                         screenModel.markSelectedChaptersRead(false)
                     }.takeIf { selectedItems.fastAny { it.isRead || it.lastPageRead > 0L } },
+                    onMarkPreviousAsViewedClicked = {
+                        screenModel.markSelectedPreviousAsRead()
+                    },
+                    onDownloadClicked = {
+                        screenModel.downloadSelectedChapters()
+                    }.takeIf { state.dbNovel != null && !isLocalSource },
+                    onDeleteClicked = {
+                        screenModel.deleteSelectedDownloads()
+                    }.takeIf { state.dbNovel != null && !isLocalSource && selectedItems.fastAny { it.novelChapter != null } },
                 )
             },
             floatingActionButton = {
-                if (hasUnread && !isAnySelected) {
-                    SmallFloatingActionButton(
-                        onClick = {
-                            val next = screenModel.getNextUnreadChapter()
-                            if (next != null) {
-                                openChapter(context, source, state.novel, next, chapters, screenModel)
+                val isFABVisible = hasUnread && !isAnySelected && !openingChapter
+                val isReading = remember(chapters) { chapters.fastAny { it.isRead } }
+                SmallExtendedFloatingActionButton(
+                    text = {
+                        Text(
+                            text = stringResource(if (isReading) MR.strings.action_resume else MR.strings.action_start),
+                        )
+                    },
+                    icon = { Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null) },
+                    onClick = {
+                        scope.launch {
+                            screenModel.getNextUnreadChapter()?.let { openChapterWithFeedback(it) }
+                        }
+                    },
+                    expanded = chapterListState.shouldExpandFAB(),
+                    modifier = Modifier.animateFloatingActionButton(
+                        visible = isFABVisible,
+                        alignment = Alignment.BottomEnd,
+                    )
+                        .offset { IntOffset(offsetX.roundToInt(), 0) }
+                        .onGloballyPositioned { coordinates ->
+                            fabSize = coordinates.size
+                            positionOnScreen = coordinates.positionOnScreen()
+                        }
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    if (positionOnScreen.x + fabSize.width / 2 >= layoutSize.width / 2) {
+                                        readButtonPosition.set(FabPosition.End.toString())
+                                    } else {
+                                        readButtonPosition.set(FabPosition.Start.toString())
+                                    }
+                                    offsetX = 0f
+                                },
+                            ) { change, dragAmount ->
+                                change.consume()
+                                val newOffsetX = offsetX + dragAmount
+                                if (!newOffsetX.isNaN()) {
+                                    offsetX = newOffsetX
+                                }
                             }
                         },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                    ) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(MR.strings.action_start))
-                    }
-                }
+                    containerColor = MaterialTheme.colorScheme.primary,
+                )
+            },
+            floatingActionButtonPosition = if (fabPosition == FabPosition.End.toString()) {
+                FabPosition.End
+            } else {
+                FabPosition.Start
+            },
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+            modifier = Modifier.onGloballyPositioned { coordinates ->
+                layoutSize = coordinates.size
             },
         ) { contentPadding ->
+            val topPadding = contentPadding.calculateTopPadding()
+            var showCoverDialog by rememberSaveable { mutableStateOf(false) }
+            if (showCoverDialog) {
+                NovelCoverDialog(
+                    imageUrl = state.novel.thumbnail_url,
+                    title = state.novel.title,
+                    onDismiss = { showCoverDialog = false },
+                )
+            }
             when {
                 state.isLoading -> LoadingScreen(modifier = Modifier.padding(contentPadding))
                 else -> {
@@ -256,15 +444,23 @@ data class NovelDetailScreen(
                         enabled = !isAnySelected,
                         indicatorPadding = PaddingValues(top = contentPadding.calculateTopPadding()),
                     ) {
-                        LazyColumn(
+                        FastScrollLazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             state = chapterListState,
-                            contentPadding = contentPadding,
+                            contentPadding = PaddingValues(
+                                start = contentPadding.calculateStartPadding(LocalLayoutDirection.current),
+                                top = 0.dp,
+                                end = contentPadding.calculateEndPadding(LocalLayoutDirection.current),
+                                bottom = contentPadding.calculateBottomPadding(),
+                            ),
                         ) {
                             item(key = "novel_header") {
-                                NovelHeader(
+                                NovelInfoBox(
+                                    appBarPadding = topPadding,
                                     novel = state.novel,
-                                    source = source,
+                                    sourceName = source.name,
+                                    isStubSource = source is StubNovelSource,
+                                    onCoverClick = { showCoverDialog = true },
                                     onSourceClick = if (source is NovelsPageSource) {
                                         { navigator.push(BrowseNovelSourceScreen(null, sourceId)) }
                                     } else {
@@ -274,13 +470,25 @@ data class NovelDetailScreen(
                             }
 
                             item(key = "novel_action_row") {
+                                val dbNovel = state.dbNovel
                                 NovelActionRow(
-                                    isFavorite = state.isFavorite,
-                                    onToggleFavorite = screenModel::toggleFavorite,
-                                    onWebViewClick = {
-                                        val httpSource = source as? HttpNovelSource
-                                        if (httpSource != null) {
-                                            runCatching { httpSource.getNovelUrl(state.novel) }
+                                    favorite = state.isFavorite,
+                                    nextUpdate = dbNovel?.nextUpdate ?: 0L,
+                                    isUserIntervalMode = (dbNovel?.fetchInterval ?: 0) < 0,
+                                    onAddToLibraryClicked = screenModel::toggleFavorite,
+                                    onEditCategory = if (state.isFavorite) {
+                                        screenModel::showChangeCategoryDialog
+                                    } else {
+                                        null
+                                    },
+                                    onEditIntervalClicked = if (dbNovel != null && !isLocalSource) {
+                                        { showIntervalDialog = true }
+                                    } else {
+                                        null
+                                    },
+                                    onWebViewClicked = if (source is HttpNovelSource) {
+                                        {
+                                            runCatching { source.getNovelUrl(state.novel) }
                                                 .getOrNull()
                                                 ?.takeIf { it.isNotBlank() }
                                                 ?.let { url ->
@@ -292,57 +500,33 @@ data class NovelDetailScreen(
                                                     )
                                                 }
                                         }
+                                    } else {
+                                        null
                                     },
                                 )
                             }
 
-                            val description = state.novel.description
-                            if (!description.isNullOrBlank()) {
-                                item(key = "novel_description") {
-                                    var expanded by rememberSaveable { mutableStateOf(false) }
-                                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                        Text(
-                                            text = description,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            maxLines = if (expanded) Int.MAX_VALUE else 4,
-                                            overflow = TextOverflow.Ellipsis,
+                            item(key = "novel_description") {
+                                ExpandableNovelDescription(
+                                    description = state.novel.description,
+                                    tagsProvider = {
+                                        state.novel.genre
+                                            ?.split(",")
+                                            ?.map { it.trim() }
+                                            ?.filter { it.isNotBlank() }
+                                            ?.takeIf { it.isNotEmpty() }
+                                    },
+                                    onTagSearch = { tag ->
+                                        navigator.push(
+                                            BrowseNovelSourceScreen(
+                                                null,
+                                                sourceId,
+                                                BrowseNovelSourceScreenModel.Listing.Search(tag),
+                                            ),
                                         )
-                                        if (description.length > 150) {
-                                            TextButton(onClick = { expanded = !expanded }) {
-                                                Text(
-                                                    text = if (expanded) "Show less" else "Show more",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            val genres = state.novel.genre
-                            if (!genres.isNullOrBlank()) {
-                                item(key = "novel_genres") {
-                                    val genreList = genres.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                                    FlowRow(
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        genreList.forEach { genre ->
-                                            Surface(
-                                                shape = RoundedCornerShape(16.dp),
-                                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                            ) {
-                                                Text(
-                                                    text = genre,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                    },
+                                    onCopyTagToClipboard = { context.copyToClipboard(it, it) },
+                                )
                             }
 
                             state.detailError?.takeIf { it.isNotBlank() }?.let { error ->
@@ -356,42 +540,41 @@ data class NovelDetailScreen(
                                 }
                             }
 
-                            item(key = "novel_chapter_header") {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = "Chapters (${chapters.size})",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                    )
+                            item(key = "novel_chapter_header") {                                val missingChaptersCount = remember(visibleChapters) {
+                                    visibleChapters.map { (it.novelChapter?.chapterNumber ?: it.snChapter.chapter_number).toDouble() }
+                                        .missingEpisodesCount()
                                 }
+                                ItemHeader(
+                                    enabled = !isAnySelected,
+                                    itemCount = visibleChapters.size,
+                                    missingItemsCount = missingChaptersCount,
+                                    onClick = { showChapterSettings = true },
+                                    isManga = true,
+                                )
                                 HorizontalDivider()
                             }
 
-                            if (chapters.isEmpty()) {
+                            if (visibleChapters.isEmpty()) {
                                 item(key = "novel_no_chapters") {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(32.dp),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        Text(
-                                            text = state.chapterError?.takeIf { it.isNotBlank() } ?: "No chapters",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = if (state.chapterError != null) {
-                                                MaterialTheme.colorScheme.error
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                        )
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                text = state.chapterError?.takeIf { it.isNotBlank() } ?: "No chapters",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = if (state.chapterError != null) {
+                                                    MaterialTheme.colorScheme.error
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             } else {
-                                items(chapters, key = { "ch_${it.snChapter.url}" }) { item ->
+                                items(visibleChapters, key = { "ch_${it.snChapter.url}" }) { item ->
                                     val readProgressText = if (item.lastPageRead > 0 && !item.isRead) {
                                         "${item.lastPageRead} chars"
                                     } else null
@@ -407,11 +590,21 @@ data class NovelDetailScreen(
                                         read = item.isRead,
                                         bookmark = item.isBookmarked,
                                         selected = item.id in state.selectedChapters,
-                                        downloadIndicatorEnabled = false,
-                                        downloadStateProvider = { Download.State.NOT_DOWNLOADED },
-                                        downloadProgressProvider = { 0 },
-                                        chapterSwipeStartAction = LibraryPreferences.ChapterSwipeAction.Disabled,
-                                        chapterSwipeEndAction = LibraryPreferences.ChapterSwipeAction.Disabled,
+                                        downloadIndicatorEnabled = !isLocalSource,
+                                        downloadStateProvider = {
+                                            val dm = try { Injekt.get<chimahon.novel.download.NovelDownloadManager>() } catch (_: Exception) { null }
+                                            when (dm?.getDownloadState(item.id)) {
+                                                chimahon.novel.download.NovelDownload.State.DOWNLOADED -> Download.State.DOWNLOADED
+                                                chimahon.novel.download.NovelDownload.State.DOWNLOADING -> Download.State.DOWNLOADING
+                                                chimahon.novel.download.NovelDownload.State.QUEUED -> Download.State.QUEUE
+                                                else -> Download.State.NOT_DOWNLOADED
+                                            }
+                                        },
+                                        downloadProgressProvider = {
+                                            downloadQueue.find { it.chapterId == item.id }?.progress ?: 0
+                                        },
+                                        chapterSwipeStartAction = swipeStartAction,
+                                        chapterSwipeEndAction = swipeEndAction,
                                         onLongClick = {
                                             if (state.isFavorite) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -422,11 +615,33 @@ data class NovelDetailScreen(
                                             if (state.selectionMode) {
                                                 screenModel.toggleChapterSelection(item.id)
                                             } else {
-                                                openChapter(context, source, state.novel, item, chapters, screenModel)
+                                                openChapterWithFeedback(item)
                                             }
                                         },
-                                        onDownloadClick = null,
-                                        onChapterSwipe = {},
+                                        onDownloadClick = { downloadAction: ChapterDownloadAction ->
+                                            when (downloadAction) {
+                                                ChapterDownloadAction.START, ChapterDownloadAction.START_NOW ->
+                                                    screenModel.downloadChapter(item)
+                                                ChapterDownloadAction.DELETE ->
+                                                    screenModel.deleteChapterDownload(item)
+                                                else -> {}
+                                            }
+                                        }.takeIf { state.dbNovel != null && !isLocalSource },
+                                        onChapterSwipe = { swipeAction ->
+                                            when (swipeAction) {
+                                                LibraryPreferences.ChapterSwipeAction.ToggleRead ->
+                                                    if (item.isRead) {
+                                                        screenModel.markChapterUnread(item)
+                                                    } else {
+                                                        screenModel.markChapterRead(item)
+                                                    }
+                                                LibraryPreferences.ChapterSwipeAction.ToggleBookmark ->
+                                                    screenModel.toggleChapterBookmark(item)
+                                                LibraryPreferences.ChapterSwipeAction.Download ->
+                                                    if (!isLocalSource) screenModel.downloadChapter(item)
+                                                LibraryPreferences.ChapterSwipeAction.Disabled -> {}
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -439,165 +654,79 @@ data class NovelDetailScreen(
 }
 
 @Composable
-private fun NovelHeader(
-    novel: SNNovel,
-    source: NovelSource,
-    onSourceClick: (() -> Unit)?,
+private fun NovelChapterSettingsDialog(
+    sortMode: Long,
+    sortDescending: Boolean,
+    unreadOnly: Boolean,
+    bookmarkedOnly: Boolean,
+    onDismiss: () -> Unit,
+    onSortModeSelected: (Long) -> Unit,
+    onFilterChanged: (unread: Boolean, bookmarked: Boolean) -> Unit,
 ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-        val thumbnailUrl = novel.thumbnail_url
-        val bgColor = MaterialTheme.colorScheme.background
-        val tintColor = MaterialTheme.colorScheme.surfaceTint.copy(alpha = 0.4f)
-        if (!thumbnailUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(thumbnailUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .matchParentSize()
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    bgColor,
-                                ),
-                                startY = size.height / 2,
-                            ),
-                        )
-                    }
-                    .background(tintColor)
-                    .blur(7.dp)
-                    .alpha(0.2f),
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            if (!thumbnailUrl.isNullOrBlank()) {
-                MangaCover.Book(
-                    data = ImageRequest.Builder(LocalContext.current)
-                        .data(thumbnailUrl)
-                        .crossfade(true)
-                        .build(),
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(MR.strings.action_filter)) },
+        text = {
+            Column {
+                // Mirrors eu.kanade.presentation.manga.ChapterSettingsDialog.SortPage (app/src/main/java/eu/kanade/presentation/manga/ChapterSettingsDialog.kt:193)
+                // and domain sorting in tachiyomi.domain.chapter.service.ChapterSort.kt:14 / tachiyomi.domain.episode.service.EpisodeSort.kt:14
+                SortItem(
+                    label = stringResource(MR.strings.sort_by_source),
+                    sortDescending = sortDescending.takeIf { sortMode == NovelSort.SORT_SOURCE },
+                    onClick = { onSortModeSelected(NovelSort.SORT_SOURCE) },
+                )
+                SortItem(
+                    label = stringResource(MR.strings.sort_by_number),
+                    sortDescending = sortDescending.takeIf { sortMode == NovelSort.SORT_NUMBER },
+                    onClick = { onSortModeSelected(NovelSort.SORT_NUMBER) },
+                )
+                SortItem(
+                    label = stringResource(MR.strings.sort_by_upload_date),
+                    sortDescending = sortDescending.takeIf { sortMode == NovelSort.SORT_UPLOAD_DATE },
+                    onClick = { onSortModeSelected(NovelSort.SORT_UPLOAD_DATE) },
+                )
+                SortItem(
+                    label = stringResource(MR.strings.action_sort_alpha),
+                    sortDescending = sortDescending.takeIf { sortMode == NovelSort.SORT_ALPHABET },
+                    onClick = { onSortModeSelected(NovelSort.SORT_ALPHABET) },
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Row(
                     modifier = Modifier
-                        .width(120.dp)
-                        .aspectRatio(2f / 3f),
-                    contentDescription = novel.title,
-                )
-                Spacer(Modifier.width(16.dp))
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = novel.title,
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                val author = novel.author
-                if (!author.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = author,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                val statusText = when (novel.status) {
-                    SNNovel.ONGOING -> "Ongoing"
-                    SNNovel.COMPLETED -> "Completed"
-                    SNNovel.LICENSED -> "Licensed"
-                    SNNovel.PUBLISHING_FINISHED -> "Publishing Finished"
-                    SNNovel.CANCELLED -> "Cancelled"
-                    SNNovel.ON_HIATUS -> "On Hiatus"
-                    else -> "Unknown"
-                }
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                        .fillMaxWidth()
+                        .clickable { onFilterChanged(!unreadOnly, bookmarkedOnly) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    Checkbox(
+                        checked = unreadOnly,
+                        onCheckedChange = { onFilterChanged(it, bookmarkedOnly) },
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = stringResource(MR.strings.action_filter_unread))
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = source.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = if (onSourceClick != null) {
-                        Modifier.clickable(onClick = onSourceClick)
-                    } else {
-                        Modifier
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onFilterChanged(unreadOnly, !bookmarkedOnly) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = bookmarkedOnly,
+                        onCheckedChange = { onFilterChanged(unreadOnly, it) },
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = stringResource(MR.strings.action_filter_bookmarked))
+                }
             }
-        }
-    }
-}
-
-@Composable
-private fun NovelActionRow(
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit,
-    onWebViewClick: (() -> Unit)?,
-) {
-    val defaultActionButtonColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-    Row(
-        modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Button(
-            onClick = onToggleFavorite,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isFavorite) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-            ),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            Icon(
-                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(if (isFavorite) "In Library" else "Add to Library")
-        }
-        if (onWebViewClick != null) {
-            OutlinedButton(
-                onClick = onWebViewClick,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Public,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("Web View")
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(MR.strings.action_ok))
             }
-        }
-    }
+        },
+    )
 }
 
 private fun openChapter(
@@ -607,32 +736,53 @@ private fun openChapter(
     item: NovelChapterItem,
     chapters: List<NovelChapterItem>,
     screenModel: NovelDetailScreenModel,
+    onStart: () -> Unit,
+    onDone: () -> Unit,
+    onError: (String) -> Unit,
 ) {
+    onStart()
     screenModel.screenModelScope.launch {
-        try {
-            val chapterIndex = chapters.indexOf(item)
-            if (chapterIndex >= 0 && chapters.size > 1) {
-                val bookDir = SourceChapterBookBuilder.build(
-                    context = context,
-                    source = source,
-                    novel = novel,
-                    chapters = chapters.map { it.snChapter },
-                    startChapterIndex = chapterIndex,
+            try {
+                // Book spine is always reading order (oldest-first), independent of display sort.
+                // The book shell (metadata + chapter list) reuses or rebuilds cheaply;
+                // content resolves on demand through the loader in the reader.
+                val ordered = chapters.sortedBy { it.novelChapter?.chapterNumber ?: it.snChapter.chapter_number }
+            val chapterIndex = ordered.indexOf(item).takeIf { it >= 0 } ?: 0
+            // The reader takes identity + target from the row.
+            val openNovelId = screenModel.state.value.dbNovel?.id
+            val bookDir = withContext(Dispatchers.IO) {
+                SourceChapterBookBuilder.ensureBookDir(
+                    context,
+                    SourceChapterBookBuilder.bookId(source, novel),
                 )
-                NovelReaderActivity.launch(context, bookDir)
-            } else {
-                val bookDir = SourceChapterBookBuilder.buildSingleChapter(
-                    context = context,
-                    source = source,
-                    novel = novel,
-                    chapter = item.snChapter,
-                )
-                NovelReaderActivity.launch(context, bookDir)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
+            // Tapped chapter fills in-reader; fetching here too would only contend on the book lock.
+            withContext(Dispatchers.Main) {
+                NovelReaderActivity.launch(context, bookDir, openNovelId, chapterIndex)
+            }
+            withContext(Dispatchers.Main) {
+                onDone()
+            }
         } catch (e: Exception) {
-            android.widget.Toast.makeText(context, "Failed to open chapter: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            withContext(Dispatchers.Main) {
+                onError(e.message?.takeIf { it.isNotBlank() } ?: "Failed to open chapter")
+            }
         }
     }
+}
+
+private fun shareNovel(context: Context, novel: SNNovel, source: NovelSource) {
+    val url = (source as? HttpNovelSource)
+        ?.let { runCatching { it.getNovelUrl(novel) }.getOrNull() }
+        ?.takeIf { it.isNotBlank() }
+    val text = listOfNotNull(
+        novel.title.takeIf { it.isNotBlank() },
+        url,
+    ).joinToString("\n")
+    if (text.isBlank()) return
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(android.content.Intent.createChooser(intent, novel.title))
 }
