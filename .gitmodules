@@ -1,4 +1,4 @@
 [submodule "chimahon/src/main/cpp/hoshidicts"]
 	path = chimahon/src/main/cpp/hoshidicts
-	url = https://github.com/sohilsayed/hoshidicts
+	url = https://github.com/Chimahon/hoshidicts
 	branch = main
