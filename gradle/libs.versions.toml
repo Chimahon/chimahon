@@ -21,7 +21,7 @@ aniyomi-mpv-lib = "8.1.2.mpv1"
 seeker = "1.2.2"
 media = "1.7.1"
 truetypeparser = "2.1.4"
-chimahon-ffmpeg = "v8.1.1.4"
+chimahon-ffmpeg = "v8.1.1.7"
 litert = "2.1.6"
 quickjs-kt = "1.0.0-alpha13"
 
