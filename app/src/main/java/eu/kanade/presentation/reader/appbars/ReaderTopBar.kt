@@ -199,6 +199,7 @@ private fun ReaderOcrSource.displayName(): String {
             ReaderOcrSource.MOKURO -> KMR.strings.ocr_source_mokuro
             ReaderOcrSource.GOOGLE_LENS -> KMR.strings.ocr_source_google_lens
             ReaderOcrSource.LOCAL -> KMR.strings.ocr_source_local
+            ReaderOcrSource.PADDLE -> KMR.strings.ocr_source_paddle
         },
     )
 }

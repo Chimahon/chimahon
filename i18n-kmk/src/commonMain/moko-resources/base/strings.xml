@@ -266,6 +266,7 @@
     <string name="ocr_source_mokuro">Mokuro</string>
     <string name="ocr_source_google_lens">Google Lens</string>
     <string name="ocr_source_local">Local</string>
+    <string name="ocr_source_paddle">Paddle OCR</string>
     <string name="anki_sentence_audio_generation_failed">Sentence audio could not be exported from this video source. The card was created without it.</string>
     <string name="anki_sentence_audio_track_mapping_unavailable">The selected audio track could not be identified safely. Sentence audio was not added to avoid choosing the wrong track.</string>
     <string name="anki_sentence_audio_source_unavailable">The selected video source could not be read for sentence audio. The card was created without it.</string>

@@ -16,11 +16,16 @@ import java.io.ByteArrayOutputStream
 enum class OcrEngineType {
     CLOUD,
     LOCAL,
+    PADDLE,
     ;
 
     companion object {
         fun fromPreference(value: String): OcrEngineType {
-            return if (value == "local") LOCAL else CLOUD
+            return when (value) {
+                "local" -> LOCAL
+                "paddle" -> PADDLE
+                else -> CLOUD
+            }
         }
     }
 }
@@ -59,6 +64,37 @@ suspend fun recognizePage(
         }
         if (result.isEmpty()) {
             logcat("OcrEngineSelector", LogPriority.WARN) { "local engine returned no results" }
+            return emptyList()
+        }
+        return result
+    }
+
+    if (resolvedEngineType == OcrEngineType.PADDLE) {
+        val paddleOcrBridge = Injekt.get<PaddleOcrBridge>()
+        val modelDownloader = Injekt.get<ModelDownloader>()
+        if (!modelDownloader.isPaddleDownloaded) {
+            logcat("OcrEngineSelector", LogPriority.WARN) { "paddle selected but models not downloaded, triggering download" }
+            modelDownloader.triggerPaddleDownload()
+            return emptyList()
+        }
+        if (!paddleOcrBridge.isAvailable) return emptyList()
+        if (!paddleOcrBridge.isInitialized) {
+            paddleOcrBridge.init()
+        }
+        if (!paddleOcrBridge.isInitialized) {
+            logcat("OcrEngineSelector", LogPriority.WARN) { "paddle engine failed to initialize" }
+            return emptyList()
+        }
+        val result = processImageWithChunks(bytes, language) { chunk ->
+            val chunkBytes = withContext(Dispatchers.Default) {
+                chunk.bitmap.toJpegBytes(85)
+            }
+            val lines = paddleOcrBridge.recognize(chunkBytes, language)
+            chunk.bitmap.recycle()
+            lines
+        }
+        if (result.isEmpty()) {
+            logcat("OcrEngineSelector", LogPriority.WARN) { "paddle engine returned no results" }
             return emptyList()
         }
         return result
@@ -103,6 +139,37 @@ suspend fun recognizePage(
         }
         if (result.isEmpty()) {
             logcat("OcrEngineSelector", LogPriority.WARN) { "local engine returned no results" }
+            return emptyList()
+        }
+        return result
+    }
+
+    if (resolvedEngineType == OcrEngineType.PADDLE) {
+        val paddleOcrBridge = Injekt.get<PaddleOcrBridge>()
+        val modelDownloader = Injekt.get<ModelDownloader>()
+        if (!modelDownloader.isPaddleDownloaded) {
+            logcat("OcrEngineSelector", LogPriority.WARN) { "paddle selected but models not downloaded, triggering download" }
+            modelDownloader.triggerPaddleDownload()
+            return emptyList()
+        }
+        if (!paddleOcrBridge.isAvailable) return emptyList()
+        if (!paddleOcrBridge.isInitialized) {
+            paddleOcrBridge.init()
+        }
+        if (!paddleOcrBridge.isInitialized) {
+            logcat("OcrEngineSelector", LogPriority.WARN) { "paddle engine failed to initialize" }
+            return emptyList()
+        }
+        val result = processImageWithChunks(bitmap, language) { chunk ->
+            val chunkBytes = withContext(Dispatchers.Default) {
+                chunk.bitmap.toJpegBytes(85)
+            }
+            val lines = paddleOcrBridge.recognize(chunkBytes, language)
+            if (chunk.bitmap !== bitmap) chunk.bitmap.recycle()
+            lines
+        }
+        if (result.isEmpty()) {
+            logcat("OcrEngineSelector", LogPriority.WARN) { "paddle engine returned no results" }
             return emptyList()
         }
         return result

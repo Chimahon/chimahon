@@ -111,7 +111,7 @@ object SettingsOcrScreen : SearchableSettings {
 
         val parallelOcrSubtitle = when {
             parallelOcrLimit == 1 -> "1 chapter (Recommended - safe and stable)"
-            ocrEngine == "local" -> "$parallelOcrLimit chapters (Running multiple OCR tasks on-device simultaneously will increase battery drain and cause the device to heat up)"
+            ocrEngine == "local" || ocrEngine == "paddle" -> "$parallelOcrLimit chapters (Running multiple OCR tasks on-device simultaneously will increase battery drain and cause the device to heat up)"
             else -> "$parallelOcrLimit chapters (Running multiple OCR tasks online simultaneously may cause temporary rate limits or IP blocks)"
         }
 
@@ -128,7 +128,10 @@ object SettingsOcrScreen : SearchableSettings {
                         entries = persistentListOf(
                             "cloud" to "Cloud (Google Lens)",
                             *if (eu.kanade.tachiyomi.BuildConfig.HAS_LOCAL_OCR) {
-                                arrayOf("local" to "Local (On-Device)")
+                                arrayOf(
+                                    "local" to "Local (On-Device)",
+                                    "paddle" to "Paddle OCR (On-Device)",
+                                )
                             } else {
                                 emptyArray()
                             },
@@ -137,6 +140,9 @@ object SettingsOcrScreen : SearchableSettings {
                         onValueChanged = { value ->
                             if (value == "local") {
                                 Injekt.get<ModelDownloader>().triggerDownload()
+                            }
+                            if (value == "paddle") {
+                                Injekt.get<ModelDownloader>().triggerPaddleDownload()
                             }
                             true
                         },

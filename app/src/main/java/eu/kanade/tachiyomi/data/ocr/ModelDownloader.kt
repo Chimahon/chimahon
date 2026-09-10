@@ -25,17 +25,25 @@ class ModelDownloader(
 ) {
     companion object {
         private const val RELEASE_BASE =
-            "https://github.com/sohilsayed/chimahon-local-models/releases/download/v2.0"
+            "https://github.com/Chimahon/chimahon-local-models/releases/download/v2.5"
+        private const val LENS_ZIP = "models.zip"
+        private const val PADDLE_ZIP = "paddle-ocr.zip"
+        private const val PADDLE_DIR = "paddle_ocr"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val isDownloaded: Boolean
-        get() = lensSupportedAbi()?.let { abi ->
+        get() = supportedAbi()?.let { abi ->
             requiredLensFiles(abi).all { it.isFile && it.length() > 0L }
         } ?: false
 
-    private fun lensSupportedAbi(): String? = when {
+    val isPaddleDownloaded: Boolean
+        get() = supportedAbi()?.let { abi ->
+            requiredPaddleFiles(abi).all { it.isFile && it.length() > 0L }
+        } ?: false
+
+    private fun supportedAbi(): String? = when {
         "arm64-v8a" in Build.SUPPORTED_ABIS -> "arm64-v8a"
         "armeabi-v7a" in Build.SUPPORTED_ABIS -> "armeabi-v7a"
         else -> null
@@ -54,50 +62,89 @@ class ModelDownloader(
         )
     }
 
+    private fun requiredPaddleFiles(abi: String): List<File> {
+        val root = File(context.filesDir, PADDLE_DIR)
+        return listOf(
+            File(root, "manga_det_fp16.param"),
+            File(root, "manga_det_fp16.bin"),
+            File(root, "manga_rec_fp16.param"),
+            File(root, "manga_rec_fp16.bin"),
+            File(root, "ppocrv6_dict.txt"),
+            File(root, "lib/$abi/libpaddle_ocr.so"),
+            File(root, "lib/$abi/libomp.so"),
+            File(root, "lib/$abi/libc++_shared.so"),
+        )
+    }
+
     fun triggerDownload() {
         if (isDownloaded) return
         scope.launch {
+            downloadWithNotifications(
+                progressText = "Downloading on-device OCR models...",
+                successText = "On-device OCR models downloaded successfully",
+            ) { downloadZip(LENS_ZIP) }
+        }
+    }
+
+    fun triggerPaddleDownload() {
+        if (isPaddleDownloaded) return
+        scope.launch {
+            downloadWithNotifications(
+                progressText = "Downloading Paddle OCR models...",
+                successText = "Paddle OCR models downloaded successfully",
+            ) { downloadZip(PADDLE_ZIP) }
+        }
+    }
+
+    private suspend fun downloadWithNotifications(
+        progressText: String,
+        successText: String,
+        download: suspend () -> Result<Unit>,
+    ) {
+        context.notify(
+            Notifications.ID_OCR_PROGRESS,
+            Notifications.CHANNEL_OCR_MODEL_DOWNLOAD,
+        ) {
+            setSmallIcon(android.R.drawable.stat_sys_download)
+            setContentTitle("Downloading OCR models")
+            setContentText(progressText)
+            setOngoing(true)
+            setOnlyAlertOnce(true)
+        }
+        val result = download()
+        context.cancelNotification(Notifications.ID_OCR_PROGRESS)
+        if (result.isSuccess) {
             context.notify(
                 Notifications.ID_OCR_PROGRESS,
                 Notifications.CHANNEL_OCR_MODEL_DOWNLOAD,
             ) {
-                setSmallIcon(android.R.drawable.stat_sys_download)
-                setContentTitle("Downloading OCR models")
-                setContentText("Downloading on-device OCR models...")
-                setOngoing(true)
-                setOnlyAlertOnce(true)
+                setSmallIcon(android.R.drawable.stat_sys_download_done)
+                setContentTitle("OCR models ready")
+                setContentText(successText)
+                setAutoCancel(true)
+                setOngoing(false)
             }
-            val result = downloadAndExtract()
-            context.cancelNotification(Notifications.ID_OCR_PROGRESS)
-            if (result.isSuccess) {
-                context.notify(
-                    Notifications.ID_OCR_PROGRESS,
-                    Notifications.CHANNEL_OCR_MODEL_DOWNLOAD,
-                ) {
-                    setSmallIcon(android.R.drawable.stat_sys_download_done)
-                    setContentTitle("OCR models ready")
-                    setContentText("On-device OCR models downloaded successfully")
-                    setAutoCancel(true)
-                    setOngoing(false)
-                }
-            } else {
-                context.notify(
-                    Notifications.ID_OCR_PROGRESS,
-                    Notifications.CHANNEL_OCR_MODEL_DOWNLOAD,
-                ) {
-                    setSmallIcon(android.R.drawable.stat_sys_warning)
-                    setContentTitle("OCR model download failed")
-                    setContentText(result.exceptionOrNull()?.message ?: "Unknown error")
-                    setAutoCancel(true)
-                    setOngoing(false)
-                }
+        } else {
+            context.notify(
+                Notifications.ID_OCR_PROGRESS,
+                Notifications.CHANNEL_OCR_MODEL_DOWNLOAD,
+            ) {
+                setSmallIcon(android.R.drawable.stat_sys_warning)
+                setContentTitle("OCR model download failed")
+                setContentText(result.exceptionOrNull()?.message ?: "Unknown error")
+                setAutoCancel(true)
+                setOngoing(false)
             }
         }
     }
 
-    suspend fun downloadAndExtract(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun downloadAndExtract(): Result<Unit> = downloadZip(LENS_ZIP)
+
+    suspend fun downloadPaddleAndExtract(): Result<Unit> = downloadZip(PADDLE_ZIP)
+
+    private suspend fun downloadZip(zipName: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val url = "$RELEASE_BASE/models.zip"
+            val url = "$RELEASE_BASE/$zipName"
             val request = Request.Builder().url(url).build()
             val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) {
