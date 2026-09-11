@@ -282,16 +282,18 @@ class ScreenLookupService : Service() {
         if (captureJob?.isActive == true) return
 
         captureJob = scope.launch {
-            val bitmap = captureWithProjection()
-            if (bitmap == null) {
-                toast(MR.strings.screen_lookup_capture_failed)
-                lastCaptureError?.let { msg ->
-                    Toast.makeText(this@ScreenLookupService, "Error: $msg", Toast.LENGTH_LONG).show()
+            // Hide button so it isn't burned into the screenshot.
+            setFloatingButtonVisible(false)
+            try {
+                val bitmap = captureWithProjection()
+                if (bitmap == null) {
+                    toastCaptureFailed()
+                    return@launch
                 }
-                return@launch
+                showLookupOverlay(bitmap)
+            } finally {
+                setFloatingButtonVisible(true)
             }
-
-            showLookupOverlay(bitmap)
         }
     }
 
@@ -300,7 +302,10 @@ class ScreenLookupService : Service() {
         if (projection == null) return null
         if (!ensureVirtualDisplay()) return null
 
-        delay(64)
+        // Drop pre-hide frame, then wait for SurfaceFlinger to recompose
+        // without the button before acquiring a fresh frame.
+        runCatching { imageReader?.acquireLatestImage()?.close() }
+        delay(HIDE_BUTTON_DELAY_MS)
         return withContext(Dispatchers.Default) {
             runCatching { acquireBitmap() }
                 .onFailure { e ->
@@ -313,13 +318,20 @@ class ScreenLookupService : Service() {
 
     private suspend fun acquireBitmap(): Bitmap? {
         val reader = imageReader ?: return null
-        var image: Image? = null
-        try { image = reader.acquireLatestImage() } catch (_: IllegalStateException) {}
-        if (image == null) {
-            delay(48)
-            try { image = reader.acquireLatestImage() } catch (_: IllegalStateException) {}
+        repeat(2) { attempt ->
+            try {
+                reader.acquireLatestImage()?.use { return it.toBitmap() }
+            } catch (_: IllegalStateException) {}
+            if (attempt == 0) delay(48)
         }
-        return image?.use { it.toBitmap() }
+        return null
+    }
+
+    private fun toastCaptureFailed() {
+        toast(MR.strings.screen_lookup_capture_failed)
+        lastCaptureError?.let { msg ->
+            Toast.makeText(this, "Error: $msg", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun showLookupOverlay(bitmap: Bitmap) {
@@ -440,6 +452,7 @@ class ScreenLookupService : Service() {
     private fun setFloatingButtonVisible(visible: Boolean) {
         floatingButton?.apply {
             alpha = if (visible) buttonAlpha() else 0f
+            visibility = if (visible) View.VISIBLE else View.INVISIBLE
             isEnabled = visible
         }
     }
@@ -572,6 +585,7 @@ class ScreenLookupService : Service() {
         private const val BUTTON_SIZE_DP = 56
         private const val BUTTON_ALPHA = 0.92f
         private const val IMAGE_TIMEOUT_MS = 1_500L
+        private const val HIDE_BUTTON_DELAY_MS = 250L
 
         fun start(context: Context, resultCode: Int, resultData: Intent) {
             val intent = Intent(context, ScreenLookupService::class.java)
