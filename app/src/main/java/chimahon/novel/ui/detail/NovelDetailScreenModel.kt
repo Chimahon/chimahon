@@ -140,6 +140,9 @@ class NovelDetailScreenModel(
     private var cachedDbNovel: Novel? = null
     private var cachedChapters: List<SNChapter>? = null
     private var subscribedNovelId: Long? = null
+    // Online-row favorite state before a file download auto-favorited it
+    // (null = no download this session); used for symmetric delete.
+    private var onlineFavoriteBeforeDownload: Boolean? = null
 
     init {
         loadDetails()
@@ -480,6 +483,13 @@ class NovelDetailScreenModel(
                     runCatching {
                         Injekt.get<RegisterLocalNovelHome>().register(metadata.id)
                     }
+                    // Downloading is acquiring: the online novel joins the
+                    // library too, so leaving and coming back still shows it
+                    // favorited. Remember pre-state for symmetric delete.
+                    onlineFavoriteBeforeDownload = mutableState.value.isFavorite
+                    if (!mutableState.value.isFavorite) {
+                        runCatching { addToLibrary() }
+                    }
                     mutableState.value = mutableState.value.copy(
                         fileDownload = FileDownloadState.Done(
                             title = metadata.title ?: novel.title,
@@ -515,6 +525,10 @@ class NovelDetailScreenModel(
     fun deleteDownloadedBook() {
         val done = mutableState.value.fileDownload as? FileDownloadState.Done ?: return
         val bookId = done.bookId ?: return
+        // Only undo the auto-favorite when download created it; a prior
+        // manual favorite survives the delete.
+        val undoFavorite = onlineFavoriteBeforeDownload == false
+        onlineFavoriteBeforeDownload = null
         screenModelScope.launch(Dispatchers.IO) {
             runCatching { chimahon.novel.data.BookStorage.deleteBook(app, bookId) }
             runCatching {
@@ -525,6 +539,9 @@ class NovelDetailScreenModel(
                 if (localNovel != null) {
                     Injekt.get<chimahon.novel.interactor.UpdateNovel>().awaitUpdateFavorite(localNovel.id, false)
                 }
+            }
+            if (undoFavorite) {
+                runCatching { removeFromLibrary() }
             }
             mutableState.value = mutableState.value.copy(
                 fileDownload = FileDownloadState.Idle,
