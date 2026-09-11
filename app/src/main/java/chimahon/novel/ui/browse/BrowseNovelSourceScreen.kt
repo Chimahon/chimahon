@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.NewReleases
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -60,6 +62,7 @@ import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.manga.model.MangaCover
 import tachiyomi.i18n.MR
@@ -67,6 +70,7 @@ import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.EmptyScreen
+import tachiyomi.presentation.core.screens.EmptyScreenAction
 import tachiyomi.presentation.core.screens.LoadingScreen
 import tachiyomi.presentation.core.util.plus
 
@@ -90,6 +94,26 @@ data class BrowseNovelSourceScreen(
 
         val navigator = LocalNavigator.currentOrThrow
         val snackbarHostState = remember { SnackbarHostState() }
+
+        // Manga parity: sources behind Cloudflare (e.g. hameln) come back
+        // empty — opening the site in the WebView solves the challenge and
+        // the bridge syncs the clearance cookies into plugin fetches.
+        val openInWebView: () -> Unit = {
+            val url = when (source) {
+                is chimahon.novel.plugin.SimpleLNReaderSource -> source.baseUrl
+                else -> null
+            }
+            if (!url.isNullOrBlank()) {
+                navigator.push(
+                    eu.kanade.tachiyomi.ui.webview.WebViewScreen(
+                        url = url,
+                        initialTitle = source.name,
+                        sourceId = source.id,
+                    ),
+                )
+            }
+        }
+        val canOpenInWebView = source is chimahon.novel.plugin.SimpleLNReaderSource && source.baseUrl.isNotBlank()
         var searchQuery by rememberSaveable {
             mutableStateOf((initialListing as? BrowseNovelSourceScreenModel.Listing.Search)?.query)
         }
@@ -114,21 +138,7 @@ data class BrowseNovelSourceScreen(
                         onDisplayModeChange = { screenModel.displayMode = it },
                         navigateUp = navigator::pop,
                         onSearch = screenModel::search,
-                        onWebViewClick = {
-                            val url = when (source) {
-                                is chimahon.novel.plugin.SimpleLNReaderSource -> source.baseUrl
-                                else -> null
-                            }
-                            if (!url.isNullOrBlank()) {
-                                navigator.push(
-                                    eu.kanade.tachiyomi.ui.webview.WebViewScreen(
-                                        url = url,
-                                        initialTitle = source.name,
-                                        sourceId = source.id,
-                                    ),
-                                )
-                            }
-                        }.takeIf { source is chimahon.novel.plugin.SimpleLNReaderSource && source.baseUrl.isNotBlank() },
+                        onWebViewClick = openInWebView.takeIf { canOpenInWebView },
                     )
 
                     if (source is NovelsPageSource) {
@@ -231,6 +241,8 @@ data class BrowseNovelSourceScreen(
                 onNovelClick = { navigator.push(NovelDetailScreen(it, sourceId)) },
                 onLoadMore = screenModel::loadNextPage,
                 onRequestCover = screenModel::requestCover,
+                onRetryClick = { screenModel.loadListing(state.listing, reset = true) },
+                onWebViewClick = openInWebView.takeIf { canOpenInWebView },
             )
         }
     }
@@ -249,6 +261,8 @@ private fun BrowseNovelSourceContent(
     onNovelClick: (SNNovel) -> Unit,
     onLoadMore: () -> Unit,
     onRequestCover: (SNNovel) -> Unit,
+    onRetryClick: () -> Unit,
+    onWebViewClick: (() -> Unit)? = null,
 ) {
     if (novels.isEmpty() && isLoading) {
         LoadingScreen(Modifier.padding(contentPadding))
@@ -259,6 +273,23 @@ private fun BrowseNovelSourceContent(
         EmptyScreen(
             modifier = Modifier.padding(contentPadding),
             message = error ?: stringResource(MR.strings.no_results_found),
+            // Same action set as manga browse: retry first, then WebView.
+            actions = listOfNotNull(
+                EmptyScreenAction(
+                    stringRes = MR.strings.action_retry,
+                    icon = Icons.Outlined.Refresh,
+                    onClick = onRetryClick,
+                ),
+                if (onWebViewClick != null) {
+                    EmptyScreenAction(
+                        stringRes = MR.strings.action_open_in_web_view,
+                        icon = Icons.Outlined.Public,
+                        onClick = onWebViewClick,
+                    )
+                } else {
+                    null
+                },
+            ).toImmutableList(),
         )
         return
     }

@@ -19,32 +19,39 @@ internal class NovelPluginRuntime(
 
     suspend fun open(code: String): NovelPluginInstance {
         novelRequire(code.length in 1..MAX_CODE_CHARS, NovelFailure.Code.PluginCodeSize)
-        val runtime = QuickJs.create(dispatcher)
-        try {
-            withTimeout(EVALUATION_TIMEOUT_MS) { library.setup(runtime) }
-            withTimeout(EVALUATION_TIMEOUT_MS) { runtime.evaluate<Any?>(sanitize(code), "$pluginId.js", asModule = false) }
-            withTimeout(EVALUATION_TIMEOUT_MS) {
-                runtime.evaluate<Any?>(
-                    """
-                    globalThis.__novelPluginClass =
-                        (typeof exports !== 'undefined' && exports.default) ||
-                        (typeof module !== 'undefined' && module.exports && (module.exports.default || module.exports));
-                    if (!globalThis.__novelPluginClass) throw new Error('Plugin has no default export');
-                    globalThis.plugin = typeof globalThis.__novelPluginClass === 'function'
-                        ? new globalThis.__novelPluginClass()
-                        : globalThis.__novelPluginClass;
-                    if (!globalThis.plugin) throw new Error('Plugin could not be instantiated');
-                    """.trimIndent(),
-                    "novel-plugin-loader.js",
-                    asModule = false,
-                )
+        // All JNI calls must run on the dispatcher's single thread. The caller
+        // is usually an IO-pool thread with no cached JNI env, and concurrent
+        // opens share that thread — calling evaluate() directly caused
+        // "Cannot get jni env because the vm is not cached" flakiness where
+        // the first browse of a source returned empty until refresh.
+        return withContext(dispatcher) {
+            val runtime = QuickJs.create(dispatcher)
+            try {
+                withTimeout(EVALUATION_TIMEOUT_MS) { library.setup(runtime) }
+                withTimeout(EVALUATION_TIMEOUT_MS) { runtime.evaluate<Any?>(sanitize(code), "$pluginId.js", asModule = false) }
+                withTimeout(EVALUATION_TIMEOUT_MS) {
+                    runtime.evaluate<Any?>(
+                        """
+                        globalThis.__novelPluginClass =
+                            (typeof exports !== 'undefined' && exports.default) ||
+                            (typeof module !== 'undefined' && module.exports && (module.exports.default || module.exports));
+                        if (!globalThis.__novelPluginClass) throw new Error('Plugin has no default export');
+                        globalThis.plugin = typeof globalThis.__novelPluginClass === 'function'
+                            ? new globalThis.__novelPluginClass()
+                            : globalThis.__novelPluginClass;
+                        if (!globalThis.plugin) throw new Error('Plugin could not be instantiated');
+                        """.trimIndent(),
+                        "novel-plugin-loader.js",
+                        asModule = false,
+                    )
+                }
+                NovelPluginInstance(runtime, library, dispatcher)
+            } catch (error: Throwable) {
+                // Already on the dispatcher thread here.
+                runCatching { runtime.close() }
+                library.cleanup()
+                throw error
             }
-            return NovelPluginInstance(runtime, library, dispatcher)
-        } catch (error: Throwable) {
-            // Close on the dispatcher thread; the caller may be Main/IO.
-            runCatching { withContext(dispatcher) { runtime.close() } }
-            library.cleanup()
-            throw error
         }
     }
 
@@ -68,7 +75,13 @@ internal class NovelPluginInstance(
     private val dispatcher: CoroutineDispatcher,
 ) : AutoCloseable {
     suspend fun evaluate(script: String): Any? =
-        withTimeout(30_000L) { runtime.evaluate<Any?>(script, "novel-plugin-call.js", asModule = false) }
+        withTimeout(30_000L) {
+            // Confine to the dispatcher's thread (see open()); direct JNI
+            // calls from pool threads have no cached env and fail.
+            withContext(dispatcher) {
+                runtime.evaluate<Any?>(script, "novel-plugin-call.js", asModule = false)
+            }
+        }
 
     suspend fun execute(script: String): Any? = evaluate(script)
 

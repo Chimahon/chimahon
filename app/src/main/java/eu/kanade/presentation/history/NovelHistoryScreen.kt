@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import eu.kanade.core.util.insertSeparators
+import eu.kanade.presentation.components.relativeDateText
 import eu.kanade.presentation.manga.components.DotSeparatorText
 import eu.kanade.presentation.manga.components.MangaCover
 import eu.kanade.presentation.util.formatChapterNumber
@@ -89,7 +90,7 @@ fun NovelHistoryScreen(
             when (uiModel) {
                 is NovelHistoryUiModel.Header -> {
                     Text(
-                        text = uiModel.date.toString(),
+                        text = relativeDateText(uiModel.date),
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier
                             .fillMaxWidth()
