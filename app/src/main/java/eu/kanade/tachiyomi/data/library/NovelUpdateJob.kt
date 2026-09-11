@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.data.library
 
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
@@ -63,6 +64,11 @@ class NovelUpdateJob(private val context: Context, workerParams: WorkerParameter
         return ForegroundInfo(
             Notifications.ID_NOVEL_UPDATES_TO_EXTS,
             NovelUpdateNotifier(context).progressNotificationBuilder.build(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else {
+                0
+            },
         )
     }
 
