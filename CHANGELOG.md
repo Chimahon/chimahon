@@ -4,6 +4,17 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.1]
+
+### Changed
+- Remove default novel extension repo
+
+### Fixed
+- Novel library updates crashing on Android 16
+- Re-downloaded EPUB books staying invisible in library
+- EPUB downloads leaving online novel unfavorited
+- Novel history needing restart + wrong chapter numbers
+
 ## [v2.4.0]
 
 ### Added
