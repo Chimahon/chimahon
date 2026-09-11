@@ -18,6 +18,8 @@ import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -67,6 +69,8 @@ class SimpleLNReaderSource(
     }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    // Serializes JS executions of this source (see withPlugin).
+    private val jsMutex = Mutex()
     // Novel: single shared executor per process to avoid thread leak (one per source → 50 threads)
     private var cachedJsCode: String? = if (jsCode.isNotBlank()) jsCode else null
     // Novel: bridgeCache for filters/settings so getFilterList never init QuickJS on main thread
@@ -125,14 +129,19 @@ class SimpleLNReaderSource(
     }
 
     private suspend fun <T> withPlugin(block: suspend (chimahon.novel.plugin.runtime.NovelPluginInstance) -> T): T {
-        val code = ensureJsCode()
-        if (code.isBlank()) throw IllegalStateException("JS code not available for $pluginId (site=$siteUrl codeUrl=$codeUrl)")
-        val runtime = NovelPluginRuntime(context, pluginId, siteUrl, jsDispatcher)
-        val instance = runtime.open(code)
-        return try {
-            block(instance)
-        } finally {
-            instance.close()
+        // One JS execution per source at a time: concurrent loads (e.g. Popular
+        // + Latest firing together on first open) created two runtimes sharing
+        // the single JS thread and tripped JNI affinity failures.
+        return jsMutex.withLock {
+            val code = ensureJsCode()
+            if (code.isBlank()) throw IllegalStateException("JS code not available for $pluginId (site=$siteUrl codeUrl=$codeUrl)")
+            val runtime = NovelPluginRuntime(context, pluginId, siteUrl, jsDispatcher)
+            val instance = runtime.open(code)
+            try {
+                block(instance)
+            } finally {
+                instance.close()
+            }
         }
     }
 
@@ -548,6 +557,50 @@ class SimpleLNReaderSource(
             if (html.isBlank()) return@withPlugin ChapterContent.Text("")
             // Return Html if contains tags, else Text
             if (html.contains("<") && html.contains(">")) ChapterContent.Html(html) else ChapterContent.Text(html)
+        }
+    }
+
+    // ---- File/download sources (PluginBase.getDownloadUrl) ----
+
+    suspend fun hasDownloadSupport(): Boolean {
+        return try {
+            withPlugin { instance ->
+                evaluateToString(instance, "typeof plugin.getDownloadUrl === 'function'") == "true"
+            }
+        } catch (_: Exception) { false }
+    }
+
+    /**
+     * Resolves the direct file URL for a book path via the plugin's
+     * `getDownloadUrl(path, format?)`. Returns null when unsupported,
+     * failed, or empty (e.g. file-less metadata entries).
+     */
+    suspend fun getDownloadUrl(path: String, format: String? = null): String? {
+        return try {
+            withPlugin { instance ->
+                val quotedPath = jsonQuote(path)
+                val script = if (format.isNullOrBlank()) {
+                    "await plugin.getDownloadUrl($quotedPath)"
+                } else {
+                    "await plugin.getDownloadUrl($quotedPath, ${jsonQuote(format)})"
+                }
+                val raw = evaluateToString(instance, script) ?: return@withPlugin null
+                if (raw.contains("\"__error\"")) {
+                    logcat(LogPriority.WARN) { "[$pluginId] getDownloadUrl error: $raw" }
+                    return@withPlugin null
+                }
+                // evaluateToString returns the raw JS string; decode once in
+                // case it arrived JSON-quoted.
+                val url = try {
+                    json.parseToJsonElement(raw).let {
+                        (it as? JsonPrimitive)?.contentOrNull ?: raw
+                    }
+                } catch (_: Exception) { raw }
+                url.trim().takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "[$pluginId] getDownloadUrl failed for $path" }
+            null
         }
     }
 

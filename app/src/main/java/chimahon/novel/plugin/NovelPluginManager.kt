@@ -306,10 +306,13 @@ class NovelPluginManager(
                             val version = getField("version", "versionName").ifBlank { "1.0.0" }
                             val rawCodeUrl = getField("url", "codeUrl", "path")
                             val iconUrl = getField("iconUrl", "icon")
+                            // Unknown kind values are kept as-is; call sites
+                            // only ever match "download" and ignore the rest.
+                            val kind = getField("kind").trim().lowercase()
                             val sha256 = getField("sha256").lowercase()
                                 .takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: ""
                             val codeUrl = resolveCodeUrl(rawCodeUrl, successfulUrl)
-                            repoDescriptors.add(NovelPluginDescriptor(id, name, site, lang, version, codeUrl, iconUrl, sha256))
+                            repoDescriptors.add(NovelPluginDescriptor(id, name, site, lang, version, codeUrl, iconUrl, sha256, kind))
                         }
                     }
                     logcat(LogPriority.INFO) { "Parsed ${repoDescriptors.size} novel plugins from repository $successfulUrl" }
@@ -427,6 +430,11 @@ data class NovelPluginDescriptor(
     val codeUrl: String = "",
     val iconUrl: String = "",
     val sha256: String = "",
+    // 'download' for file/download sources (see PluginBase.getDownloadUrl).
+    // Absent/blank means chapter source. Default keeps old cached indexes
+    // decodable. Deliberately not persisted to the installed-plugin DB row:
+    // capability re-resolves from the catalog or a JS typeof probe.
+    val kind: String = "",
 ) {
     fun normalizedLanguage(): String = normalizeNovelLanguage(lang)
 }

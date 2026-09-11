@@ -1,18 +1,27 @@
 package chimahon.novel.ui.detail
 
+import android.app.Application
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.FileProvider
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
-import chimahon.novel.manager.NovelSourceManager
+import chimahon.novel.data.BookImporter
 import chimahon.novel.download.NovelDownloadManager
+import chimahon.novel.interactor.RegisterLocalNovelHome
+import chimahon.novel.manager.NovelSourceManager
+import chimahon.novel.plugin.SimpleLNReaderSource
+import chimahon.novel.source.LocalNovelFiles
 import eu.kanade.presentation.entries.DownloadAction
+import eu.kanade.tachiyomi.network.NetworkHelper
+import logcat.LogPriority
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNChapter
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -29,6 +38,7 @@ import tachiyomi.domain.novel.repository.NovelChapterRepository
 import tachiyomi.domain.novel.repository.NovelRepository
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import tachiyomi.core.common.util.system.logcat
 
 data class NovelChapterItem(
     val index: Int,
@@ -46,6 +56,13 @@ sealed interface Dialog {
     data object DeleteChapters : Dialog
     data class ChangeCategory(val initialSelection: ImmutableList<CheckboxState<Category>>) : Dialog
     data object SetDictionaryProfile : Dialog
+}
+
+sealed interface FileDownloadState {
+    data object Idle : FileDownloadState
+    data object Downloading : FileDownloadState
+    data class Done(val title: String, val bookId: String? = null, val folder: String? = null) : FileDownloadState
+    data class Error(val message: String) : FileDownloadState
 }
 
 object NovelSort {
@@ -74,6 +91,8 @@ data class NovelDetailState(
     val selectedChapters: Set<Long> = emptySet(),
     val selectionMode: Boolean = false,
     val isRefreshingData: Boolean = false,
+    val isDownloadSource: Boolean = false,
+    val fileDownload: FileDownloadState = FileDownloadState.Idle,
     val sortMode: Long = NovelSort.SORT_SOURCE,
     val sortDescending: Boolean = true,
     val unreadOnly: Boolean = false,
@@ -93,6 +112,7 @@ class NovelDetailScreenModel(
     private val novelChapterRepository: NovelChapterRepository = Injekt.get(),
     private val novelCategoryRepository: NovelCategoryRepository = Injekt.get(),
     private val downloadManager: NovelDownloadManager = Injekt.get(),
+    private val app: Application = Injekt.get(),
 ) : StateScreenModel<NovelDetailState>(
     NovelDetailState(
         novel = novel,
@@ -123,6 +143,13 @@ class NovelDetailScreenModel(
 
     init {
         loadDetails()
+        screenModelScope.launch {
+            val downloadCapable =
+                (source as? SimpleLNReaderSource)?.hasDownloadSupport() == true
+            mutableState.value = mutableState.value.copy(
+                isDownloadSource = downloadCapable,
+            )
+        }
     }
 
     fun resume() {
@@ -388,8 +415,7 @@ class NovelDetailScreenModel(
         downloadManager.deleteChapter(dbNovel, dbChapter, source)
     }
 
-    fun downloadChapters(action: DownloadAction) {
-        val dbNovel = cachedDbNovel ?: return
+    fun downloadChapters(action: DownloadAction) {        val dbNovel = cachedDbNovel ?: return
         // Next = oldest unread in reading order, independent of display sort
         val unread = mutableState.value.chapters
             .sortedBy { it.novelChapter?.chapterNumber ?: it.snChapter.chapter_number }
@@ -403,6 +429,107 @@ class NovelDetailScreenModel(
         }.map { it.snChapter }
         if (toDownload.isEmpty()) return
         downloadManager.downloadChapters(dbNovel, toDownload, source, mutableState.value.novel)
+    }
+
+    /**
+     * Whole-file download for file/download sources (no chapters): resolves
+     * the file URL via the plugin, downloads it with OkHttp, and imports it
+     * through the same [BookImporter] path as manual EPUB imports.
+     */
+    fun downloadBookFile() {
+        val jsSource = source as? SimpleLNReaderSource ?: return
+        if (mutableState.value.fileDownload is FileDownloadState.Downloading) return
+        // IO: blocking OkHttp execute() must never run on Main
+        // (NetworkOnMainThreadException).
+        screenModelScope.launch(Dispatchers.IO) {
+            mutableState.value = mutableState.value.copy(
+                fileDownload = FileDownloadState.Downloading,
+            )
+            try {
+                val novel = mutableState.value.novel
+                val fileUrl = jsSource.getDownloadUrl(novel.url)
+                if (fileUrl.isNullOrBlank()) {
+                    mutableState.value = mutableState.value.copy(
+                        fileDownload = FileDownloadState.Error("No downloadable file for this book"),
+                    )
+                    return@launch
+                }
+                val client = Injekt.get<NetworkHelper>().client
+                val request = okhttp3.Request.Builder()
+                    .url(fileUrl)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .build()
+                val tmpFile = java.io.File(app.cacheDir, "book_${System.currentTimeMillis()}.epub")
+                client.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful || resp.body.contentLength() <= 0) {
+                        throw IllegalStateException("Download failed (HTTP ${resp.code})")
+                    }
+                    resp.body.byteStream().use { input ->
+                        tmpFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+                val uri = FileProvider.getUriForFile(app, "${app.packageName}.provider", tmpFile)
+                val result = BookImporter.importEpub(
+                    app,
+                    uri,
+                    targetRootUni = LocalNovelFiles.publicRootUni(app),
+                )
+                runCatching { tmpFile.delete() }
+                val metadata = result.metadata
+                if (metadata != null) {
+                    runCatching {
+                        Injekt.get<RegisterLocalNovelHome>().register(metadata.id)
+                    }
+                    mutableState.value = mutableState.value.copy(
+                        fileDownload = FileDownloadState.Done(
+                            title = metadata.title ?: novel.title,
+                            bookId = metadata.id,
+                            folder = metadata.folder,
+                        ),
+                    )
+                } else {
+                    mutableState.value = mutableState.value.copy(
+                        fileDownload = FileDownloadState.Error(result.error ?: "Import failed"),
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                logcat(LogPriority.WARN, e) { "Book file download failed" }
+                mutableState.value = mutableState.value.copy(
+                    fileDownload = FileDownloadState.Error(e.message ?: "Download failed"),
+                )
+            }
+        }
+    }
+
+    fun dismissFileDownload() {
+        mutableState.value = mutableState.value.copy(
+            fileDownload = FileDownloadState.Idle,
+        )
+    }
+
+    /**
+     * Deletes a book imported via [downloadBookFile] (files + library row)
+     * and resets the download card. Mirrors the library delete path.
+     */
+    fun deleteDownloadedBook() {
+        val done = mutableState.value.fileDownload as? FileDownloadState.Done ?: return
+        val bookId = done.bookId ?: return
+        screenModelScope.launch(Dispatchers.IO) {
+            runCatching { chimahon.novel.data.BookStorage.deleteBook(app, bookId) }
+            runCatching {
+                val localNovel = novelRepository.getNovelByUrlAndSourceId(
+                    "local://$bookId",
+                    tachiyomi.domain.novel.model.Novel.LOCAL_SOURCE_ID,
+                )
+                if (localNovel != null) {
+                    Injekt.get<chimahon.novel.interactor.UpdateNovel>().awaitUpdateFavorite(localNovel.id, false)
+                }
+            }
+            mutableState.value = mutableState.value.copy(
+                fileDownload = FileDownloadState.Idle,
+            )
+        }
     }
 
     fun markChapterRead(chapter: NovelChapterItem) {

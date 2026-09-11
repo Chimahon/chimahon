@@ -9,6 +9,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,13 +29,18 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallExtendedFloatingActionButton
 import androidx.compose.material3.SnackbarHost
@@ -259,6 +265,23 @@ data class NovelDetailScreen(
             }
         }
 
+        // Whole-file download feedback (file/download sources only).
+        // Done/Error stay visible in the download card below; only toast once.
+        androidx.compose.runtime.LaunchedEffect(state.fileDownload) {
+            when (val download = state.fileDownload) {
+                is FileDownloadState.Downloading -> {
+                    snackbarHostState.showSnackbar("Downloading book…")
+                }
+                is FileDownloadState.Done -> {
+                    snackbarHostState.showSnackbar("Saved “${download.title}” to Library")
+                }
+                is FileDownloadState.Error -> {
+                    snackbarHostState.showSnackbar(download.message)
+                }
+                FileDownloadState.Idle -> Unit
+            }
+        }
+
         (state.dialog as? Dialog.ChangeCategory)?.let { dialog ->
             ChangeCategoryDialog(
                 initialSelection = dialog.initialSelection,
@@ -315,11 +338,13 @@ data class NovelDetailScreen(
                     navigateUp = navigator::pop,
                     onClickFilter = { showChapterSettings = true },
                     onClickShare = { shareNovel(context, state.novel, source) },
+                    // Download sources get a single download card in the content
+                    // below instead of the chapter-download menu (no chapters).
                     onClickDownload = (
                         { action: eu.kanade.presentation.entries.DownloadAction ->
                             screenModel.downloadChapters(action)
                         }
-                        ).takeIf { state.dbNovel != null && !isLocalSource },
+                        ).takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource },
                     onClickEditCategory = if (state.isFavorite) {
                         { navigator.push(CategoryScreen(CategoryScreen.Tab.NOVELS)) }
                     } else {
@@ -364,10 +389,10 @@ data class NovelDetailScreen(
                     },
                     onDownloadClicked = {
                         screenModel.downloadSelectedChapters()
-                    }.takeIf { state.dbNovel != null && !isLocalSource },
+                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource },
                     onDeleteClicked = {
                         screenModel.deleteSelectedDownloads()
-                    }.takeIf { state.dbNovel != null && !isLocalSource && selectedItems.fastAny { it.novelChapter != null } },
+                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { it.novelChapter != null } },
                 )
             },
             floatingActionButton = {
@@ -529,6 +554,16 @@ data class NovelDetailScreen(
                                 )
                             }
 
+                            if (state.isDownloadSource) {
+                                item(key = "novel_file_download") {
+                                    FileDownloadCard(
+                                        download = state.fileDownload,
+                                        onDownload = screenModel::downloadBookFile,
+                                        onDelete = screenModel::deleteDownloadedBook,
+                                    )
+                                }
+                            }
+
                             state.detailError?.takeIf { it.isNotBlank() }?.let { error ->
                                 item(key = "novel_detail_error") {
                                     Text(
@@ -562,9 +597,12 @@ data class NovelDetailScreen(
                                     ) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text(
-                                                text = state.chapterError?.takeIf { it.isNotBlank() } ?: "No chapters",
+                                                text = when {
+                                                    state.isDownloadSource -> "This source offers the whole book — use Download EPUB above"
+                                                    else -> state.chapterError?.takeIf { it.isNotBlank() } ?: "No chapters"
+                                                },
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                color = if (state.chapterError != null) {
+                                                color = if (state.chapterError != null && !state.isDownloadSource) {
                                                     MaterialTheme.colorScheme.error
                                                 } else {
                                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -785,4 +823,102 @@ private fun shareNovel(context: Context, novel: SNNovel, source: NovelSource) {
         putExtra(android.content.Intent.EXTRA_TEXT, text)
     }
     context.startActivity(android.content.Intent.createChooser(intent, novel.title))
+}
+
+/**
+ * Single-purpose download section for file/download sources (no chapter
+ * menu): one button, clear destination, and delete after download.
+ */
+@Composable
+private fun FileDownloadCard(
+    download: FileDownloadState,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        HorizontalDivider()
+        Text(
+            text = "Whole book (EPUB)",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        when (download) {
+            FileDownloadState.Idle -> {
+                Button(
+                    onClick = onDownload,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = null,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Download EPUB")
+                }
+                Text(
+                    text = "Saves the complete book to your Library.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            FileDownloadState.Downloading -> {
+                Text(
+                    text = "Downloading book…",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            is FileDownloadState.Done -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Saved to Library",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        download.folder?.takeIf { it.isNotBlank() }?.let { folder ->
+                            Text(
+                                text = "Folder: $folder",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    TextButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = null,
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "Delete")
+                    }
+                }
+            }
+            is FileDownloadState.Error -> {
+                Text(
+                    text = download.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(
+                    onClick = onDownload,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = "Retry download")
+                }
+            }
+        }
+    }
 }
