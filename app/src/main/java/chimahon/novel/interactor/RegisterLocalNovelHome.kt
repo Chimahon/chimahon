@@ -50,6 +50,11 @@ class RegisterLocalNovelHome(
                     initialized = true,
                     isLocal = true,
                     localFolder = stableId,
+                    // Re-registering (e.g. re-download after a library
+                    // delete, which keeps the row unfavorited) must put the
+                    // book back in the library, mirroring manga re-add.
+                    favorite = true,
+                    dateAdded = now,
                     // Seed once: never overwrites an EPUB/import lang.
                     lang = snNovel.lang?.takeIf { it.isNotBlank() && existing.lang.isNullOrBlank() },
                 ),
