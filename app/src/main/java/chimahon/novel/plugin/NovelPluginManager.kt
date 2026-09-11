@@ -29,9 +29,6 @@ data class NovelPluginCatalog(
     val sources: List<NovelsPageSource> = emptyList(),
 )
 
-private const val LNREADER_DEFAULT_INDEX_URL =
-    "https://raw.githubusercontent.com/LNReader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json"
-
 // Hayai parity caps: bound hostile/oversized payloads before parsing or executing.
 private const val MAX_REPOSITORY_BYTES = 4 * 1024 * 1024
 private const val MAX_REPOSITORY_PLUGINS = 10_000
@@ -164,33 +161,7 @@ class NovelPluginManager(
 
     suspend fun refresh(): NovelPluginCatalog = mutex.withLock { refreshInternal() }
 
-    /**
-     * Seeds the default LNReader plugin repo exactly once (Hayai parity), so a
-     * fresh install shows extensions without manual setup. Never re-adds: if the
-     * user deletes all repos, that choice is respected.
-     */
-    private suspend fun seedDefaultRepoIfNeeded() {
-        try {
-            val prefs = context.getSharedPreferences("chimahon_novel_plugin", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("default_repo_seeded", false)) return
-            if (novelExtensionRepoRepository.getAll().isNotEmpty()) {
-                prefs.edit().putBoolean("default_repo_seeded", true).apply()
-                return
-            }
-            novelExtensionRepoRepository.insertRepo(
-                baseUrl = LNREADER_DEFAULT_INDEX_URL,
-                name = "LNReader Plugins",
-                shortName = null,
-                website = LNREADER_DEFAULT_INDEX_URL,
-                signingKeyFingerprint = "NOFINGERPRINT_${LNREADER_DEFAULT_INDEX_URL.hashCode().toString(16)}",
-            )
-            prefs.edit().putBoolean("default_repo_seeded", true).apply()
-        } catch (_: Exception) {
-        }
-    }
-
     private suspend fun refreshInternal(): NovelPluginCatalog {
-        seedDefaultRepoIfNeeded()
         reconcileInstalledWithDb()
         val dbRepos = novelExtensionRepoRepository.getAll()
         val pluginRepos = dbRepos.map { NovelPluginRepository(it.name, it.baseUrl, enabled = true) }
