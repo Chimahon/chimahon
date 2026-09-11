@@ -249,7 +249,7 @@ internal object SentenceAudioInputResolver {
         return scheme in transientSchemes || value.startsWith("magnet:", ignoreCase = true) || value.substringBefore('?').endsWith(".torrent", ignoreCase = true)
     }
 
-    private val allowedHttpHeaders = setOf("user-agent", "accept", "accept-encoding", "accept-language", "cache-control", "origin", "pragma", "referer")
+    private val allowedHttpHeaders = setOf("user-agent", "accept", "accept-encoding", "accept-language", "cache-control", "cookie", "origin", "pragma", "referer")
     private val rejectedValidationQueryNames = setOf("access_token", "api_key", "auth", "authorization", "credential", "credentials", "key", "policy", "token")
     private val signedMediaQueryNames = setOf("signature", "signed", "sig", "lsig")
     private val sensitiveLogQueryNames = setOf("access_token", "api_key", "auth", "authorization", "credential", "credentials", "key", "policy", "signature", "signed", "sig", "lsig", "token")
@@ -259,23 +259,22 @@ internal object SentenceAudioInputResolver {
 }
 
 internal object SentenceAudioFfmpegArguments {
-    fun audioProbe(input: SentenceAudioInputSpec, acquiredInputValue: String, tlsCaFile: String? = null): Array<String> = probe(input, acquiredInputValue, input.audioStreamIndex?.toString() ?: "a:0", "stream=codec_type,codec_name:stream_side_data", tlsCaFile, true)
-    fun allAudioProbe(input: SentenceAudioInputSpec, acquiredInputValue: String, tlsCaFile: String? = null): Array<String> = probe(input, acquiredInputValue, "a", "stream=index,codec_type,codec_name:stream_side_data", tlsCaFile, true)
-    fun audioDiscoveryProbe(input: SentenceAudioInputSpec, acquiredInputValue: String, tlsCaFile: String? = null): Array<String> = probe(input, acquiredInputValue, "a", "stream=index,codec_type,codec_name:stream_side_data", tlsCaFile, false)
-    private fun probe(input: SentenceAudioInputSpec, acquired: String, selector: String, entries: String, ca: String?, restrict: Boolean) = buildList {
-        addInputOptions(input, ca, restrict); add("-v"); add("error"); add("-select_streams"); add(selector); add("-show_entries"); add(entries); add("-of"); add("default=noprint_wrappers=1"); add(acquired)
+    fun audioProbe(input: SentenceAudioInputSpec, acquiredInputValue: String, tlsCaFile: String? = null): Array<String> = probe(input, acquiredInputValue, input.audioStreamIndex?.toString() ?: "a:0", "stream=codec_type,codec_name:stream_side_data", tlsCaFile)
+    fun allAudioProbe(input: SentenceAudioInputSpec, acquiredInputValue: String, tlsCaFile: String? = null): Array<String> = probe(input, acquiredInputValue, "a", "stream=index,codec_type,codec_name:stream_side_data", tlsCaFile)
+    private fun probe(input: SentenceAudioInputSpec, acquired: String, selector: String, entries: String, ca: String?) = buildList {
+        addInputOptions(input, ca); add("-v"); add("error"); add("-select_streams"); add(selector); add("-show_entries"); add(entries); add("-of"); add("default=noprint_wrappers=1"); add(acquired)
     }.toTypedArray()
     fun sentenceAudio(input: SentenceAudioInputSpec, acquired: String, start: Double, end: Double, output: String, tlsCaFile: String? = null) = buildList {
         addInputOptions(input, tlsCaFile); add("-ss"); add(start.seconds()); add("-i"); add(acquired); add("-map"); add(input.audioStreamIndex?.let { "0:$it" } ?: "0:a:0"); add("-vn"); add("-sn"); add("-dn"); add("-t"); add((end - start).seconds()); add("-c:a"); add("aac"); add("-b:a"); add("128k"); add("-y"); add(output)
     }.toTypedArray()
-    private fun MutableList<String>.addInputOptions(input: SentenceAudioInputSpec, tlsCaFile: String?, restrict: Boolean = true) {
-        if (restrict) { add("-codec_whitelist"); add(ALLOWED_INPUT_DECODERS) }
-        if (input.kind == SentenceAudioInputKind.REMOTE_HTTP) { require(!tlsCaFile.isNullOrBlank()); add("-protocol_whitelist"); add("http,https,tls,tcp,crypto,hls,applehttp,concat"); add("-rw_timeout"); add("15000000") }
-        if (isHlsInput(input.value)) { add("-allowed_extensions"); add("ALL"); add("-allowed_segment_extensions"); add("ALL"); add("-extension_picky"); add("0") }
+    private fun MutableList<String>.addInputOptions(input: SentenceAudioInputSpec, tlsCaFile: String?) {
+        if (input.kind == SentenceAudioInputKind.REMOTE_HTTP) { require(!tlsCaFile.isNullOrBlank()); add("-rw_timeout"); add("15000000") }
+        if (isHlsLikeInput(input.value)) {
+            add("-allowed_extensions"); add("ALL"); add("-allowed_segment_extensions"); add("ALL"); add("-extension_picky"); add("0")
+        }
         if (input.headers.isNotEmpty()) { add("-headers"); add(input.headers.joinToString("") { "${it.first}: ${it.second}\r\n" }) }
     }
     private fun Double.seconds() = String.format(Locale.ROOT, "%.6f", this).trimEnd('0').trimEnd('.')
-    internal const val ALLOWED_INPUT_DECODERS = "aac,aac_fixed,ac3,alac,ass,av1,dca,dvdsub,eac3,eia_608,ffv1,flac,h263,h264,hevc,libdav1d,mjpeg,mov_text,mp3,mp3float,mpeg1video,mpeg2video,mpeg4,opus,pcm_f32le,pcm_s16le,pcm_s24le,pcm_s32le,png,prores,realtext,srt,ssa,subrip,text,theora,truehd,vorbis,vp8,vp9,webvtt"
 }
 
 /** Parses the small, explicitly requested audio subset of ffprobe's key/value output. */
@@ -371,7 +370,7 @@ internal class SentenceAudioMpvSnapshotReader(private val reader: SentenceAudioM
     private data class Track(val index: Int, val type: String?, val id: Int?)
 }
 
-internal enum class SentenceAudioDiagnosticStage { REQUEST_VALIDATION, FALLBACK_DECISION, SELECTED_AUDIO_PROBE, ALL_AUDIO_PROBE, AUDIO_DISCOVERY_PROBE, AUDIO_EXTRACTION, OUTPUT_VALIDATION, OUTPUT_READ }
+internal enum class SentenceAudioDiagnosticStage { REQUEST_VALIDATION, FALLBACK_DECISION, SELECTED_AUDIO_PROBE, ALL_AUDIO_PROBE, AUDIO_EXTRACTION, OUTPUT_VALIDATION, OUTPUT_READ }
 internal enum class SentenceAudioDiagnosticFallback { NOT_APPLICABLE, MISSING, SAME_AS_ORIGINAL, UNAVAILABLE, ATTEMPTED }
 internal data class SentenceAudioDiagnosticEvent(
     val stage: SentenceAudioDiagnosticStage,
@@ -565,7 +564,7 @@ internal class SentenceAudioCaptureService(
     }
 
     private suspend fun resolveOne(input: SentenceAudioInputSpec): Resolution {
-        return when (val selected = probe(input, ProbeMode.SELECTED_RESTRICTED)) {
+        return when (val selected = probe(input, ProbeMode.SELECTED)) {
             ProbeResult.SourceUnavailable -> Resolution.Unavailable(AnkiSentenceAudioFailure.SOURCE_UNAVAILABLE, input.diagnostic())
             is ProbeResult.Failed -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_PROBE_FAILED, input.diagnostic(result = selected.result))
             is ProbeResult.Success -> when (SentenceAudioMediaProbe.inspectSelectedAudio(selected.output)) {
@@ -579,7 +578,7 @@ internal class SentenceAudioCaptureService(
     }
 
     private suspend fun resolveInventory(input: SentenceAudioInputSpec): Resolution {
-        return when (val inventory = probe(input, ProbeMode.ALL_RESTRICTED)) {
+        return when (val inventory = probe(input, ProbeMode.ALL)) {
             ProbeResult.SourceUnavailable -> Resolution.Unavailable(AnkiSentenceAudioFailure.SOURCE_UNAVAILABLE, input.diagnostic())
             is ProbeResult.Failed -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_PROBE_FAILED, input.diagnostic(result = inventory.result))
             is ProbeResult.Success -> {
@@ -590,20 +589,11 @@ internal class SentenceAudioCaptureService(
                     streams.size > 1 -> Resolution.Unavailable(AnkiSentenceAudioFailure.TRACK_MAPPING_UNAVAILABLE, input.diagnostic())
                     only?.protected == true -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_STREAM_PROTECTED, input.diagnostic())
                     only != null -> Resolution.Unavailable(AnkiSentenceAudioFailure.TRACK_MAPPING_UNAVAILABLE, input.diagnostic())
-                    else -> resolveDiscovery(input)
+                    // No audio in probe output: for remote inputs mpv already gave an
+                    // index, so let extraction attempt it instead of giving up here.
+                    input.kind == SentenceAudioInputKind.REMOTE_HTTP && input.audioStreamIndex != null -> Resolution.Ready(input)
+                    else -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_STREAMS_NOT_FOUND, input.diagnostic())
                 }
-            }
-        }
-    }
-
-    private suspend fun resolveDiscovery(input: SentenceAudioInputSpec): Resolution {
-        return when (val discovery = probe(input, ProbeMode.ALL_UNRESTRICTED_DISCOVERY)) {
-            ProbeResult.SourceUnavailable -> Resolution.Unavailable(AnkiSentenceAudioFailure.SOURCE_UNAVAILABLE, input.diagnostic())
-            is ProbeResult.Failed -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_PROBE_FAILED, input.diagnostic(result = discovery.result))
-            is ProbeResult.Success -> when {
-                SentenceAudioMediaProbe.audioStreams(discovery.output).isNotEmpty() -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_CODEC_RESTRICTED, input.diagnostic())
-                input.kind == SentenceAudioInputKind.REMOTE_HTTP && input.audioStreamIndex != null -> Resolution.Ready(input)
-                else -> Resolution.Unavailable(AnkiSentenceAudioFailure.AUDIO_STREAMS_NOT_FOUND, input.diagnostic())
             }
         }
     }
@@ -618,9 +608,8 @@ internal class SentenceAudioCaptureService(
         return try {
             val result = FfmpegRunner.ffprobe(
                 when (mode) {
-                    ProbeMode.SELECTED_RESTRICTED -> SentenceAudioFfmpegArguments.audioProbe(input, lease.ffmpegValue, lease.tlsCaFile)
-                    ProbeMode.ALL_RESTRICTED -> SentenceAudioFfmpegArguments.allAudioProbe(input, lease.ffmpegValue, lease.tlsCaFile)
-                    ProbeMode.ALL_UNRESTRICTED_DISCOVERY -> SentenceAudioFfmpegArguments.audioDiscoveryProbe(input, lease.ffmpegValue, lease.tlsCaFile)
+                    ProbeMode.SELECTED -> SentenceAudioFfmpegArguments.audioProbe(input, lease.ffmpegValue, lease.tlsCaFile)
+                    ProbeMode.ALL -> SentenceAudioFfmpegArguments.allAudioProbe(input, lease.ffmpegValue, lease.tlsCaFile)
                 },
                 cleanup::nativeFinished,
             )
@@ -748,9 +737,8 @@ internal class SentenceAudioCaptureService(
         data class Unavailable(val failure: AnkiSentenceAudioFailure, val diagnostic: AnkiSentenceAudioDiagnostic?) : Resolution
     }
     private enum class ProbeMode(val stage: SentenceAudioDiagnosticStage) {
-        SELECTED_RESTRICTED(SentenceAudioDiagnosticStage.SELECTED_AUDIO_PROBE),
-        ALL_RESTRICTED(SentenceAudioDiagnosticStage.ALL_AUDIO_PROBE),
-        ALL_UNRESTRICTED_DISCOVERY(SentenceAudioDiagnosticStage.AUDIO_DISCOVERY_PROBE),
+        SELECTED(SentenceAudioDiagnosticStage.SELECTED_AUDIO_PROBE),
+        ALL(SentenceAudioDiagnosticStage.ALL_AUDIO_PROBE),
     }
     private sealed interface ProbeResult { data object SourceUnavailable : ProbeResult; data class Failed(val result: FfmpegCommandResult? = null) : ProbeResult; data class Success(val output: String) : ProbeResult }
 }

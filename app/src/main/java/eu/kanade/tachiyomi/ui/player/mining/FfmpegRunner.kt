@@ -33,9 +33,16 @@ internal fun classifyFfmpegFailure(failStackTrace: String?, logs: String?): Ffmp
     }
 }
 
-/** True when the input looks like an HLS playlist, which needs permissive segment handling. */
-internal fun isHlsInput(value: String): Boolean =
-    value.substringBefore('?').endsWith(".m3u8", ignoreCase = true) || value.contains(".m3u8", ignoreCase = true)
+/**
+ * True for HLS-ish inputs: `.m3u8` URLs, plus loopback hosts (extension localhost
+ * proxies serve HLS without `.m3u8` in the URL). Only these get the HLS demuxer's
+ * segment flags — ffmpeg aborts any other input with "Option not found" if present.
+ */
+internal fun isHlsLikeInput(value: String): Boolean {
+    if (value.substringBefore('?').endsWith(".m3u8", ignoreCase = true) || value.contains(".m3u8", ignoreCase = true)) return true
+    val host = value.substringAfter("://", "").substringBefore("/").substringBefore(":").lowercase()
+    return host == "127.0.0.1" || host == "localhost" || host.startsWith("[")
+}
 
 /**
  * Shared suspend runner for bundled ffmpeg/ffprobe jobs. Logs are never printed to the Android

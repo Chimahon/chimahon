@@ -5,6 +5,7 @@ import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.FFprobeKit
+import com.arthenica.ffmpegkit.FFprobeSession
 import com.arthenica.ffmpegkit.Level
 import com.arthenica.ffmpegkit.LogCallback
 import com.arthenica.ffmpegkit.ReturnCode
@@ -22,10 +23,10 @@ import eu.kanade.tachiyomi.torrentServer.TorrentServerUtils
 import eu.kanade.tachiyomi.source.isSourceForTorrents
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
+import eu.kanade.tachiyomi.ui.player.mining.isHlsLikeInput
 import eu.kanade.tachiyomi.ui.player.isTorrentUrl
 import eu.kanade.tachiyomi.network.ProgressListener
 import eu.kanade.tachiyomi.util.storage.DiskUtil
-import eu.kanade.tachiyomi.util.storage.toFFmpegString
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -415,78 +416,84 @@ class AnimeDownloader(
     private suspend fun ffmpegDownloadVideo(video: Video, tmpDir: UniFile, download: AnimeDownload) {
         withContext(Dispatchers.IO) {
             val filename = DiskUtil.buildValidFilename(download.episode.name)
-            tmpDir.findFile("$filename.tmp")?.delete()
-            val videoFile = tmpDir.createFile("$filename.tmp")
-                ?: throw IllegalStateException("Failed to create temp video file")
+            // Plain cache path: ffkitsaf output handles don't survive across retry sessions
+            // ("SAF id not found" on attempt 2+), so mux here and copy into place afterwards.
+            val tmpFile = File(context.cacheDir, "anime_dl_${download.episode.id}.mkv")
+            try {
+                tmpFile.delete()
+                val headers = video.headers ?: download.source.headers ?: Headers.Builder().build()
+                val headerOptions = headers.joinToString("", "-headers '", "'") {
+                    "${it.first}: ${it.second.replace("'", "'\\''")}\r\n"
+                }
 
-            val ffmpegFilename = videoFile.uri.toFFmpegString(context).ifBlank {
-                videoFile.filePath ?: throw Exception("Failed to resolve output file path (SAF returned empty)")
-            }
-            val headers = video.headers ?: download.source.headers ?: Headers.Builder().build()
-            val headerOptions = headers.joinToString("", "-headers '", "'") {
-                "${it.first}: ${it.second.replace("'", "'\\''")}\r\n"
-            }
+                val ffmpegOptions = buildFFmpegOptions(video, headerOptions, tmpFile.absolutePath)
 
-            val ffmpegOptions = buildFFmpegOptions(video, headerOptions, ffmpegFilename)
+                val ffprobeCommand = buildFFprobeDurationCommand(video, headers)
+                val inputDuration = getDuration(ffprobeCommand) ?: 0F
+                val duration = inputDuration.toLong().coerceAtLeast(1L)
 
-            val ffprobeCommand = FFmpegKitConfig.parseArguments(
-                "$headerOptions -v quiet -show_entries format=duration " +
-                    "-of default=noprint_wrappers=1:nokey=1 \"${video.videoUrl}\"",
-            )
-            val inputDuration = getDuration(ffprobeCommand) ?: 0F
-            val duration = inputDuration.toLong().coerceAtLeast(1L)
+                retryWithBackoff(maxRetries = 3, initialDelay = 2000L) { attempt ->
+                    var lastNotifyTime = 0L
+                    val statCallback = StatisticsCallback { stats ->
+                        val outTime = (stats.time / 1000.0).toLong()
+                        if (outTime > 0) {
+                            download.progress = ((100 * outTime) / duration).toInt().coerceIn(0, 100)
+                            val now = System.currentTimeMillis()
+                            if (now - lastNotifyTime >= 1000) {
+                                lastNotifyTime = now
+                                notifier.onProgressChange(download)
+                                notifyQueueChanged()
+                            }
+                        }
+                    }
 
-            retryWithBackoff(maxRetries = 3, initialDelay = 2000L) { attempt ->
-                var lastNotifyTime = 0L
-                val statCallback = StatisticsCallback { stats ->
-                    val outTime = (stats.time / 1000.0).toLong()
-                    if (outTime > 0) {
-                        download.progress = ((100 * outTime) / duration).toInt().coerceIn(0, 100)
-                        val now = System.currentTimeMillis()
-                        if (now - lastNotifyTime >= 1000) {
-                            lastNotifyTime = now
-                            notifier.onProgressChange(download)
-                            notifyQueueChanged()
+                    val logCallback = LogCallback { log ->
+                        if (log.level <= Level.AV_LOG_WARNING) {
+                            log.message?.let { logcat(LogPriority.ERROR) { it } }
+                        }
+                    }
+
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        val session = FFmpegKit.executeWithArgumentsAsync(
+                            ffmpegOptions,
+                            { returnedSession ->
+                                currentFFmpegSession = null
+                                if (ReturnCode.isSuccess(returnedSession.getReturnCode())) {
+                                    cont.resume(Unit)
+                                } else {
+                                    val detail = buildFFmpegFailureMessage(
+                                        exitCode = returnedSession.getReturnCode().toString(),
+                                        failStackTrace = returnedSession.getFailStackTrace(),
+                                        logs = returnedSession.getAllLogsAsString(),
+                                    )
+                                    cont.resumeWithException(Exception(detail))
+                                }
+                            },
+                            logCallback,
+                            statCallback,
+                        )
+                        currentFFmpegSession = session
+
+                        cont.invokeOnCancellation {
+                            session.cancel()
+                            currentFFmpegSession = null
                         }
                     }
                 }
 
-                val logCallback = LogCallback { log ->
-                    if (log.level <= Level.AV_LOG_WARNING) {
-                        log.message?.let { logcat(LogPriority.ERROR) { it } }
+                tmpDir.findFile("$filename.tmp")?.delete()
+                val videoFile = tmpDir.createFile("$filename.tmp")
+                    ?: throw IllegalStateException("Failed to create temp video file")
+                videoFile.openOutputStream().use { output ->
+                    tmpFile.inputStream().use { input ->
+                        input.copyTo(output, bufferSize = 256 * 1024)
                     }
                 }
-
-                suspendCancellableCoroutine<Unit> { cont ->
-                    val session = FFmpegKit.executeWithArgumentsAsync(
-                        ffmpegOptions,
-                        { returnedSession ->
-                            currentFFmpegSession = null
-                            if (ReturnCode.isSuccess(returnedSession.getReturnCode())) {
-                                cont.resume(Unit)
-                            } else {
-                                val detail = buildFFmpegFailureMessage(
-                                    exitCode = returnedSession.getReturnCode().toString(),
-                                    failStackTrace = returnedSession.getFailStackTrace(),
-                                    logs = returnedSession.getAllLogsAsString(),
-                                )
-                                cont.resumeWithException(Exception(detail))
-                            }
-                        },
-                        logCallback,
-                        statCallback,
-                    )
-                    currentFFmpegSession = session
-
-                    cont.invokeOnCancellation {
-                        session.cancel()
-                        currentFFmpegSession = null
-                    }
-                }
-
                 tmpDir.findFile("$filename.tmp")?.apply {
                     renameTo("$filename.mkv")
                 } ?: throw Exception("Downloaded file not found")
+            } finally {
+                tmpFile.delete()
             }
         }
     }
@@ -543,6 +550,14 @@ class AnimeDownloader(
             if (video.videoUrl.startsWith("http")) {
                 if (headerOptions.isNotBlank()) add(headerOptions)
                 if (streamOptions.isNotBlank()) add(streamOptions)
+                // HLS-only: extension proxies serve extensionless segment URLs, which this
+                // FFmpeg build rejects under its default allowed_segment_extensions list.
+                // discardcorrupt drops the mangled/ad-junk packets proxies emit instead of
+                // letting them abort the copy-mux at the bitstream filter.
+                if (isHlsLikeInput(video.videoUrl)) {
+                    add("-allowed_extensions ALL -allowed_segment_extensions ALL -extension_picky 0")
+                    add("-fflags +discardcorrupt")
+                }
             }
             add("-i")
             add("\"${video.videoUrl}\"")
@@ -565,19 +580,42 @@ class AnimeDownloader(
     }
 
     private suspend fun getDuration(ffprobeCommand: Array<String>): Float? {
-        return suspendCancellableCoroutine { continuation ->
-            val session = FFprobeKit.executeWithArgumentsAsync(ffprobeCommand) {
-                if (ReturnCode.isSuccess(it.getReturnCode())) {
-                    continuation.resume(it)
-                } else {
-                    val err = it.getAllLogsAsString().trim()
-                    logcat(LogPriority.ERROR) { "ffprobe failed: $err" }
-                    continuation.resumeWithException(Exception("ffprobe failed: $err"))
+        return try {
+            suspendCancellableCoroutine<FFprobeSession?> { continuation ->
+                val session = FFprobeKit.executeWithArgumentsAsync(ffprobeCommand) {
+                    if (ReturnCode.isSuccess(it.getReturnCode())) {
+                        continuation.resume(it)
+                    } else {
+                        // Best-effort only: a duration check must never fail the download.
+                        val err = it.getAllLogsAsString().trim()
+                        logcat(LogPriority.ERROR) { "ffprobe failed: $err" }
+                        continuation.resume(null)
+                    }
                 }
-            }
-            continuation.invokeOnCancellation { session.cancel() }
-        }.runCatching { getAllLogsAsString().trim().toFloatOrNull() }.getOrDefault(null)
+                continuation.invokeOnCancellation { session.cancel() }
+            }?.getAllLogsAsString()?.trim()?.toFloatOrNull()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "ffprobe duration check failed, continuing without duration" }
+            null
+        }
     }
+
+    private fun buildFFprobeDurationCommand(video: Video, headers: Headers): Array<String> = buildList {
+        if (headers.size > 0) {
+            add("-headers")
+            add(headers.joinToString("") { "${it.first}: ${it.second}\r\n" })
+        }
+        add("-rw_timeout"); add("15000000")
+        if (isHlsLikeInput(video.videoUrl)) {
+            add("-allowed_extensions"); add("ALL"); add("-allowed_segment_extensions"); add("ALL"); add("-extension_picky"); add("0")
+        }
+        add("-v"); add("error")
+        add("-show_entries"); add("format=duration")
+        add("-of"); add("default=noprint_wrappers=1:nokey=1")
+        add(video.videoUrl)
+    }.toTypedArray()
 
     private fun cancelFFmpeg() {
         currentFFmpegSession?.cancel()

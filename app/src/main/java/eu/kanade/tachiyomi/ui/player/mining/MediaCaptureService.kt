@@ -80,7 +80,8 @@ internal class MediaCaptureService(
         if (source.headers.isNotEmpty()) {
             add("-headers"); add(source.headers.joinToString("") { "${it.first}: ${it.second}\r\n" })
         }
-        if (isHlsInput(source.input)) {
+        // HLS-only (see isHlsLikeInput): ffmpeg aborts other inputs if these are present.
+        if (isHlsLikeInput(source.input)) {
             add("-allowed_extensions"); add("ALL")
             add("-allowed_segment_extensions"); add("ALL")
             add("-extension_picky"); add("0")
