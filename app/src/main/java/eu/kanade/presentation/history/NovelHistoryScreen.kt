@@ -189,8 +189,10 @@ private fun NovelHistoryItem(
                 if (!latest.chapterRead && latest.chapterProgress > 0.0) {
                     val percent =
                         (latest.chapterProgress.coerceIn(0.0, 1.0) * 100).toInt()
-                    val position = if (entry.latestIndex >= 0 && entry.totalCount > 0) {
-                        " · Ch. ${entry.latestIndex + 1} of ${entry.totalCount}"
+                    // Actual chapter number (manga parity), not the list
+                    // position — numbering can have gaps.
+                    val position = if (entry.totalCount > 0) {
+                        " · Ch. ${formatChapterNumber(latest.chapterNumber.toDouble())} of ${entry.totalCount}"
                     } else {
                         ""
                     }

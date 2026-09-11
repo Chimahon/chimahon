@@ -11,7 +11,14 @@ import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.domain.novel.model.Novel
@@ -37,7 +44,22 @@ class NovelHistoryScreenModel(
 ) : StateScreenModel<NovelHistoryScreenModel.State>(State()) {
 
     init {
-        reload()
+        // Manga parity: subscribe so reads land live instead of only on
+        // init/restart. Search re-queries via flatMapLatest.
+        screenModelScope.launchIO {
+            state.map { it.searchQuery }
+                .distinctUntilChanged()
+                .flatMapLatest { query ->
+                    novelHistoryRepository.subscribeToHistoryWithRelations(query.orEmpty())
+                }
+                .distinctUntilChanged()
+                .catch { e -> logcat(LogPriority.ERROR, e) }
+                .collect { rows ->
+                    mutableState.update {
+                        it.copy(list = buildEntries(rows), isLoading = false)
+                    }
+                }
+        }
     }
 
     fun reload() {
@@ -47,28 +69,33 @@ class NovelHistoryScreenModel(
             // orders by last_read DESC, so the first row per novel wins).
             val rows = novelHistoryRepository
                 .getHistoryWithRelations(mutableState.value.searchQuery.orEmpty())
-            val entries = rows.groupBy { it.novelId }.mapNotNull { (novelId, group) ->
-                val latest = group.firstOrNull() ?: return@mapNotNull null
-                val chapters = runCatching {
-                    novelChapterRepository.getChaptersByNovelId(novelId)
-                }.getOrNull().orEmpty()
-                NovelHistoryEntry(
-                    novelId = novelId,
-                    title = latest.novelTitle,
-                    thumbnailUrl = latest.novelThumbnailUrl,
-                    source = latest.novelSource,
-                    favorite = latest.novelFavorite,
-                    latest = latest,
-                    readCount = chapters.count { it.read },
-                    totalCount = chapters.size,
-                    latestIndex = chapters.sortedBy { it.chapterNumber }
-                        .indexOfFirst { it.id == latest.chapterId },
-                )
-            }
             mutableState.update {
-                it.copy(list = entries.toImmutableList(), isLoading = false)
+                it.copy(list = buildEntries(rows), isLoading = false)
             }
         }
+    }
+
+    private suspend fun buildEntries(
+        rows: List<tachiyomi.domain.novel.model.NovelHistoryWithRelations>,
+    ): ImmutableList<NovelHistoryEntry> {
+        return rows.groupBy { it.novelId }.mapNotNull { (novelId, group) ->
+            val latest = group.firstOrNull() ?: return@mapNotNull null
+            val chapters = runCatching {
+                novelChapterRepository.getChaptersByNovelId(novelId)
+            }.getOrNull().orEmpty()
+            NovelHistoryEntry(
+                novelId = novelId,
+                title = latest.novelTitle,
+                thumbnailUrl = latest.novelThumbnailUrl,
+                source = latest.novelSource,
+                favorite = latest.novelFavorite,
+                latest = latest,
+                readCount = chapters.count { it.read },
+                totalCount = chapters.size,
+                latestIndex = chapters.sortedBy { it.chapterNumber }
+                    .indexOfFirst { it.id == latest.chapterId },
+            )
+        }.toImmutableList()
     }
 
     fun updateSearchQuery(query: String?) {

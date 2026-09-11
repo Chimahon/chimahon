@@ -15,6 +15,8 @@ interface NovelHistoryRepository {
 
     suspend fun getHistoryWithRelations(query: String): List<NovelHistoryWithRelations>
 
+    fun subscribeToHistoryWithRelations(query: String): kotlinx.coroutines.flow.Flow<List<NovelHistoryWithRelations>>
+
     suspend fun deleteAllHistory(): Boolean
 
     suspend fun upsertHistory(

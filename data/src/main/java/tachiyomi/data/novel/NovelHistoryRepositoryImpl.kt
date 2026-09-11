@@ -119,6 +119,12 @@ class NovelHistoryRepositoryImpl(
         }
     }
 
+    override fun subscribeToHistoryWithRelations(query: String): kotlinx.coroutines.flow.Flow<List<NovelHistoryWithRelations>> {
+        return handler.subscribeToList {
+            novel_historyQueries.getNovelHistoryWithRelations(query, ::mapNovelHistoryWithRelations)
+        }
+    }
+
     override suspend fun deleteAllHistory(): Boolean {
         return try {
             handler.await { novel_historyQueries.deleteAllNovelHistory() }
