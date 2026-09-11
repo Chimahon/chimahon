@@ -687,9 +687,15 @@
   function isCJK(ch) {
     const cp = ch.codePointAt(0);
     // CJK Unified, Katakana, Hiragana, Katakana ext, CJK compat, fullwidth
+    // + Hangul (Jamo, Compatibility Jamo, Syllables, Jamo Extended-A/B) for Korean recursive lookup
     return (cp >= 0x3000 && cp <= 0x9FFF) ||
            (cp >= 0xF900 && cp <= 0xFAFF) ||
-           (cp >= 0xFF00 && cp <= 0xFFEF);
+           (cp >= 0xFF00 && cp <= 0xFFEF) ||
+           (cp >= 0x1100 && cp <= 0x11FF) ||
+           (cp >= 0x3130 && cp <= 0x318F) ||
+           (cp >= 0xAC00 && cp <= 0xD7AF) ||
+           (cp >= 0xA960 && cp <= 0xA97F) ||
+           (cp >= 0xD7B0 && cp <= 0xD7FF);
   }
 
   function isKanjiCodepoint(cp) {
@@ -699,7 +705,7 @@
   }
 
   function isWordChar(ch) {
-    return isCJK(ch) || /[\w\u00C0-\u024F\u0600-\u06FF]/.test(ch);
+    return isCJK(ch) || /[\w\u00C0-\u024F\u0600-\u06FF\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\uA960-\uA97F\uD7B0-\uD7FF]/.test(ch);
   }
 
   const scanDelimiters = '。、！？…‥「」『』（）()【】〈〉《》〔〕｛｝{}［］[]・：；:;，,.─\n\r';
