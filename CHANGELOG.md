@@ -4,6 +4,25 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.0]
+
+### Added
+- LNRReader extensions support
+- EPUB novel extensions support
+- DB-first novel library/reader/history
+- Paddle OCR on-device engine
+
+### Changed
+- Point repo links to Chimahon org
+- Bump chimahon-ffmpeg to v8.1.1.7
+- Use Chimahon AniList and MAL client IDs
+
+### Fixed
+- Playback order and sentence audio failing on valid videos
+- Anime downloads failing on HLS and referer-locked sources
+- Korean recursive lookup not triggering
+- Dictionary floating button showing in screen lookup captures
+
 ## [v2.3.4]
 
 ### Added
