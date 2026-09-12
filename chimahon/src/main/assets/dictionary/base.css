@@ -737,7 +737,7 @@ table {
 .gloss-image-link[data-appearance=monochrome] .gloss-image { opacity: 0; }
 
 /* ── Icons & Buttons ─────────────────────────────────── */
-.word-audio-btn, .anki-add-btn, .anki-open-btn {
+.word-audio-btn, .anki-add-btn, .anki-open-btn, .dictionary-copy-btn {
   background: none;
   border: none;
   padding: 4px;
@@ -752,7 +752,7 @@ table {
   width: 28px;
   height: 28px;
 }
-.word-audio-btn:hover, .anki-add-btn:hover, .anki-open-btn:hover {
+.word-audio-btn:hover, .anki-add-btn:hover, .anki-open-btn:hover, .dictionary-copy-btn:hover {
   background: var(--hover-bg);
   color: var(--fg);
 }
@@ -766,7 +766,7 @@ table {
 }
 
 /* Only constrain SVGs inside icon buttons, not pitch diagrams */
-.word-audio-btn svg, .anki-add-btn svg, .anki-open-btn svg, .dict-arrow svg {
+.word-audio-btn svg, .anki-add-btn svg, .anki-open-btn svg, .dictionary-copy-btn svg, .dict-arrow svg {
   display: block; flex-shrink: 0;
   width: 20px; height: 20px;
   fill: currentColor;
@@ -949,13 +949,15 @@ html[data-chima-eink-mode="true"] .dict-arrow {
 
 html[data-chima-eink-mode="true"] .word-audio-btn,
 html[data-chima-eink-mode="true"] .anki-add-btn,
-html[data-chima-eink-mode="true"] .anki-open-btn {
+html[data-chima-eink-mode="true"] .anki-open-btn,
+html[data-chima-eink-mode="true"] .dictionary-copy-btn {
   border-radius: 0 !important;
 }
 
 html[data-chima-eink-mode="true"] .word-audio-btn:hover,
 html[data-chima-eink-mode="true"] .anki-add-btn:hover,
-html[data-chima-eink-mode="true"] .anki-open-btn:hover {
+html[data-chima-eink-mode="true"] .anki-open-btn:hover,
+html[data-chima-eink-mode="true"] .dictionary-copy-btn:hover {
   background: transparent !important;
   opacity: 1 !important;
 }
@@ -1090,7 +1092,8 @@ html[data-theme="dark"][data-chima-eink-mode="true"] .entry + .entry {
 
 html[data-theme="dark"][data-chima-eink-mode="true"] .word-audio-btn:hover,
 html[data-theme="dark"][data-chima-eink-mode="true"] .anki-add-btn:hover,
-html[data-theme="dark"][data-chima-eink-mode="true"] .anki-open-btn:hover {
+html[data-theme="dark"][data-chima-eink-mode="true"] .anki-open-btn:hover,
+html[data-theme="dark"][data-chima-eink-mode="true"] .dictionary-copy-btn:hover {
   background: transparent !important;
 }
 
@@ -1103,6 +1106,11 @@ html[data-theme="dark"][data-chima-eink-mode="true"] .anki-open-btn:hover {
 }
 .kanji-tag-list {
   margin: 4px 0;
+  display: flex;
+  align-items: center;
+}
+.kanji-tag-list .dictionary-copy-btn {
+  margin-left: auto;
 }
 .kanji-section-header {
   font-size: 0.85em;

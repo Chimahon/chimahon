@@ -4,6 +4,7 @@
   function createEntryArticle(character, entry) {
     var article = document.createElement('article');
     article.className = 'entry kanji-entry';
+    var definitions = Array.isArray(entry.definitions) ? entry.definitions : [];
 
     // ── Glyph ──
     var glyphRow = document.createElement('div');
@@ -38,10 +39,23 @@
     inner.appendChild(content);
     tag.appendChild(inner);
     tagList.appendChild(tag);
+    if ((entry.dictName || '').toUpperCase().startsWith('KANJIDIC') && definitions.length > 0) {
+      var copyButton = document.createElement('button');
+      copyButton.className = 'dictionary-copy-btn';
+      copyButton.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M19 21H8c-1.1 0-2-.9-2-2V7h2v12h11v2zM16 3H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H4V5h12v10z"/></svg>';
+      copyButton.title = 'Copy meanings';
+      copyButton.onclick = function(e) {
+        e.stopPropagation();
+        if (!window.DictionaryClipboard) return;
+        window.DictionaryClipboard.copyTranslation(definitions.join('\n'));
+        copyButton.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
+        setTimeout(function() { copyButton.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M19 21H8c-1.1 0-2-.9-2-2V7h2v12h11v2zM16 3H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H4V5h12v10z"/></svg>'; }, 1000);
+      };
+      tagList.appendChild(copyButton);
+    }
     body.appendChild(tagList);
 
     // ── Definitions (meanings) ──
-    var definitions = Array.isArray(entry.definitions) ? entry.definitions : [];
     if (definitions.length > 0) {
       var glossHeader = document.createElement('div');
       glossHeader.className = 'kanji-section-header';
