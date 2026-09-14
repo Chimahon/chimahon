@@ -15,12 +15,16 @@ import eu.kanade.presentation.browse.anime.AnimeSourcesScreen
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.components.TabContent
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
+import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.tachiyomi.ui.browse.animesource.browse.BrowseAnimeSourceScreen
+import eu.kanade.tachiyomi.ui.browse.animesource.feed.AnimeSourceFeedScreen
 import eu.kanade.tachiyomi.ui.browse.animesource.globalsearch.GlobalAnimeSearchScreen
 import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.domain.source.anime.interactor.GetRemoteAnime
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 @Composable
 fun Screen.animeSourcesTab(): TabContent {
@@ -80,4 +84,10 @@ fun Screen.animeSourcesTab(): TabContent {
 
 private fun AnimeCatalogueSource.createBrowseScreen(listingQuery: String?) =
     (this as? AnimeSourceScreenProvider)?.createBrowseScreen(listingQuery, null)
-        ?: BrowseAnimeSourceScreen(id, listingQuery)
+        ?: if (listingQuery == GetRemoteAnime.QUERY_POPULAR &&
+            Injekt.get<UiPreferences>().useNewSourceNavigation().get()
+        ) {
+            AnimeSourceFeedScreen(id)
+        } else {
+            BrowseAnimeSourceScreen(id, listingQuery)
+        }

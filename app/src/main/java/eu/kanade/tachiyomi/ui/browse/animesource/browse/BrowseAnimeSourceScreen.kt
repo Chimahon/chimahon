@@ -59,6 +59,7 @@ import eu.kanade.tachiyomi.ui.category.CategoryScreen
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import eu.kanade.tachiyomi.ui.webview.WebViewScreen
 import mihon.feature.animemigration.dialog.MigrateAnimeDialog
+import eu.kanade.tachiyomi.ui.browse.animemigration.season.MigrateSeasonSelectScreen
 import mihon.presentation.core.util.collectAsLazyPagingItems
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.domain.entries.anime.interactor.GetAnime
@@ -82,6 +83,7 @@ data class BrowseAnimeSourceScreen(
     val sourceId: Long,
     private val listingQuery: String?,
     private val migrateFromAnimeId: Long? = null,
+    private val savedSearchId: Long? = null,
 ) : Screen(), AssistContentScreen {
 
     private var assistUrl: String? = null
@@ -95,7 +97,7 @@ data class BrowseAnimeSourceScreen(
             return
         }
 
-        val screenModel = rememberScreenModel { BrowseAnimeSourceScreenModel(sourceId, listingQuery) }
+        val screenModel = rememberScreenModel { BrowseAnimeSourceScreenModel(sourceId, listingQuery, savedSearchId) }
         val state by screenModel.state.collectAsState()
         val migrationMode = migrateFromAnimeId != null
         val migrateFromAnime by produceState<Anime?>(initialValue = null, migrateFromAnimeId) {
@@ -361,6 +363,9 @@ data class BrowseAnimeSourceScreen(
                     current = dialog.oldAnime,
                     target = dialog.newAnime,
                     onClickTitle = { navigator.push(AnimeScreen(dialog.newAnime.id, true)) },
+                    onClickSeasons = {
+                        navigator.push(MigrateSeasonSelectScreen(dialog.oldAnime, dialog.newAnime))
+                    },
                     onDismissRequest = onDismissRequest,
                     onComplete = {
                         onDismissRequest()

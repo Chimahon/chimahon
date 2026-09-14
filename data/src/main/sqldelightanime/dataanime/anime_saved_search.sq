@@ -1,0 +1,39 @@
+CREATE TABLE anime_saved_search(
+    _id INTEGER NOT NULL PRIMARY KEY,
+    source INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    query TEXT,
+    filters_json TEXT
+);
+
+selectBySource:
+SELECT * FROM anime_saved_search WHERE source = :sourceId;
+
+deleteBySource:
+DELETE FROM anime_saved_search WHERE source = :sourceId;
+
+selectAll:
+SELECT * FROM anime_saved_search;
+
+selectById:
+SELECT * FROM anime_saved_search WHERE _id = :id;
+
+selectByIds:
+SELECT * FROM anime_saved_search WHERE _id IN :ids;
+
+selectNamesAndSources:
+SELECT source, name
+FROM anime_saved_search;
+
+insert:
+INSERT INTO anime_saved_search (source, name, query, filters_json)
+VALUES (:source, :name, :query, :filtersJson);
+
+deleteById:
+DELETE FROM anime_saved_search WHERE _id = :id;
+
+deleteAll:
+DELETE FROM anime_saved_search;
+
+selectLastInsertedRowId:
+SELECT last_insert_rowid();

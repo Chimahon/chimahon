@@ -16,6 +16,8 @@ import tachiyomi.data.entries.anime.AnimeRepositoryImpl
 import tachiyomi.data.entries.anime.AnimeMergeRepositoryImpl
 import tachiyomi.data.category.AnimeCategoryRepositoryImpl
 import tachiyomi.data.episode.EpisodeRepositoryImpl
+import tachiyomi.data.source.anime.AnimeFeedSavedSearchRepositoryImpl
+import tachiyomi.data.source.anime.AnimeSavedSearchRepositoryImpl
 import tachiyomi.domain.entries.anime.interactor.DeleteAnimeById
 import tachiyomi.domain.entries.anime.interactor.DeleteByMergeId
 import tachiyomi.domain.entries.anime.interactor.DeleteMergeById
@@ -48,6 +50,21 @@ import tachiyomi.domain.entries.anime.repository.AnimeRepository
 import tachiyomi.domain.entries.anime.repository.CustomAnimeRepository
 import tachiyomi.domain.source.anime.interactor.GetAnimeSourcesWithNonLibraryAnime
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.domain.source.anime.interactor.CountAnimeFeedSavedSearchBySourceId
+import tachiyomi.domain.source.anime.interactor.CountAnimeFeedSavedSearchGlobal
+import tachiyomi.domain.source.anime.interactor.DeleteAnimeFeedSavedSearchById
+import tachiyomi.domain.source.anime.interactor.DeleteAnimeSavedSearchById
+import tachiyomi.domain.source.anime.interactor.GetAnimeFeedSavedSearchBySourceId
+import tachiyomi.domain.source.anime.interactor.GetAnimeFeedSavedSearchGlobal
+import tachiyomi.domain.source.anime.interactor.GetAnimeSavedSearchById
+import tachiyomi.domain.source.anime.interactor.GetAnimeSavedSearchBySourceId
+import tachiyomi.domain.source.anime.interactor.GetAnimeSavedSearchBySourceIdFeed
+import tachiyomi.domain.source.anime.interactor.GetAnimeSavedSearchGlobalFeed
+import tachiyomi.domain.source.anime.interactor.InsertAnimeFeedSavedSearch
+import tachiyomi.domain.source.anime.interactor.InsertAnimeSavedSearch
+import tachiyomi.domain.source.anime.interactor.ReorderAnimeFeed
+import tachiyomi.domain.source.anime.repository.AnimeFeedSavedSearchRepository
+import tachiyomi.domain.source.anime.repository.AnimeSavedSearchRepository
 import tachiyomi.domain.category.interactor.CreateAnimeCategory
 import tachiyomi.domain.category.interactor.DeleteAnimeCategory
 import tachiyomi.domain.category.interactor.GetAnimeCategories
@@ -150,6 +167,23 @@ class AnimeDomainModule : InjektModule {
         addFactory { SetSortModeForAnimeCategory(get(), get()) }
 
         addSingletonFactory { AnimeLibraryPreferences(get()) }
+
+        addSingletonFactory<AnimeSavedSearchRepository> { AnimeSavedSearchRepositoryImpl(get()) }
+        addFactory { GetAnimeSavedSearchById(get()) }
+        addFactory { GetAnimeSavedSearchBySourceId(get()) }
+        addFactory { DeleteAnimeSavedSearchById(get()) }
+        addFactory { InsertAnimeSavedSearch(get()) }
+
+        addSingletonFactory<AnimeFeedSavedSearchRepository> { AnimeFeedSavedSearchRepositoryImpl(get()) }
+        addFactory { InsertAnimeFeedSavedSearch(get()) }
+        addFactory { DeleteAnimeFeedSavedSearchById(get()) }
+        addFactory { GetAnimeFeedSavedSearchGlobal(get()) }
+        addFactory { GetAnimeFeedSavedSearchBySourceId(get()) }
+        addFactory { CountAnimeFeedSavedSearchGlobal(get()) }
+        addFactory { CountAnimeFeedSavedSearchBySourceId(get()) }
+        addFactory { GetAnimeSavedSearchGlobalFeed(get()) }
+        addFactory { GetAnimeSavedSearchBySourceIdFeed(get()) }
+        addFactory { ReorderAnimeFeed(get()) }
 
         addFactory { InsertAnimeTrack(get()) }
         addFactory { DeleteAnimeTrack(get()) }

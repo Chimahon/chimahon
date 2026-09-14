@@ -62,8 +62,11 @@ import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
 import eu.kanade.tachiyomi.data.connections.discord.DiscordScreen
 import eu.kanade.tachiyomi.ui.browse.animeextension.AnimeExtensionsScreenModel
 import eu.kanade.tachiyomi.ui.browse.animeextension.animeExtensionsTab
+import eu.kanade.tachiyomi.ui.browse.animefeed.AnimeFeedScreenModel
+import eu.kanade.tachiyomi.ui.browse.animefeed.animeFeedTab
 import eu.kanade.tachiyomi.ui.browse.animemigration.sources.migrateAnimeSourceTab
 import eu.kanade.tachiyomi.ui.browse.animesource.animeSourcesTab
+import eu.kanade.tachiyomi.ui.browse.BulkFavoriteAnimeScreenModel
 import eu.kanade.tachiyomi.ui.browse.extension.ExtensionsScreenModel
 import eu.kanade.tachiyomi.ui.browse.extension.extensionsTab
 import eu.kanade.tachiyomi.ui.browse.novelextension.NovelExtensionsScreenModel
@@ -77,6 +80,7 @@ import chimahon.novel.ui.browse.novelSourcesTab
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
@@ -142,11 +146,15 @@ data object BrowseTab : Tab {
 
         val feedScreenModel = rememberScreenModel { FeedScreenModel() }
         val bulkFavoriteScreenModel = rememberScreenModel { BulkFavoriteScreenModel() }
+        val animeFeedScreenModel = rememberScreenModel { AnimeFeedScreenModel() }
+        val animeBulkFavoriteScreenModel = rememberScreenModel { BulkFavoriteAnimeScreenModel() }
         val novelExtensionsScreenModel = rememberScreenModel { NovelExtensionsScreenModel() }
         val novelExtensionsState by novelExtensionsScreenModel.state.collectAsState()
 
         val feedState by feedScreenModel.state.collectAsState()
         val bulkFavoriteState by bulkFavoriteScreenModel.state.collectAsState()
+        val animeFeedState by animeFeedScreenModel.state.collectAsState()
+        val animeBulkFavoriteState by animeBulkFavoriteScreenModel.state.collectAsState()
 
         val snackbarHostState = remember { SnackbarHostState() }
 
@@ -181,11 +189,18 @@ data object BrowseTab : Tab {
                         )
                 }
             }
-            BrowseViewMode.Anime -> persistentListOf(
-                animeSourcesTab(),
-                animeExtensionsTab(animeExtensionsScreenModel),
-                migrateAnimeSourceTab(),
-            )
+            BrowseViewMode.Anime -> {
+                val tabs = mutableListOf(
+                    animeSourcesTab(),
+                    animeExtensionsTab(animeExtensionsScreenModel),
+                    migrateAnimeSourceTab(),
+                )
+                if (!hideFeedTab) {
+                    // Feed sits next to Sources, mirroring manga order.
+                    tabs.add(1, animeFeedTab(animeFeedScreenModel, animeBulkFavoriteScreenModel))
+                }
+                tabs.toImmutableList()
+            }
             BrowseViewMode.Novels -> persistentListOf(
                 novelSourcesTab(),
                 novelExtensionsTab(novelExtensionsScreenModel),
@@ -212,7 +227,28 @@ data object BrowseTab : Tab {
 
         Scaffold(
             topBar = {
-                if (bulkFavoriteState.selectionMode) {
+                if (browseMode == BrowseViewMode.Anime && animeBulkFavoriteState.selectionMode) {
+                    BulkSelectionToolbar(
+                        selectedCount = animeBulkFavoriteState.selection.size,
+                        isRunning = animeBulkFavoriteState.isRunning,
+                        onClickClearSelection = animeBulkFavoriteScreenModel::toggleSelectionMode,
+                        onChangeCategoryClick = animeBulkFavoriteScreenModel::addFavorite,
+                        onSelectAll = {
+                            animeFeedState.items?.let { result ->
+                                result.mapNotNull { it.results }
+                                    .flatten()
+                                    .forEach { animeBulkFavoriteScreenModel.select(it) }
+                            }
+                        },
+                        onReverseSelection = {
+                            animeFeedState.items?.let { result ->
+                                result.mapNotNull { it.results }
+                                    .flatten()
+                                    .let { animeBulkFavoriteScreenModel.reverseSelection(it) }
+                            }
+                        },
+                    )
+                } else if (bulkFavoriteState.selectionMode) {
                     BulkSelectionToolbar(
                         selectedCount = bulkFavoriteState.selection.size,
                         isRunning = bulkFavoriteState.isRunning,
