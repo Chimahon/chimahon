@@ -41,9 +41,11 @@ internal object AnimeExtensionLoader {
     private const val METADATA_SOURCE_CLASS = "tachiyomi.animeextension.class"
     private const val METADATA_SOURCE_FACTORY = "tachiyomi.animeextension.factory"
     private const val METADATA_NSFW = "tachiyomi.animeextension.nsfw"
+    private const val METADATA_HAS_README = "tachiyomi.animeextension.hasReadme"
+    private const val METADATA_HAS_CHANGELOG = "tachiyomi.animeextension.hasChangelog"
     private const val METADATA_TORRENT = "tachiyomi.animeextension.torrent"
-    const val LIB_VERSION_MIN = 14.0
-    const val LIB_VERSION_MAX = 15.0
+    const val LIB_VERSION_MIN = 12.0
+    const val LIB_VERSION_MAX = 16.0
 
     @Suppress("DEPRECATION")
     private val PACKAGE_FLAGS = PackageManager.GET_CONFIGURATIONS or
@@ -199,7 +201,9 @@ internal object AnimeExtensionLoader {
         val appInfo = pkgInfo.applicationInfo!!
         val pkgName = pkgInfo.packageName
 
-        val extName = pkgManager.getApplicationLabel(appInfo).toString().substringAfter("Tachiyomi: ")
+        val extName = pkgManager.getApplicationLabel(appInfo).toString()
+            .substringAfter("Aniyomi: ")
+            .substringAfter("Tachiyomi: ")
         val versionName = pkgInfo.versionName
         val versionCode = PackageInfoCompat.getLongVersionCode(pkgInfo)
 
@@ -229,6 +233,11 @@ internal object AnimeExtensionLoader {
                 versionCode,
                 libVersion,
                 signatures.last(),
+                repoName = repos.firstOrNull { repo ->
+                    signatures.all { it == repo.signingKeyFingerprint }
+                }?.let { repo ->
+                    repo.shortName.takeIf { !it.isNullOrBlank() } ?: repo.name
+                },
             )
             logcat(LogPriority.WARN) { "Anime extension $pkgName isn't trusted" }
             return AnimeLoadResult.Untrusted(extension)
@@ -306,6 +315,11 @@ internal object AnimeExtensionLoader {
             icon = appInfo.loadIcon(pkgManager),
             isShared = extensionInfo.isShared,
             signatureHash = signatures.last(),
+            repoName = repos.firstOrNull { repo ->
+                signatures.all { it == repo.signingKeyFingerprint }
+            }?.let { repo ->
+                repo.shortName.takeIf { !it.isNullOrBlank() } ?: repo.name
+            },
         )
         return AnimeLoadResult.Success(extension)
     }
