@@ -148,6 +148,43 @@ abstract class AnimeHttpSource : AnimeCatalogueSource {
 
     protected open fun episodeVideoParse(response: Response): SEpisode = throw UnsupportedOperationException("Not used")
 
+    /**
+     * Get all the available seasons for an anime.
+     * Normally it's not needed to override this method.
+     *
+     * @since extensions-lib 16
+     * @param anime the anime to look for seasons.
+     * @return the seasons for the anime.
+     */
+    override suspend fun getSeasonList(anime: SAnime): List<SAnime> {
+        return client.newCall(seasonListRequest(anime))
+            .awaitSuccess()
+            .let { response ->
+                seasonListParse(response)
+            }
+    }
+
+    /**
+     * Returns the request for updating the season list. Override only if it's needed to override
+     * the url, send different headers or request method like POST.
+     *
+     * @since extensions-lib 16
+     * @param anime the anime to look for seasons.
+     * @return the request for getting the seasons.
+     */
+    protected open fun seasonListRequest(anime: SAnime): Request {
+        return GET(baseUrl + anime.url, headers)
+    }
+
+    /**
+     * Parses the response from the site and returns a list of seasons.
+     *
+     * @since extensions-lib 16
+     * @param response the response from the site.
+     * @return the list of seasons.
+     */
+    protected open fun seasonListParse(response: Response): List<SAnime> = emptyList()
+
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         return client.newCall(hosterListRequest(episode))
             .awaitSuccess()

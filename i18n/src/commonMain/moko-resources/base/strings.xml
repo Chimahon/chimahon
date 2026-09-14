@@ -117,6 +117,7 @@
     <string name="action_global_search">Global search</string>
     <string name="action_select_all">Select all</string>
     <string name="action_select_inverse">Select inverse</string>
+    <string name="action_select">Select</string>
     <string name="action_mark_as_read">Mark as read</string>
     <string name="action_mark_as_unread">Mark as unread</string>
     <string name="action_mark_previous_as_read">Mark previous as read</string>
@@ -1645,6 +1646,7 @@
     <!-- Anime specific -->
     <string name="delete_downloads_for_anime">Delete downloaded episodes?</string>
     <string name="no_episodes_error">No episodes found</string>
+    <string name="no_seasons_error">No seasons found</string>
     <string name="episode_settings_updated">Episode settings updated</string>
     <string name="snack_add_to_anime_library">Add to library?</string>
     <string name="confirm_tracker_update_anime">Update trackers to episode %d?</string>
@@ -1760,6 +1762,7 @@
     <string name="action_play_externally">Play externally</string>
     <string name="action_play_internally">Play internally</string>
     <string name="action_show_anime">Show anime</string>
+    <string name="label_show_seasons">Show seasons</string>
     <string name="also_set_episode_settings_for_library">Also set episode settings for library</string>
     <string name="anime_interval_expected_update">Expected next update in %1$s with current interval of %2$s</string>
     <string name="anime_interval_expected_update_null">Expected next update is unknown</string>

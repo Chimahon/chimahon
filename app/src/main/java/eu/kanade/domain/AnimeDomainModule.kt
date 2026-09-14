@@ -3,6 +3,7 @@ package eu.kanade.domain
 import eu.kanade.domain.track.anime.interactor.AddAnimeTracks
 import eu.kanade.domain.track.anime.interactor.RefreshAnimeTracks
 import eu.kanade.domain.entries.anime.interactor.UpdateAnime as AppUpdateAnime
+import eu.kanade.domain.entries.anime.interactor.SyncSeasonsWithSource
 import eu.kanade.domain.episode.interactor.SetSeenStatus as AppSetSeenStatus
 import eu.kanade.domain.track.interactor.SyncEpisodeProgressWithTrack
 import eu.kanade.domain.track.interactor.TrackEpisode
@@ -64,6 +65,7 @@ import tachiyomi.domain.episode.interactor.GetMergedEpisodesByAnimeId
 import tachiyomi.domain.episode.interactor.SetAnimeDefaultEpisodeFlags
 import tachiyomi.domain.episode.interactor.SetSeenStatus as DomainSetSeenStatus
 import tachiyomi.domain.season.interactor.SetAnimeDefaultSeasonFlags
+import tachiyomi.domain.season.interactor.ShouldUpdateDbSeason
 import tachiyomi.domain.episode.interactor.ShouldUpdateDbEpisode
 import tachiyomi.domain.episode.interactor.UpdateEpisode
 import tachiyomi.domain.episode.repository.EpisodeRepository
@@ -131,6 +133,8 @@ class AnimeDomainModule : InjektModule {
         addFactory { DomainSetSeenStatus(get()) }
         addFactory { AppSetSeenStatus(get(), get()) }
         addFactory { ShouldUpdateDbEpisode() }
+        addFactory { ShouldUpdateDbSeason() }
+        addFactory { SyncSeasonsWithSource(get(), get(), get(), get(), get()) }
         addFactory { SyncEpisodesWithSource(get(), get(), get(), get(), get()) }
         addFactory { FilterEpisodesForDownload(get(), get(), get()) }
         addFactory { GetNextEpisodes(get(), get(), get()) }

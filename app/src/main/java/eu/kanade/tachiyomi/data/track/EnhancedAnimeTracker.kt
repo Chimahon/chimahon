@@ -31,6 +31,12 @@ interface EnhancedAnimeTracker {
     suspend fun match(anime: Anime): AnimeTrackSearch?
 
     /**
+     * Similar to [match], but only returns zero or one match for seasons.
+     * Ported from Anikku (komikku-app/anikku) season support.
+     */
+    suspend fun matchSeason(anime: Anime): AnimeTrackSearch? = null
+
+    /**
      * Checks whether the provided source/track/anime triplet is from this AnimeTracker
      */
     fun isTrackFrom(track: AnimeTrack, anime: Anime, source: AnimeSource?): Boolean

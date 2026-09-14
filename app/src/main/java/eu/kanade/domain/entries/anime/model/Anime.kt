@@ -98,6 +98,8 @@ fun Anime.toSAnime(): SAnime = SAnime.create().also {
     it.status = status.toInt()
     it.thumbnail_url = thumbnailUrl
     it.background_url = backgroundUrl
+    it.fetch_type = fetchType
+    it.season_number = seasonNumber
     it.initialized = initialized
 }
 
@@ -128,6 +130,8 @@ fun Anime.copyFrom(other: SAnime): Anime {
         // SY -->
         ogStatus = other.status.toLong(),
         // SY <--
+        fetchType = other.fetch_type,
+        seasonNumber = other.season_number,
         updateStrategy = other.update_strategy.toUpdateStrategy(),
         initialized = other.initialized,
     )
@@ -147,6 +151,8 @@ fun SAnime.toDomainAnime(sourceId: Long): Anime {
         ogStatus = status.toLong(),
         // SY <--
         updateStrategy = update_strategy.toUpdateStrategy(),
+        fetchType = fetch_type,
+        seasonNumber = season_number,
         initialized = initialized,
         source = sourceId,
     )

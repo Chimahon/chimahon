@@ -27,6 +27,8 @@ interface SAnime : Serializable {
 
     var fetch_type: FetchType
 
+    var season_number: Double
+
     var update_strategy: AnimeUpdateStrategy
 
     var initialized: Boolean
@@ -47,6 +49,7 @@ interface SAnime : Serializable {
         it.thumbnail_url = thumbnail_url
         it.background_url = background_url
         it.fetch_type = fetch_type
+        it.season_number = season_number
         it.update_strategy = update_strategy
         it.initialized = initialized
     }

@@ -15,6 +15,7 @@ import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.ui.browse.animesource.browse.BrowseAnimeSourceScreen
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import mihon.feature.animemigration.dialog.MigrateAnimeDialog
+import eu.kanade.tachiyomi.ui.browse.animemigration.season.MigrateSeasonSelectScreen
 import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.entries.anime.model.Anime
 import uy.kohesive.injekt.Injekt
@@ -57,6 +58,7 @@ class MigrateAnimeSearchScreen(private val animeId: Long) : Screen() {
                 current = current,
                 target = target,
                 onClickTitle = { navigator.push(AnimeScreen(target.id, true)) },
+                onClickSeasons = { navigator.push(MigrateSeasonSelectScreen(current, target)) },
                 onDismissRequest = { targetAnime = null },
                 onComplete = {
                     targetAnime = null

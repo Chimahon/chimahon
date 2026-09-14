@@ -19,6 +19,7 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.core.util.addOrRemove
 import eu.kanade.core.util.insertSeparators
 import eu.kanade.domain.entries.anime.interactor.SetAnimeViewerFlags
+import eu.kanade.domain.entries.anime.interactor.SyncSeasonsWithSource
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.entries.anime.interactor.UpdateAnime
 import eu.kanade.domain.entries.anime.model.downloadedFilter
@@ -38,6 +39,7 @@ import eu.kanade.domain.episode.interactor.SetSeenStatus
 import eu.kanade.domain.episode.interactor.SetExcludedAnimeScanlators
 import eu.kanade.domain.episode.interactor.SyncEpisodesWithSource
 import eu.kanade.domain.track.anime.interactor.AddAnimeTracks
+import eu.kanade.domain.track.anime.interactor.RefreshAnimeTracks
 import eu.kanade.domain.track.interactor.TrackEpisode
 import eu.kanade.domain.track.model.AutoTrackState
 import eu.kanade.domain.track.service.TrackPreferences
@@ -78,6 +80,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -110,6 +113,7 @@ import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.domain.entries.anime.model.AnimeCover
 import tachiyomi.domain.entries.anime.model.AnimeUpdate
 import tachiyomi.domain.entries.anime.model.CustomAnimeInfo
+import tachiyomi.domain.entries.anime.model.NoSeasonsException
 import tachiyomi.domain.entries.anime.model.SeasonAnime
 import tachiyomi.domain.entries.anime.model.SeasonDisplayMode
 import tachiyomi.domain.entries.anime.model.applyFilter
@@ -171,8 +175,10 @@ class AnimeScreenModel(
     private val updateEpisode: UpdateEpisode = Injekt.get(),
     private val updateAnime: UpdateAnime = Injekt.get(),
     private val syncEpisodesWithSource: SyncEpisodesWithSource = Injekt.get(),
+    private val syncSeasonsWithSource: SyncSeasonsWithSource = Injekt.get(),
     private val getAnimeCategories: GetAnimeCategories = Injekt.get(),
     private val addTracks: AddAnimeTracks = Injekt.get(),
+    private val refreshAnimeTracks: RefreshAnimeTracks = Injekt.get(),
     private val setAnimeCategories: SetAnimeCategories = Injekt.get(),
     private val animeRepository: AnimeRepository = Injekt.get(),
     private val networkToLocalAnime: NetworkToLocalAnime = Injekt.get(),
@@ -292,7 +298,7 @@ class AnimeScreenModel(
             }
 
             val needRefreshInfo = !anime.initialized
-            val needRefreshEpisode = episodes.isEmpty()
+            val needRefreshEpisode = episodes.isEmpty() && anime.fetchType == FetchType.Episodes
 
             val animeSource = Injekt.get<AnimeSourceManager>().getOrStub(anime.source)
             // --> (Torrent)
@@ -305,6 +311,7 @@ class AnimeScreenModel(
 
             val seasons = animeRepository.getAnimeSeasonsById(animeId)
                 .toSeasonItems(anime)
+            val needRefreshSeason = seasons.isEmpty() && anime.fetchType == FetchType.Seasons
 
             // Show what we have earlier
             mutableState.update {
@@ -316,7 +323,7 @@ class AnimeScreenModel(
                     seasons = seasons,
                     availableScanlators = getAvailableAnimeScanlators.await(animeId).toImmutableSet(),
                     excludedScanlators = getExcludedAnimeScanlators.await(animeId).toImmutableSet(),
-                    isRefreshingData = needRefreshInfo || needRefreshEpisode,
+                    isRefreshingData = needRefreshInfo || needRefreshEpisode || needRefreshSeason,
                     dialog = null,
                 )
             }
@@ -328,6 +335,7 @@ class AnimeScreenModel(
                 val fetchFromSourceTasks = listOf(
                     async { if (needRefreshInfo) fetchAnimeFromSource() },
                     async { if (needRefreshEpisode) fetchEpisodesFromSource() },
+                    async { if (needRefreshSeason) fetchSeasonsFromSource() },
                 )
                 fetchFromSourceTasks.awaitAll()
             }
@@ -384,15 +392,54 @@ class AnimeScreenModel(
     fun fetchAllFromSource(manualFetch: Boolean = true) {
         screenModelScope.launch {
             updateSuccessState { it.copy(isRefreshingData = true) }
+            val state = successState
             val fetchFromSourceTasks = listOf(
+                async { syncTrackers() },
                 async { fetchAnimeFromSource(manualFetch) },
-                async { fetchEpisodesFromSource(manualFetch) },
+                async {
+                    when (state?.anime?.fetchType) {
+                        FetchType.Seasons -> fetchSeasonsFromSource(manualFetch)
+                        else -> fetchEpisodesFromSource(manualFetch)
+                    }
+                },
             )
             fetchFromSourceTasks.awaitAll()
             updateSuccessState { it.copy(relatedAnimeCollection = null) }
             fetchRelatedAnimeFromSource()
             updateSuccessState { it.copy(isRefreshingData = false) }
             successState?.let { updateAiringTime(it.anime, it.trackItems, manualFetch) }
+        }
+    }
+
+    private suspend fun syncTrackers() {
+        if (!trackPreferences.autoSyncProgressFromTrackers().get()) return
+
+        val state = successState ?: return
+        when (state.anime.fetchType) {
+            FetchType.Seasons -> {
+                if (trackPreferences.smartTrackerSync().get()) {
+                    seasons@ for (s in state.seasons) {
+                        refreshAnimeTracks.await(s.seasonAnime.id)
+                        // Stop cascading once a season still has unseen episodes.
+                        // Uses pre-refresh counts as a heuristic; refreshed progress
+                        // lands via the track sync inside the refresh call.
+                        if (s.seasonAnime.unseenCount > 0) {
+                            break@seasons
+                        }
+                    }
+                } else {
+                    state.seasons.chunked(5).forEach { ss ->
+                        supervisorScope {
+                            ss.map { season ->
+                                async { refreshAnimeTracks.await(season.seasonAnime.id) }
+                            }.awaitAll()
+                        }
+                    }
+                }
+            }
+            FetchType.Episodes -> {
+                refreshAnimeTracks.await(state.anime.id)
+            }
         }
     }
 
@@ -620,7 +667,7 @@ class AnimeScreenModel(
 
                 // Finally match with enhanced tracking when available
                 addTracks.bindEnhancedTrackers(anime, state.source)
-                if (autoOpenTrack) {
+                if (autoOpenTrack && !isFromChangeCategory && anime.fetchType == FetchType.Episodes) {
                     showTrackDialog()
                 }
             }
@@ -830,7 +877,7 @@ class AnimeScreenModel(
                     -1L
                 },
                 unseenCount = if (anime.seasonUnseenOverlay) seasonAnime.unseenCount else -1L,
-                isLocal = seasonAnime.anime.isLocal(),
+                isLocal = anime.seasonLocalOverlay && seasonAnime.anime.isLocal(),
                 sourceLanguage = if (anime.seasonLangOverlay) {
                     animeSourceManager.getOrStub(seasonAnime.anime.source).lang
                 } else {
@@ -838,7 +885,8 @@ class AnimeScreenModel(
                 },
                 showContinueOverlay = anime.seasonContinueOverlay &&
                     seasonAnime.unseenCount > 0 &&
-                    seasonAnime.seenCount > 0,
+                    seasonAnime.seenCount > 0 &&
+                    seasonAnime.anime.fetchType == FetchType.Episodes,
             )
         }
     }
@@ -866,6 +914,39 @@ class AnimeScreenModel(
         } catch (e: Throwable) {
             val message = if (e is NoResultsException) {
                 context.stringResource(MR.strings.no_episodes_error)
+            } else {
+                logcat(LogPriority.ERROR, e)
+                with(context) { e.formattedMessage }
+            }
+
+            screenModelScope.launch {
+                snackbarHostState.showSnackbar(message = message)
+            }
+            val newAnime = animeRepository.getAnimeById(animeId)
+            updateSuccessState { it.copy(anime = newAnime, isRefreshingData = false) }
+        }
+    }
+
+    /**
+     * Requests an updated list of seasons from the source.
+     * Ported from Anikku (komikku-app/anikku).
+     */
+    private suspend fun fetchSeasonsFromSource(manualFetch: Boolean = false) {
+        val state = successState ?: return
+        try {
+            withIOContext {
+                val seasons = state.source.getSeasonList(state.anime.toSAnime())
+
+                syncSeasonsWithSource.await(
+                    seasons,
+                    state.anime,
+                    state.source,
+                    manualFetch,
+                )
+            }
+        } catch (e: Throwable) {
+            val message = if (e is NoSeasonsException) {
+                context.stringResource(MR.strings.no_seasons_error)
             } else {
                 logcat(LogPriority.ERROR, e)
                 with(context) { e.formattedMessage }
@@ -943,7 +1024,13 @@ class AnimeScreenModel(
     }
 
     private fun getUnseenEpisodes(): List<Episode> {
-        return successState?.processedEpisodes
+        val successState = successState ?: return emptyList()
+        val episodeItems = if (playerPreferences.skipFiltered().get()) {
+            successState.processedEpisodes
+        } else {
+            successState.episodes
+        }
+        return episodeItems
             ?.filter { !it.episode.seen && it.downloadState == AnimeDownload.State.NOT_DOWNLOADED }
             ?.map { it.episode }
             ?.toList()
@@ -1387,6 +1474,9 @@ class AnimeScreenModel(
                 val supportedTrackers = loggedInTrackers.filter {
                     (it as? EnhancedAnimeTracker)?.accept(source!!) ?: true
                 }
+                    // For now, only enhanced trackers supports season tracking to sync the seasons.
+                    // This could probably be fleshed out later.
+                    .filter { anime.fetchType == FetchType.Episodes || it is EnhancedAnimeTracker }
                 val supportedTrackerIds = supportedTrackers.map { it.id }.toHashSet()
                 val supportedTrackerTracks = animeTracks.filter { it.trackerId in supportedTrackerIds }
                 supportedTrackerTracks.size to supportedTrackers.isNotEmpty()
@@ -1848,10 +1938,10 @@ class AnimeScreenModel(
                 val bookmarkedFilter = anime.seasonBookmarkedFilter
                 val fillermarkedFilter = anime.seasonFillermarkedFilter
                 return asSequence()
-                    .filter { applyFilter(unseenFilter) { it.seasonAnime.unseenCount > 0 } }
-                    .filter { applyFilter(downloadedFilter) { it.downloadCount > 0 } }
-                    .filter { applyFilter(startedFilter) { it.seasonAnime.hasStarted } }
-                    .filter { applyFilter(completedFilter) { it.seasonAnime.seen } }
+                .filter { applyFilter(unseenFilter) { !it.seasonAnime.seen } }
+                .filter { applyFilter(downloadedFilter) { it.downloadCount > 0 || it.isLocal } }
+                .filter { applyFilter(startedFilter) { it.seasonAnime.hasStarted } }
+                .filter { applyFilter(completedFilter) { it.seasonAnime.anime.status == SAnime.COMPLETED.toLong() } }
                     .filter { applyFilter(bookmarkedFilter) { it.seasonAnime.hasBookmarks } }
                     .filter { applyFilter(fillermarkedFilter) { it.seasonAnime.hasFillermarks } }
                     .sortedWith(seasonSortComparator(anime))
