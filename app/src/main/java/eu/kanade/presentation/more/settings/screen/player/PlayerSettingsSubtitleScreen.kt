@@ -26,6 +26,7 @@ object PlayerSettingsSubtitleScreen : SearchableSettings {
         val langPref = subtitlePreferences.preferredSubLanguages()
         val whitelist = subtitlePreferences.subtitleWhitelist()
         val blacklist = subtitlePreferences.subtitleBlacklist()
+        val blackBars = subtitlePreferences.subtitleBlackBars()
         val jimakuApiKey = subtitlePreferences.jimakuApiKey()
 
         return listOf(
@@ -77,8 +78,13 @@ object PlayerSettingsSubtitleScreen : SearchableSettings {
             ),
             Preference.PreferenceItem.EditTextInfoPreference(
                 preference = blacklist,
-                dialogSubtitle = stringResource(MR.strings.pref_player_subtitle_blacklist_info),
                 title = stringResource(MR.strings.pref_player_subtitle_blacklist),
+                dialogSubtitle = stringResource(MR.strings.pref_player_subtitle_blacklist_info),
+            ),
+            Preference.PreferenceItem.SwitchPreference(
+                preference = blackBars,
+                title = stringResource(MR.strings.player_pref_subtitle_black_bars),
+                subtitle = stringResource(MR.strings.player_pref_subtitle_black_bars_summary),
             ),
             Preference.PreferenceItem.EditTextPreference(
                 preference = jimakuApiKey,

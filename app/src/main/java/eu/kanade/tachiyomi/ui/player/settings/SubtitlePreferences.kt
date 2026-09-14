@@ -8,7 +8,9 @@ import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.ui.player.controls.components.panels.SubtitlesBorderStyle
+import tachiyomi.i18n.MR
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
@@ -19,6 +21,7 @@ class SubtitlePreferences(
     fun preferredSubLanguages() = preferenceStore.getString("pref_subtitle_lang", "")
     fun subtitleWhitelist() = preferenceStore.getString("pref_subtitle_whitelist", "")
     fun subtitleBlacklist() = preferenceStore.getString("pref_subtitle_blacklist", "")
+    fun subtitleBlackBars() = preferenceStore.getBoolean("pref_subtitle_black_bars", true)
     fun jimakuApiKey() = preferenceStore.getString(Preference.privateKey(JIMAKU_API_KEY), "")
     fun jimakuTitle() = preferenceStore.getString("pref_jimaku_title", "")
     fun subtitleRegexRemoveSpeakerNames() = preferenceStore.getBoolean(
@@ -76,6 +79,8 @@ class SubtitlePreferences(
     fun subtitleJustification() = preferenceStore.getEnum("pref_sub_justify", SubtitleJustification.Auto)
     fun subtitlePos() = preferenceStore.getInt("pref_sub_pos", 100)
 
+    fun overrideSubsASS() = preferenceStore.getEnum("pref_override_subtitles_ass_enum", SubtitleAssOverride.Force)
+
     fun subtitlesDelay() = preferenceStore.getInt("pref_subtitles_delay", 0)
     fun subtitlesDelayForAnime(animeId: Long?) = animeId
         ?.takeIf { it > 0 }
@@ -129,4 +134,21 @@ enum class SubtitleJustification(
     Center("center", Icons.Default.FormatAlignCenter),
     Right("right", Icons.AutoMirrored.Default.FormatAlignRight),
     Auto("auto", Icons.Default.FormatAlignJustify),
+}
+
+enum class SubtitleAssOverride(
+    val value: String,
+    val titleRes: StringResource,
+) {
+    No("no", MR.strings.player_sheets_subtitles_ass_no),
+    Yes("yes", MR.strings.player_sheets_subtitles_ass_yes),
+    Scale("scale", MR.strings.player_sheets_subtitles_ass_scale),
+    Force("force", MR.strings.player_sheets_subtitles_ass_force),
+    Strip("strip", MR.strings.player_sheets_subtitles_ass_strip),
+    ;
+
+    companion object {
+        fun byValue(value: String): SubtitleAssOverride =
+            entries.firstOrNull { it.value == value } ?: No
+    }
 }

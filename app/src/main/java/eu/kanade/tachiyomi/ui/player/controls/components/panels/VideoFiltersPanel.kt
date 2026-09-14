@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -41,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.constraintlayout.compose.ConstraintLayout
 import eu.kanade.presentation.player.components.SliderItem
+import eu.kanade.tachiyomi.ui.player.DebandSettings
+import eu.kanade.tachiyomi.ui.player.Debanding
 import eu.kanade.tachiyomi.ui.player.VideoFilters
 import eu.kanade.tachiyomi.ui.player.controls.CARDS_MAX_WIDTH
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
@@ -131,6 +134,9 @@ fun FiltersCard(
                 )
             }
             item {
+                DebandSettingsCard(decoderPreferences = decoderPreferences)
+            }
+            item {
                 if (decoderPreferences.gpuNext().get()) return@item
                 Column(
                     modifier = Modifier
@@ -143,6 +149,91 @@ fun FiltersCard(
                     Text(stringResource(MR.strings.player_sheets_filters_warning))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DebandSettingsCard(
+    decoderPreferences: DecoderPreferences,
+) {
+    val deband by decoderPreferences.videoDebanding().collectAsState()
+
+    fun applyDebandMode(mode: Debanding) {
+        decoderPreferences.videoDebanding().set(mode)
+        when (mode) {
+            Debanding.None -> {
+                MPVLib.setPropertyString("deband", "no")
+                MPVLib.command(arrayOf("vf", "remove", "@deband"))
+            }
+            Debanding.CPU -> {
+                MPVLib.setPropertyString("deband", "no")
+                MPVLib.command(arrayOf("vf", "add", "@deband:gradfun=radius=12"))
+            }
+            Debanding.GPU -> {
+                MPVLib.setPropertyString("deband", "yes")
+                MPVLib.command(arrayOf("vf", "remove", "@deband"))
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .padding(horizontal = MaterialTheme.padding.medium)
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = stringResource(MR.strings.player_sheets_deband_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            TextButton(
+                onClick = {
+                    decoderPreferences.videoDebanding().delete()
+                    MPVLib.setPropertyString("deband", "no")
+                    MPVLib.command(arrayOf("vf", "remove", "@deband"))
+                    DebandSettings.entries.forEach {
+                        MPVLib.setPropertyInt(it.mpvProperty, it.preference(decoderPreferences).deleteAndGet())
+                    }
+                },
+            ) {
+                Text(text = stringResource(MR.strings.action_reset))
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+        ) {
+            val modeTitle = mapOf(
+                Debanding.None to stringResource(MR.strings.pref_player_debanding_none),
+                Debanding.CPU to stringResource(MR.strings.pref_player_debanding_cpu),
+                Debanding.GPU to stringResource(MR.strings.pref_player_debanding_gpu),
+            )
+            Debanding.entries.forEach { mode ->
+                FilterChip(
+                    selected = deband == mode,
+                    onClick = { applyDebandMode(mode) },
+                    label = { Text(modeTitle.getValue(mode)) },
+                )
+            }
+        }
+        DebandSettings.entries.forEach { setting ->
+            val value by setting.preference(decoderPreferences).collectAsState()
+            SliderItem(
+                label = stringResource(setting.titleRes),
+                value = value,
+                valueText = value.toString(),
+                onChange = {
+                    setting.preference(decoderPreferences).set(it)
+                    MPVLib.setPropertyInt(setting.mpvProperty, it)
+                },
+                max = setting.end,
+                min = setting.start,
+            )
         }
     }
 }

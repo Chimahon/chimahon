@@ -102,6 +102,7 @@ import eu.kanade.tachiyomi.ui.youtube.YouTubeSource
 import eu.kanade.tachiyomi.ui.youtube.YouTubeVideoMetadata
 import eu.kanade.tachiyomi.util.editCover
 import eu.kanade.tachiyomi.util.episode.filterDownloadedEpisodes
+import eu.kanade.tachiyomi.util.episode.removeDuplicates
 import eu.kanade.tachiyomi.util.lang.byteSize
 import eu.kanade.tachiyomi.util.lang.takeBytes
 import eu.kanade.tachiyomi.util.storage.DiskUtil
@@ -1983,6 +1984,8 @@ class PlayerViewModel @JvmOverloads constructor(
                 downloadManager.addDownloadsToStartOfQueue(listOf(it))
             }
         }
+        // Static MPVLib has no close(); stop decoding so no orphan audio survives the VM.
+        MPVLib.command(arrayOf("stop"))
     }
 
     fun updateCastProgress(position: Float) {
@@ -2080,33 +2083,36 @@ class PlayerViewModel @JvmOverloads constructor(
         val selectedEpisode = episodes.find { it.id == episodeId }
             ?: error("Requested episode of id $episodeId not found in episode list")
 
+        val skipSeen = playerPreferences.skipSeen().get()
+        val skipFiltered = playerPreferences.skipFiltered().get()
+
         val episodesForPlayer = episodes.filterNot {
-            anime.unseenFilterRaw == Anime.EPISODE_SHOW_SEEN &&
+            skipSeen && anime.unseenFilterRaw == Anime.EPISODE_SHOW_SEEN &&
                 !it.seen ||
-                anime.unseenFilterRaw == Anime.EPISODE_SHOW_UNSEEN &&
+                skipSeen && anime.unseenFilterRaw == Anime.EPISODE_SHOW_UNSEEN &&
                 it.seen ||
-                anime.downloadedFilterRaw == Anime.EPISODE_SHOW_DOWNLOADED &&
+                skipFiltered && anime.downloadedFilterRaw == Anime.EPISODE_SHOW_DOWNLOADED &&
                 !downloadManager.isEpisodeDownloaded(
                     it.name,
                     it.scanlator,
                     anime.title,
                     anime.source,
                 ) ||
-                anime.downloadedFilterRaw == Anime.EPISODE_SHOW_NOT_DOWNLOADED &&
+                skipFiltered && anime.downloadedFilterRaw == Anime.EPISODE_SHOW_NOT_DOWNLOADED &&
                 downloadManager.isEpisodeDownloaded(
                     it.name,
                     it.scanlator,
                     anime.title,
                     anime.source,
                 ) ||
-                anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_BOOKMARKED &&
+                skipFiltered && anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_BOOKMARKED &&
                 !it.bookmark ||
-                anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_NOT_BOOKMARKED &&
+                skipFiltered && anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_NOT_BOOKMARKED &&
                 it.bookmark ||
                 // AM (FILLERMARK) -->
-                anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_FILLERMARKED &&
+                skipFiltered && anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_FILLERMARKED &&
                 !it.fillermark ||
-                anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_NOT_FILLERMARKED &&
+                skipFiltered && anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_NOT_FILLERMARKED &&
                 it.fillermark
             // <-- AM (FILLERMARK)
         }.toMutableList()
@@ -2122,6 +2128,13 @@ class PlayerViewModel @JvmOverloads constructor(
         }
 
         return episodesForPlayer
+            .run {
+                if (playerPreferences.skipDupe().get()) {
+                    removeDuplicates(selectedEpisode)
+                } else {
+                    this
+                }
+            }
             .inPlaybackOrder(anime.sorting == Anime.EPISODE_SORTING_SOURCE)
     }
 
@@ -3023,6 +3036,13 @@ class PlayerViewModel @JvmOverloads constructor(
                 return@launchIO
             }
             val episodesToDownload = getNextEpisodes.await(anime.id, nextEpisode.id!!)
+                .run {
+                    if (playerPreferences.skipDupe().get()) {
+                        removeDuplicates(nextEpisode.toDomainEpisode()!!)
+                    } else {
+                        this
+                    }
+                }
                 .take(downloadAheadAmount)
             downloadManager.downloadEpisodes(anime, episodesToDownload)
         }
@@ -3169,7 +3189,11 @@ class PlayerViewModel @JvmOverloads constructor(
         val filename = generateFilename(anime, seconds) ?: return
 
         // Pictures directory.
-        val relativePath = DiskUtil.buildValidFilename(anime.title)
+        val relativePath = if (playerPreferences.folderPerAnime().get()) {
+            DiskUtil.buildValidFilename(anime.title)
+        } else {
+            ""
+        }
 
         // Copy file in background.
         viewModelScope.launchNonCancellable {

@@ -11,6 +11,10 @@ class DecoderPreferences(
     fun gpuNext() = preferenceStore.getBoolean("pref_gpu_next", false)
     fun videoDebanding() = preferenceStore.getEnum("pref_video_debanding", Debanding.None)
     fun useYUV420P() = preferenceStore.getBoolean("use_yuv420p", true)
+    fun debandIterations() = preferenceStore.getInt("deband_iterations", 1)
+    fun debandThreshold() = preferenceStore.getInt("deband_threshold", 48)
+    fun debandRange() = preferenceStore.getInt("deband_range", 16)
+    fun debandGrain() = preferenceStore.getInt("deband_grain", 32)
 
     // Non-preferences
 

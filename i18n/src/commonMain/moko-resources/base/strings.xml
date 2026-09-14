@@ -1683,6 +1683,19 @@
     <string name="player_sheets_filters_Saturation">Saturation</string>
     <string name="player_sheets_filters_title">Video Filters</string>
     <string name="player_sheets_filters_warning">Filters may affect performance</string>
+    <string name="player_sheets_deband_title">Deband</string>
+    <string name="player_sheets_deband_iterations">Iterations</string>
+    <string name="player_sheets_deband_threshold">Threshold</string>
+    <string name="player_sheets_deband_range">Range</string>
+    <string name="player_sheets_deband_grain">Grain</string>
+    <string name="player_sheets_subtitles_ass_no">No</string>
+    <string name="player_sheets_subtitles_ass_yes">Yes</string>
+    <string name="player_sheets_subtitles_ass_scale">Scale</string>
+    <string name="player_sheets_subtitles_ass_force">Force</string>
+    <string name="player_sheets_subtitles_ass_strip">Strip</string>
+    <string name="player_pref_subtitle_black_bars">Render on black bars</string>
+    <string name="player_pref_subtitle_black_bars_summary">Display subtitles on black bars when available</string>
+    <string name="player_pref_switch_on_failure">Switch video on loading failure</string>
     <string name="player_sheets_more_title">More</string>
     <string name="player_sheets_stats_page_title">Statistics</string>
     <string name="player_sheets_sub_color_alpha">Alpha</string>
@@ -1706,6 +1719,7 @@
     <string name="player_sheets_sub_scale">Scale</string>
     <string name="player_sheets_sub_typography_border_size">Border size</string>
     <string name="player_sheets_sub_typography_border_style">Border style</string>
+    <string name="player_sheets_sub_typography_ass_override">ASS override</string>
     <string name="player_sheets_sub_typography_font">Font</string>
     <string name="player_sheets_sub_typography_font_size">Font size</string>
     <string name="player_sheets_sub_typography_title">Typography</string>

@@ -80,7 +80,7 @@ enum class Decoder(val title: String, val value: String) {
 }
 
 fun getDecoderFromValue(value: String): Decoder {
-    return Decoder.entries.first { it.value == value }
+    return Decoder.entries.firstOrNull { it.value == value } ?: Decoder.SW
 }
 
 enum class Debanding {
@@ -162,5 +162,42 @@ enum class VideoFilters(
         MR.strings.player_sheets_filters_hue,
         { it.hueFilter() },
         "hue",
+    ),
+}
+
+enum class DebandSettings(
+    val titleRes: StringResource,
+    val preference: (DecoderPreferences) -> Preference<Int>,
+    val mpvProperty: String,
+    val start: Int,
+    val end: Int,
+) {
+    Iterations(
+        MR.strings.player_sheets_deband_iterations,
+        { it.debandIterations() },
+        "deband-iterations",
+        0,
+        16,
+    ),
+    Threshold(
+        MR.strings.player_sheets_deband_threshold,
+        { it.debandThreshold() },
+        "deband-threshold",
+        0,
+        200,
+    ),
+    Range(
+        MR.strings.player_sheets_deband_range,
+        { it.debandRange() },
+        "deband-range",
+        1,
+        64,
+    ),
+    Grain(
+        MR.strings.player_sheets_deband_grain,
+        { it.debandGrain() },
+        "deband-grain",
+        0,
+        200,
     ),
 }

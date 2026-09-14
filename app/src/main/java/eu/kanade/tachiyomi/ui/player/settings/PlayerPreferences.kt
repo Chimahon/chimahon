@@ -13,6 +13,10 @@ class PlayerPreferences(
         "pref_preserve_watching_position",
         false,
     )
+    fun switchOnFailure() = preferenceStore.getBoolean(
+        "pref_player_switch_on_failure",
+        true,
+    )
     fun progressPreference() = preferenceStore.getFloat("pref_progress_preference", 0.85F)
     fun defaultPlayerOrientationType() = preferenceStore.getEnum(
         "pref_default_player_orientation_type_key",
@@ -61,6 +65,16 @@ class PlayerPreferences(
     fun waitingTimeIntroSkip() = preferenceStore.getInt("pref_waiting_time_aniskip", 5)
     fun aniSkipEnabled() = preferenceStore.getBoolean("pref_enable_ani_skip", false)
     fun disableAniSkipOnChapters() = preferenceStore.getBoolean("pref_disabled_ani_skip_chapters", true)
+
+    // Playlist
+
+    fun skipSeen() = preferenceStore.getBoolean("skip_seen", false)
+
+    fun skipFiltered() = preferenceStore.getBoolean("skip_filtered", true)
+
+    fun skipDupe() = preferenceStore.getBoolean("skip_dupe", false)
+
+    fun folderPerAnime() = preferenceStore.getBoolean("create_folder_per_anime", true)
 
     // PiP
 
