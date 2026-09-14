@@ -106,6 +106,8 @@ class SourcePreferences(
 
     fun migrationSources() = preferenceStore.getLongArray("migration_sources", emptyList())
 
+    fun migrationAnimeSources() = preferenceStore.getLongArray("migration_anime_sources", emptyList())
+
     fun migrationFlags() = preferenceStore.getObjectFromInt(
         key = "migration_flags",
         defaultValue = MigrationFlag.entries.toSet(),

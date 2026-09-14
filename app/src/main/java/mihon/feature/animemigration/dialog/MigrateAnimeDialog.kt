@@ -52,6 +52,7 @@ internal fun Screen.MigrateAnimeDialog(
     current: Anime,
     target: Anime,
     onClickTitle: () -> Unit,
+    onClickSeasons: () -> Unit = {},
     onDismissRequest: () -> Unit,
     onComplete: () -> Unit = onDismissRequest,
 ) {
@@ -143,6 +144,17 @@ internal fun Screen.MigrateAnimeDialog(
                     },
                 ) {
                     Text(text = stringResource(MR.strings.action_show_anime))
+                }
+
+                if (target.fetchType != FetchType.Episodes) {
+                    TextButton(
+                        onClick = {
+                            onDismissRequest()
+                            onClickSeasons()
+                        },
+                    ) {
+                        Text(text = stringResource(MR.strings.label_show_seasons))
+                    }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))

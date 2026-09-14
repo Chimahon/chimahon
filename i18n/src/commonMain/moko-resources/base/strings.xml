@@ -1384,6 +1384,9 @@
     <string name="migrationListScreen.migrateDialog.cancelLabel">Cancel</string>
     <string name="migrationListScreen.progressDialog.cancelLabel">Cancel</string>
     <string name="migrationListScreen.matchWithoutChapterToast">No chapters found, this entry cannot be used for migration</string>
+    <string name="migrationListScreen.matchWithoutEpisodeToast">No episodes found, this entry cannot be used for migration</string>
+    <string name="migrationListScreen.matchWithoutSeasonToast">No seasons found, this entry cannot be used for migration</string>
+    <string name="migrationListScreen.mismatchedFetchType">Mismatched fetch type</string>
     <string name="pref_dict_pitch_accent_display">Pitch Accent Display</string>
     <string name="pref_dict_pitch_diagram">Graph</string>
     <string name="pref_dict_pitch_number">012</string>

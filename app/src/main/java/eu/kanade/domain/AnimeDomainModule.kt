@@ -210,6 +210,7 @@ class AnimeDomainModule : InjektModule {
                 get(),
                 get(),
                 get(),
+                get(),
             )
         }
     }
