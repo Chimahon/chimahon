@@ -9,6 +9,7 @@ import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.presentation.entries.DownloadAction
 import eu.kanade.presentation.library.components.LibraryToolbarTitle
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import exh.util.isLewd
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.data.animedownload.AnimeDownloadManager
 import eu.kanade.tachiyomi.data.cache.AnimeBackgroundCache
@@ -104,6 +105,7 @@ class AnimeLibraryScreenModel(
                 preferences.showHiddenCategories().changes(),
                 getTracksPerAnime.subscribe(),
                 getTrackingFiltersFlow(),
+                preferences.filterLewd().changes(),
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val libraryAnime = values[0] as List<LibraryAnime>
@@ -124,6 +126,7 @@ class AnimeLibraryScreenModel(
                 val trackMap = values[13] as Map<Long, List<AnimeTrack>>
                 @Suppress("UNCHECKED_CAST")
                 val trackingFilters = values[14] as Map<Long, TriState>
+                val filterLewd = values[15] as TriState
 
                 val items = libraryAnime.map { anime ->
                     val apiSource = sourceManager.getOrStub(anime.anime.source)
@@ -152,6 +155,7 @@ class AnimeLibraryScreenModel(
                     filterCompleted,
                     filterDownloaded,
                     filterFillermarked,
+                    filterLewd,
                 ).let { applyTrackingFilters(it, trackMap, trackingFilters) }
 
                 val grouped = applyGrouping(filtered, categories, groupType, showHiddenCategories)
@@ -170,7 +174,8 @@ class AnimeLibraryScreenModel(
                     filterBookmarked != TriState.DISABLED ||
                     filterCompleted != TriState.DISABLED ||
                     filterDownloaded != TriState.DISABLED ||
-                    filterFillermarked != TriState.DISABLED
+                    filterFillermarked != TriState.DISABLED ||
+                    filterLewd != TriState.DISABLED
 
                 State(
                     isLoading = false,
@@ -475,6 +480,7 @@ class AnimeLibraryScreenModel(
         filterCompleted: TriState,
         filterDownloaded: TriState,
         filterFillermarked: TriState,
+        filterLewd: TriState,
     ): List<AnimeLibraryItem> {
         var result = items
 
@@ -488,6 +494,7 @@ class AnimeLibraryScreenModel(
         result = applyTriStateFilter(result, filterCompleted) { it.libraryAnime.anime.status == SAnime.COMPLETED.toLong() }
         result = applyTriStateFilter(result, filterFillermarked) { it.libraryAnime.hasFillermarks }
         result = applyTriStateFilter(result, filterDownloaded) { it.downloadCount > 0 || it.isLocal }
+        result = applyTriStateFilter(result, filterLewd) { it.libraryAnime.anime.isLewd() }
 
         return result
     }

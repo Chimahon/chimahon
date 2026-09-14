@@ -152,6 +152,10 @@
     <string name="action_skip_duplicate_manga">Skip it</string>
     <string name="action_allow_all_duplicate_manga">Allow all</string>
     <string name="action_skip_all_duplicate_manga">Skip all</string>
+    <string name="action_allow_duplicate_anime">Allow it</string>
+    <string name="action_skip_duplicate_anime">Skip it</string>
+    <string name="action_allow_all_duplicate_anime">Allow all</string>
+    <string name="action_skip_all_duplicate_anime">Skip all</string>
     <string name="downloaded_data">Downloaded data</string>
     <string name="chapters_from_database">Chapters &amp; History from Database</string>
     <!--UpdateCheck-->

@@ -55,6 +55,7 @@ class TrackPreferences(
 
     // KMK -->
     fun autoSyncProgressFromTrackers() = preferenceStore.getBoolean("pref_auto_sync_progress_from_trackers_key", true)
+    fun smartTrackerSync() = preferenceStore.getBoolean("smart_sync_trackers", true)
     // KMK <--
 
     fun mangabakaScoreType() = preferenceStore.getString("mangabaka_score_type", MangaBaka.STEP_10)

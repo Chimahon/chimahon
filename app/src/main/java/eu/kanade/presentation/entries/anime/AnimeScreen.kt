@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -69,6 +70,7 @@ import eu.kanade.presentation.entries.EntryScreenItem
 import eu.kanade.presentation.entries.anime.components.AnimeActionRow
 import eu.kanade.presentation.entries.anime.components.AnimeEpisodeListItem
 import eu.kanade.presentation.entries.anime.components.AnimeInfoBox
+import eu.kanade.presentation.entries.anime.components.AnimeInfoButtons
 import eu.kanade.presentation.entries.anime.components.AnimeSeasonListItem
 import eu.kanade.presentation.entries.anime.components.EpisodeDownloadAction
 import eu.kanade.presentation.entries.anime.components.ExpandableAnimeDescription
@@ -192,6 +194,9 @@ fun AnimeScreen(
 
     // Related anime
     onRelatedAnimeScreenClick: (() -> Unit)?,
+
+    // Recommendations
+    onRecommendClicked: () -> Unit,
 ) {
     val context = LocalContext.current
     val onCopyTagToClipboard: (tag: String) -> Unit = {
@@ -255,6 +260,7 @@ fun AnimeScreen(
             onSeasonClicked = onSeasonClicked,
             onClickContinueWatching = onContinueWatchingClicked,
             onRelatedAnimeScreenClick = onRelatedAnimeScreenClick,
+            onRecommendClicked = onRecommendClicked,
         )
     } else {
         AnimeScreenLargeImpl(
@@ -300,6 +306,7 @@ fun AnimeScreen(
             onSeasonClicked = onSeasonClicked,
             onClickContinueWatching = onContinueWatchingClicked,
             onRelatedAnimeScreenClick = onRelatedAnimeScreenClick,
+            onRecommendClicked = onRecommendClicked,
         )
     }
 }
@@ -366,6 +373,9 @@ private fun AnimeScreenSmallImpl(
 
     // Related anime
     onRelatedAnimeScreenClick: (() -> Unit)?,
+
+    // Recommendations
+    onRecommendClicked: () -> Unit,
 ) {
     val density = LocalDensity.current
     val offsetGridPaddingPx = with(density) { GRID_PADDING.roundToPx() }
@@ -386,6 +396,7 @@ private fun AnimeScreenSmallImpl(
     val relatedMangasEnabled by remember { Injekt.get<SourcePreferences>().relatedMangas() }.collectAsState()
     val expandRelatedAnime by remember { Injekt.get<UiPreferences>().expandRelatedMangas() }.collectAsState()
     val showRelatedAnimeInOverflow by remember { Injekt.get<UiPreferences>().relatedMangasInOverflow() }.collectAsState()
+    val showRecommendationsInOverflow by remember { Injekt.get<UiPreferences>().recommendsInOverflow() }.collectAsState()
 
     var toolbarHeight by remember { mutableIntStateOf(0) }
 
@@ -618,7 +629,7 @@ private fun AnimeScreenSmallImpl(
                             item(
                                 span = { GridItemSpan(maxLineSpan) },
                             ) {
-                                HorizontalDivider(modifier = Modifier.ignorePadding(offsetGridPaddingPx))
+                                HorizontalDivider()
                             }
                             item(
                                 key = EntryScreenItem.RELATED_ANIME,
@@ -628,12 +639,13 @@ private fun AnimeScreenSmallImpl(
                                 RelatedAnimeSection(
                                     relatedAnime = state.relatedAnimeSorted,
                                     modifier = Modifier.ignorePadding(offsetGridPaddingPx),
+                                    onRelatedClick = onRelatedAnimeScreenClick,
                                 )
                             }
                             item(
                                 span = { GridItemSpan(maxLineSpan) },
                             ) {
-                                HorizontalDivider(modifier = Modifier.ignorePadding(offsetGridPaddingPx))
+                                HorizontalDivider()
                             }
                         } else if (!expandRelatedAnime && !showRelatedAnimeInOverflow) {
                             item(
@@ -648,6 +660,20 @@ private fun AnimeScreenSmallImpl(
                                     modifier = Modifier.ignorePadding(offsetGridPaddingPx),
                                 )
                             }
+                        }
+                    }
+
+                    if (!showRecommendationsInOverflow) {
+                        item(
+                            key = EntryScreenItem.INFO_BUTTONS,
+                            contentType = EntryScreenItem.INFO_BUTTONS,
+                            span = { GridItemSpan(maxLineSpan) },
+                        ) {
+                            AnimeInfoButtons(
+                                showRecommendsButton = true,
+                                onRecommendClicked = onRecommendClicked,
+                                modifier = Modifier.ignorePadding(offsetGridPaddingPx),
+                            )
                         }
                     }
 
@@ -803,6 +829,9 @@ fun AnimeScreenLargeImpl(
 
     // Related anime
     onRelatedAnimeScreenClick: (() -> Unit)?,
+
+    // Recommendations
+    onRecommendClicked: () -> Unit,
 ) {
     val layoutDirection = LocalLayoutDirection.current
     val density = LocalDensity.current
@@ -831,6 +860,7 @@ fun AnimeScreenLargeImpl(
     val relatedMangasEnabled by remember { Injekt.get<SourcePreferences>().relatedMangas() }.collectAsState()
     val expandRelatedAnime by remember { Injekt.get<UiPreferences>().expandRelatedMangas() }.collectAsState()
     val showRelatedAnimeInOverflow by remember { Injekt.get<UiPreferences>().relatedMangasInOverflow() }.collectAsState()
+    val showRecommendationsInOverflow by remember { Injekt.get<UiPreferences>().recommendsInOverflow() }.collectAsState()
 
     var topBarHeight by remember { mutableIntStateOf(0) }
     val offsetGridPaddingPx = with(density) { GRID_PADDING.roundToPx() }
@@ -1040,7 +1070,7 @@ fun AnimeScreenLargeImpl(
                                     item(
                                         span = { GridItemSpan(maxLineSpan) },
                                     ) {
-                                        HorizontalDivider(modifier = Modifier.ignorePadding(offsetGridPaddingPx))
+                                        HorizontalDivider()
                                     }
                                     item(
                                         key = EntryScreenItem.RELATED_ANIME,
@@ -1050,12 +1080,13 @@ fun AnimeScreenLargeImpl(
                                         RelatedAnimeSection(
                                             relatedAnime = state.relatedAnimeSorted,
                                             modifier = Modifier.ignorePadding(offsetGridPaddingPx),
+                                            onRelatedClick = onRelatedAnimeScreenClick,
                                         )
                                     }
                                     item(
                                         span = { GridItemSpan(maxLineSpan) },
                                     ) {
-                                        HorizontalDivider(modifier = Modifier.ignorePadding(offsetGridPaddingPx))
+                                        HorizontalDivider()
                                     }
                                 } else if (!expandRelatedAnime && !showRelatedAnimeInOverflow) {
                                     item(
@@ -1070,6 +1101,20 @@ fun AnimeScreenLargeImpl(
                                             modifier = Modifier.ignorePadding(offsetGridPaddingPx),
                                         )
                                     }
+                                }
+                            }
+
+                            if (!showRecommendationsInOverflow) {
+                                item(
+                                    key = EntryScreenItem.INFO_BUTTONS,
+                                    contentType = EntryScreenItem.INFO_BUTTONS,
+                                    span = { GridItemSpan(maxLineSpan) },
+                                ) {
+                                    AnimeInfoButtons(
+                                        showRecommendsButton = true,
+                                        onRecommendClicked = onRecommendClicked,
+                                        modifier = Modifier.ignorePadding(offsetGridPaddingPx),
+                                    )
                                 }
                             }
 
@@ -1389,6 +1434,7 @@ private val GRID_PADDING = 14.dp
 private fun RelatedAnimeSection(
     relatedAnime: List<RelatedAnime>?,
     modifier: Modifier = Modifier,
+    onRelatedClick: (() -> Unit)? = null,
 ) {
     val navigator = LocalNavigator.currentOrThrow
 
@@ -1403,7 +1449,14 @@ private fun RelatedAnimeSection(
                 top = MaterialTheme.padding.small,
                 end = MaterialTheme.padding.medium,
                 bottom = MaterialTheme.padding.extraSmall,
-            ),
+            )
+                .then(
+                    if (onRelatedClick != null) {
+                        Modifier.clickable(onClick = onRelatedClick)
+                    } else {
+                        Modifier
+                    },
+                ),
         )
         RelatedAnimeRow(
             relatedAnime = relatedAnime,

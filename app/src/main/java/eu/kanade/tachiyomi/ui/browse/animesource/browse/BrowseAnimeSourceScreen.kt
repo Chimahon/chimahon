@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -165,6 +166,7 @@ data class BrowseAnimeSourceScreen(
         }
 
         var topBarHeight by remember { mutableIntStateOf(0) }
+        val animeList = screenModel.animePagerFlowFlow.collectAsLazyPagingItems()
         Scaffold(
             topBar = { scrollBehavior ->
                 if (migrationMode) {
@@ -180,6 +182,7 @@ data class BrowseAnimeSourceScreen(
                     Column(
                         modifier = Modifier
                             .background(MaterialTheme.colorScheme.surface)
+                            .pointerInput(Unit) {}
                             .onSizeChanged { topBarHeight = it.height },
                     ) {
                         BrowseAnimeSourceToolbar(
@@ -272,7 +275,7 @@ data class BrowseAnimeSourceScreen(
         ) { paddingValues ->
             BrowseAnimeSourceContent(
                 source = screenModel.source,
-                animeList = screenModel.animePagerFlowFlow.collectAsLazyPagingItems(),
+                animeList = animeList,
                 columns = screenModel.getColumnsPreference(LocalConfiguration.current.orientation),
                 entries = screenModel.getColumnsPreferenceForCurrentOrientation(LocalConfiguration.current.orientation),
                 topBarHeight = topBarHeight,

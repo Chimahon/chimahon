@@ -18,6 +18,7 @@ enum class EntryScreenItem {
     ACTION_ROW,
     DESCRIPTION_WITH_TAG,
     RELATED_ANIME,
+    INFO_BUTTONS,
     ITEM_HEADER,
     ITEM,
     AIRING_TIME,

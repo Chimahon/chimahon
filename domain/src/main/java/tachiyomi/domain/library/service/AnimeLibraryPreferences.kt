@@ -69,6 +69,11 @@ class AnimeLibraryPreferences(
         TriState.DISABLED,
     )
 
+    fun filterLewd() = preferenceStore.getEnum(
+        "pref_filter_animelib_lewd_v2",
+        TriState.DISABLED,
+    )
+
     fun filterTracking(id: Int) = preferenceStore.getEnum(
         "pref_filter_animelib_tracked_${id}_v2",
         TriState.DISABLED,

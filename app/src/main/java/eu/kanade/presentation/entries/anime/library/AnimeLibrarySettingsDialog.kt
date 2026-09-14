@@ -29,6 +29,7 @@ import tachiyomi.domain.library.model.LibrarySort
 import tachiyomi.domain.library.model.sort
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.kmk.KMR
+import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.components.BaseSortItem
 import tachiyomi.presentation.core.components.CheckboxItem
 import tachiyomi.presentation.core.components.HeadingItem
@@ -114,6 +115,12 @@ private fun ColumnScope.FilterPage(
         label = stringResource(MR.strings.completed),
         state = filterCompleted,
         onClick = { screenModel.toggleFilter { it.filterCompleted() } },
+    )
+    val filterLewd by screenModel.libraryPreferences.filterLewd().collectAsState()
+    TriStateItem(
+        label = stringResource(SYMR.strings.lewd),
+        state = filterLewd,
+        onClick = { screenModel.toggleFilter { it.filterLewd() } },
     )
 
     val trackers by screenModel.trackersFlow.collectAsState()
