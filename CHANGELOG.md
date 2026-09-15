@@ -4,6 +4,25 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.3]
+
+### Added
+- Anime seasons support, tracking, and migration
+- Anime feed and per-source feed with saved searches
+- Mass migration for selected anime
+- Anime recommendations, bulk favorite, and tracker autofill
+- Anime extension lib 16 support with repo names
+- System fonts for player subtitles
+- Player settings parity with mpv args and deband
+
+### Changed
+- Anime extension installs use the built-in downloader
+
+### Fixed
+- Extension installs crashing in the background
+- Subtitle font choice not applying to on-screen subtitles
+- Entries without covers showing wrong cached images
+
 ## [v2.4.1]
 
 ### Changed
