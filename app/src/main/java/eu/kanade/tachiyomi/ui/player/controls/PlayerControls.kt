@@ -53,6 +53,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -106,6 +108,7 @@ import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleFontResolver
 import eu.kanade.tachiyomi.ui.reader.viewer.extractOcrLookupString
 import eu.kanade.tachiyomi.ui.reader.viewer.isLookupStartChar
 import eu.kanade.tachiyomi.util.system.toast
@@ -871,6 +874,12 @@ private fun PlayerSubtitleTextLayer(
 
     val subtitlePreferences = remember { Injekt.get<SubtitlePreferences>() }
     val subtitleFontSize by subtitlePreferences.subtitleFontSize().collectAsState()
+    val subtitleFont by subtitlePreferences.subtitleFont().collectAsState()
+    val includeSystemFonts by subtitlePreferences.subtitleSystemFonts().collectAsState()
+    val context = LocalContext.current
+    val subtitleFontFamily by produceState<FontFamily?>(initialValue = null, subtitleFont, includeSystemFonts) {
+        value = SubtitleFontResolver.resolveFontFamily(context, subtitleFont, includeSystemFonts)
+    }
     val subtitleScale by subtitlePreferences.subtitleFontScale().collectAsState()
     val subtitlePos by subtitlePreferences.subtitlePos().collectAsState()
     val textColor by subtitlePreferences.textColorSubtitles().collectAsState()
@@ -902,6 +911,7 @@ private fun PlayerSubtitleTextLayer(
         lineHeight = (fontSizeSp * 1.18f).sp,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
         fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+        fontFamily = subtitleFontFamily,
         textAlign = TextAlign.Center,
     )
     val outlineColor = Color(borderColor).copy(

@@ -17,7 +17,6 @@
 
 package eu.kanade.tachiyomi.ui.player.controls.components.panels
 
-import android.annotation.SuppressLint
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -58,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import com.yubyf.truetypeparser.TTFFile
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.player.components.ExpandableCard
@@ -70,18 +68,17 @@ import eu.kanade.tachiyomi.ui.player.controls.panelCardsColors
 import eu.kanade.tachiyomi.ui.player.settings.SubtitleAssOverride
 import eu.kanade.tachiyomi.ui.player.settings.SubtitleJustification
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleFontResolver
 import `is`.xyz.mpv.MPVLib
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.deleteAndGet
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-@SuppressLint("MutableCollectionMutableState")
 @Composable
 fun SubtitleSettingsTypographyCard(
     modifier: Modifier = Modifier,
@@ -89,7 +86,8 @@ fun SubtitleSettingsTypographyCard(
     val preferences = remember { Injekt.get<SubtitlePreferences>() }
     var isExpanded by remember { mutableStateOf(true) }
 
-    val fonts by remember { mutableStateOf(mutableListOf(preferences.subtitleFont().defaultValue())) }
+    var fonts by remember { mutableStateOf(listOf(preferences.subtitleFont().defaultValue())) }
+    val includeSystemFonts by preferences.subtitleSystemFonts().collectAsState()
     var fontsLoadingIndicator: (@Composable () -> Unit)? by remember {
         val indicator: (@Composable () -> Unit) = {
             CircularProgressIndicator(Modifier.size(32.dp))
@@ -97,20 +95,10 @@ fun SubtitleSettingsTypographyCard(
         mutableStateOf(indicator)
     }
     val context = LocalContext.current
-    LaunchedEffect(Unit) {
-        val fontsDir = chimahon.novel.data.FontManager.getFontsDir(context)
-        withContext(Dispatchers.IO) {
-            val fontFiles = fontsDir.listFiles()
-            if (fontFiles != null) {
-                val matchedFonts = fontFiles.filter { file ->
-                    file.name.lowercase().matches(FONT_EXTENSION_REGEX)
-                }.mapNotNull { file ->
-                    runCatching { TTFFile.open(file.inputStream()).families.values.first() }.getOrNull()
-                }
-                fonts.addAll(matchedFonts.distinct())
-            }
-            fontsLoadingIndicator = null
-        }
+    LaunchedEffect(includeSystemFonts) {
+        val families = SubtitleFontResolver.fontFamilies(context, includeSystemFonts).keys
+        fonts = (listOf(preferences.subtitleFont().defaultValue()) + families).distinct()
+        fontsLoadingIndicator = null
     }
 
     ExpandableCard(
@@ -406,8 +394,6 @@ fun SubtitleSettingsTypographyCard(
         }
     }
 }
-
-private val FONT_EXTENSION_REGEX = Regex(""".*\.[ot]tf${'$'}""")
 
 fun resetTypography(preferences: SubtitlePreferences) {
     MPVLib.setPropertyBoolean("sub-bold", preferences.boldSubtitles().deleteAndGet())

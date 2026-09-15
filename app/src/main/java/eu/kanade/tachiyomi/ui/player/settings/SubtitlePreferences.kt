@@ -57,6 +57,8 @@ class SubtitlePreferences(
     fun screenshotSubtitles() = preferenceStore.getBoolean("pref_screenshot_subtitles", false)
 
     fun subtitleFont() = preferenceStore.getString("pref_subtitle_font", "Sans Serif")
+    fun subtitleSystemFonts(): Preference<Boolean> =
+        preferenceStore.getBoolean("pref_subtitle_system_fonts", false)
     fun subtitleFontSize() = preferenceStore.getInt("pref_subtitles_font_size", 55)
     fun subtitleFontScale() = preferenceStore.getFloat("pref_sub_scale", 1f)
     fun subtitleBorderSize() = preferenceStore.getInt("pref_sub_border_size", 3)

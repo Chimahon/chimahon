@@ -691,11 +691,11 @@ class PlayerActivity : BaseActivity() {
         advancedPlayerPreferences.mpvInput().get().let { mpvInputFile.writeText(it) }
 
         copyScripts()
-        copyAssets(configDir, "subfont.ttf")
         copyAssets(internalConfigDir, "cacert.pem")
         if (configDir != internalConfigDir) {
             removeUnmodifiedAssetCopy(configDir, "cacert.pem")
         }
+        writeFontsConf(configDir)
         setupFontsDirectory()
 
         val showBlackBars = if (subtitlePreferences.subtitleBlackBars().get()) "yes" else "no"
@@ -807,6 +807,48 @@ class PlayerActivity : BaseActivity() {
             "osd-fonts-dir",
             fontsDir.path,
         )
+    }
+
+    /**
+     * Writes a fontconfig file so mpv can resolve Android system fonts in addition to
+     * user-provided ones. mpv reads `<configDir>/fonts.conf` automatically at init.
+     */
+    private fun writeFontsConf(configDir: String) {
+        val fontsDir = chimahon.novel.data.FontManager.getFontsDir(applicationContext)
+        if (!fontsDir.exists()) fontsDir.mkdirs()
+        val parts = listOfNotNull(
+            "<fontconfig>",
+            // Android system fonts reside here
+            "<dir>/system/fonts/</dir>",
+            "<dir>/product/fonts/</dir>",
+            // User provided fonts
+            "<dir>${fontsDir.path}</dir>",
+            // Point fontconfig to the right cache path so that caching works
+            "<cachedir>${applicationContext.cacheDir.path}</cachedir>",
+            // Conveniently there is *no* Java API to query the system default fonts, but we can
+            // manually specify the font families we know Android uses and provides by default.
+            // (compare to 60-latin.conf shipped with fontconfig)
+            "<alias><family>serif</family>",
+            "<prefer><family>Noto Serif</family></prefer>",
+            "</alias>",
+            "<alias><family>Sans Serif</family>",
+            "<prefer>",
+            "<family>Roboto</family>",
+            "<family>Noto Sans</family>", // other languages
+            "</prefer>",
+            "</alias>",
+            "<alias><family>monospace</family>",
+            "<prefer><family>Droid Sans Mono</family></prefer>",
+            "</alias>",
+            "</fontconfig>",
+        )
+        try {
+            File("$configDir/fonts.conf").bufferedWriter().use {
+                it.write(parts.joinToString("\n"))
+            }
+        } catch (e: IOException) {
+            logcat(LogPriority.ERROR, e) { "Failed to write fonts.conf" }
+        }
     }
 
     fun setupCustomButtons(buttons: List<CustomButton>) {
