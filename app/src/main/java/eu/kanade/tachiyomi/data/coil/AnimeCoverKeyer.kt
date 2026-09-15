@@ -19,10 +19,10 @@ class AnimeKeyer : Keyer<DomainAnime> {
                 "anime-background;${data.id};${data.backgroundLastModified}"
             }
             options.useBackground && hasBackground -> {
-                "anime-background;${data.backgroundUrl};${data.backgroundLastModified}"
+                "anime-background;${data.backgroundUrl.orKeyOf("background-none", data.id)};${data.backgroundLastModified}"
             }
             data.hasCustomCover() -> "anime;${data.id};${data.coverLastModified}"
-            else -> "anime;${data.thumbnailUrl};${data.coverLastModified}"
+            else -> "anime;${data.thumbnailUrl.orKeyOf("cover-none", data.id)};${data.coverLastModified}"
         }
     }
 }
@@ -34,7 +34,16 @@ class AnimeCoverKeyer(
         return if (coverCache.getCustomCoverFile(data.animeId).exists()) {
             "anime;${data.animeId};${data.lastModified}"
         } else {
-            "anime;${data.url};${data.lastModified}"
+            "anime;${data.url.orKeyOf("cover-none", data.animeId)};${data.lastModified}"
         }
     }
+}
+
+/**
+ * Entries without a cover/background would all resolve to the very same cache key (ie. `"null;0"`),
+ * so Coil's memory & disk cache would happily serve an unrelated entry's image for any of them.
+ * Fall back to an id based key to keep every entry unique.
+ */
+private fun String?.orKeyOf(prefix: String, id: Long): String {
+    return if (isNullOrEmpty()) "$prefix;$id" else this
 }
