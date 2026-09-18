@@ -362,5 +362,10 @@ class AppModule(val app: Application) : InjektModule {
         }
 
         addSingletonFactory { GoogleDriveService(app) }
+
+        addSingletonFactory { chimahon.novel.sync.ttu.TtuOAuthManager(app) }
+        addSingletonFactory { chimahon.novel.sync.ttu.SyncSettingsRepository(app) }
+        addSingletonFactory { chimahon.novel.sync.ttu.TtuFolderNames(app) }
+        addSingletonFactory { chimahon.novel.sync.ttu.TtuSyncManager(app, get(), get()) }
     }
 }

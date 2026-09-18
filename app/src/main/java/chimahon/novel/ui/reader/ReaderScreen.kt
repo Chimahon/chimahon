@@ -22,17 +22,29 @@ import androidx.compose.ui.unit.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import chimahon.novel.data.BookImporter
 import chimahon.novel.data.BookMetadata
 import chimahon.novel.data.Statistics
+import chimahon.novel.interactor.RegisterLocalNovelHome
+import chimahon.novel.reader.assessTextDamage
+import chimahon.novel.reader.cleanBrokenBookFiles
+import chimahon.novel.source.LocalNovelFiles
+import chimahon.novel.sync.ttu.SyncDirection
+import chimahon.novel.sync.ttu.TtuBookRef
+import chimahon.novel.sync.ttu.TtuSyncManager
 import chimahon.ocr.OcrLanguage
 import chimahon.ocr.OcrResult
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 private sealed interface ReaderLoadState {
     data object Loading : ReaderLoadState
-    data class Error(val message: String) : ReaderLoadState
+    data class Error(val message: String, val showReimport: Boolean = false) : ReaderLoadState
     data class Ready(val viewModel: ReaderViewModel) : ReaderLoadState
 }
 
@@ -98,14 +110,120 @@ fun ReaderScreen(
     }
 
     var loadingMessage by remember { mutableStateOf("Opening...") }
+    var reloadCounter by remember { mutableIntStateOf(0) }
 
-    val loadState by produceState<ReaderLoadState>(initialValue = ReaderLoadState.Loading, key1 = book.id) {
+    // Damaged-book recovery: reimport the EPUB into the same folder (the
+    // row is reused by folder identity), then reload the whole pipeline.
+    val epubPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri: android.net.Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch(Dispatchers.IO) {
+            val imported = runCatching {
+                val result = BookImporter.importEpub(
+                    context,
+                    uri,
+                    targetRootUni = LocalNovelFiles.publicRootUni(context),
+                )
+                val metadata = result.metadata ?: return@runCatching false
+                Injekt.get<RegisterLocalNovelHome>().register(metadata.id)
+                true
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                if (imported) {
+                    reloadCounter++
+                } else {
+                    context.toast("Import failed")
+                }
+            }
+        }
+    }
+
+    val loadState by produceState<ReaderLoadState>(initialValue = ReaderLoadState.Loading, book.id, reloadCounter) {
+        var loader: ReaderLoaderViewModel? = null
+        var damageCleaned = false
+        var healFailed = false
         value = try {
-            val loader = withContext(Dispatchers.IO) {
+            // Post-import reloads must re-warm the extraction cache: the
+            // loader resolves through it, never extracts by itself.
+            if (reloadCounter > 0) {
+                withContext(Dispatchers.IO) {
+                    book.folder?.let { LocalNovelFiles.ensureReadableDir(context, it) }
+                }
+            }
+            val firstLoad = withContext(Dispatchers.IO) {
                 ReaderLoaderViewModel(context, book, novelId)
             }
-            val document = loader.document ?: error("Could not open book")
-            val rootUrl = loader.rootUrl ?: error("Missing root URL")
+            loader = firstLoad
+            val bootLoader = checkNotNull(loader)
+
+            // Broken text (truncated extractions, failed migrations) resolves
+            // blank: clean regenerable files once and reload. Unrecoverable
+            // books fall through to the error card with a reimport action.
+            val docToCheck = bootLoader.document
+            val rootToCheck = bootLoader.rootUrl
+            if (docToCheck != null && rootToCheck != null && docToCheck.extractedDir != null) {
+                val damaged = withContext(Dispatchers.IO) {
+                    assessTextDamage(docToCheck)
+                }
+                if (damaged) {
+                    loadingMessage = "Repairing book files..."
+                    val folder = book.folder ?: rootToCheck.name
+                    val report = withContext(Dispatchers.IO) {
+                        cleanBrokenBookFiles(context, folder, rootToCheck)
+                    }
+                    damageCleaned = true
+                    Log.w(
+                        "ReaderScreen",
+                        "cleaned broken book '${book.title}': cacheDropped=${report.cacheDropped}, " +
+                            "treePruned=${report.treePruned}, sourceEpubPresent=${report.sourceEpubPresent}",
+                    )
+                    if (report.sourceEpubPresent) {
+                        // Re-warm before rebuilding: cleanup dropped the cache
+                        // the loader resolves through.
+                        withContext(Dispatchers.IO) {
+                            LocalNovelFiles.ensureReadableDir(context, folder)
+                        }
+                        val healedLoader = withContext(Dispatchers.IO) {
+                            ReaderLoaderViewModel(context, book, novelId)
+                        }
+                        loader = healedLoader
+                        val healed = healedLoader.document
+                        healFailed = healed == null || withContext(Dispatchers.IO) {
+                            assessTextDamage(healed)
+                        }
+                    } else {
+                        healFailed = true
+                    }
+                }
+            }
+
+            val doneLoader = checkNotNull(loader)
+            val document = if (healFailed) {
+                null
+            } else {
+                doneLoader.document
+            } ?: error("Could not open book")
+            val rootUrl = doneLoader.rootUrl ?: error("Missing root URL")
+
+            // TTU import-only sync (blocking): remote progress lands before
+            // the VM seeds its resume position below.
+            val ttuSyncManager = runCatching {
+                Injekt.get<TtuSyncManager>()
+            }.getOrNull()
+            if (ttuSyncManager?.isEnabled == true && ttuSyncManager.autoSyncOnOpen) {
+                loadingMessage = "Syncing reading progress..."
+                withContext(Dispatchers.IO) {
+                    val folder = book.folder ?: rootUrl.name
+                    runCatching {
+                        ttuSyncManager.syncBook(
+                            TtuBookRef(folder, book.title ?: folder),
+                            SyncDirection.AUTO,
+                            importOnly = true,
+                        )
+                    }
+                }
+            }
 
             // Constructed off-main: init does disk reads (settings, bookmark,
             // statistics) that must never block the UI thread.
@@ -123,7 +241,20 @@ fun ReaderScreen(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            ReaderLoadState.Error(error.message ?: "Could not open book")
+            if (damageCleaned) {
+                ReaderLoadState.Error(
+                    message = "Book files were damaged and cleaned up. Choose the EPUB file to restore this book.",
+                    showReimport = true,
+                )
+            } else {
+                // Parse failed with a readable root on disk: content problem,
+                // so the reimport action applies here too.
+                val contentProblem = loader?.rootUrl != null && loader?.document == null
+                ReaderLoadState.Error(
+                    message = error.message ?: "Could not open book",
+                    showReimport = contentProblem,
+                )
+            }
         }
     }
 
@@ -174,7 +305,19 @@ fun ReaderScreen(
         ReaderThemedArea(currentSettings) {
             when (val state = loadState) {
                 ReaderLoadState.Loading -> ReaderMessage(loadingMessage, loading = true)
-                is ReaderLoadState.Error -> ReaderMessage(state.message)
+                is ReaderLoadState.Error -> Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ReaderMessage(state.message)
+                    if (state.showReimport) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { epubPicker.launch("application/epub+zip") }) {
+                            Text("Choose EPUB file")
+                        }
+                    }
+                }
                 is ReaderLoadState.Ready -> {
                     val viewModel = state.viewModel
 

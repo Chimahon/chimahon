@@ -22,6 +22,9 @@ import chimahon.novel.data.epub.EpubBook
 import chimahon.novel.data.epub.SpineItemType
 import chimahon.novel.data.epub.VirtualNovelBook
 import chimahon.novel.reader.NovelChapterLoader
+import chimahon.novel.sync.ttu.SyncResult
+import chimahon.novel.sync.ttu.TtuBookRef
+import chimahon.novel.sync.ttu.TtuSyncManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import tachiyomi.domain.novel.model.Novel
 import tachiyomi.domain.novel.model.NovelChapterUpdate
@@ -287,6 +292,18 @@ class ReaderViewModel(
     lateinit var statisticsTracker: ReaderStatisticsTracker
     private var trackingLocked = false
     private var appBackgrounded = false
+
+    // TTU sync (lazy so DI-less usage keeps working).
+    private val ttuSyncManager: TtuSyncManager? by lazy {
+        runCatching { Injekt.get<TtuSyncManager>() }.getOrNull()
+    }
+    private val ttuStatsRepository: tachiyomi.domain.novel.repository.NovelReadingStatsRepository? by lazy {
+        runCatching { Injekt.get<tachiyomi.domain.novel.repository.NovelReadingStatsRepository>() }.getOrNull()
+    }
+    private var ttuSyncExportJob: Job? = null
+    var isSyncing by mutableStateOf(false)
+        private set
+    var inactiveSinceMillis: Long? = null
     /**
      * When the current chapter visit began. History is written once per
      * visit with the measured stay — never per progress tick.
@@ -469,6 +486,18 @@ class ReaderViewModel(
                 if (System.currentTimeMillis() - lastPersistTimeMs >= 60000L) {
                     lastPersistTimeMs = System.currentTimeMillis()
                     scope.launch(kotlinx.coroutines.Dispatchers.IO) { persistToDisk() }
+                }
+            }
+        }
+
+        // TTU periodic auto-sync (position is flushed to disk first).
+        scope.launch(Dispatchers.IO) {
+            val sync = ttuSyncManager
+            while (sync != null) {
+                delay(sync.autoSyncIntervalMins.coerceAtLeast(1) * 60 * 1000L)
+                if (sync.isEnabled && sync.autoSyncPeriodic && !trackingLocked && !appBackgrounded) {
+                    runCatching { persistChapterRow(index, currentProgress, totalExploredCharCount) }
+                    runCatching { sync.syncBook(ttuBookRef()) }
                 }
             }
         }
@@ -781,6 +810,111 @@ class ReaderViewModel(
             }
             runCatching { flushStatsToDb(stats) }
                 .onFailure { Log.w("NovelReader", "close stats persist failed", it) }
+        }
+    }
+
+    // TTU sync entry points.
+
+    private fun ttuBookRef(): TtuBookRef {
+        val folder = rootUrl.name
+        return TtuBookRef(folder, document.title ?: folder)
+    }
+
+    /** Import-only sync after returning from background (activity-gated). */
+    fun syncAfterForeground() {
+        val sync = ttuSyncManager?.takeIf { it.isEnabled && it.autoSyncEnabled } ?: return
+        if (isSyncing) return
+        isSyncing = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val result = sync.syncBook(ttuBookRef(), importOnly = true)
+                if (result is SyncResult.Imported) {
+                    reseedFromStorage()
+                    reloadCurrentChapter()
+                }
+            } catch (e: Exception) {
+                Log.w("NovelReader", "foreground sync failed", e)
+            } finally {
+                isSyncing = false
+            }
+        }
+    }
+
+    /** Export-on-close: persist position first, then push. */
+    fun flushSyncExport() {
+        val sync = ttuSyncManager ?: return
+        if (!sync.isEnabled || !sync.autoSyncOnClose) return
+        ttuSyncExportJob?.cancel()
+        ttuSyncExportJob = scope.launch(Dispatchers.IO) {
+            runCatching { persistChapterRow(index, currentProgress, totalExploredCharCount) }
+            if (openNovel == null) {
+                runCatching {
+                    BookStorage.save(
+                        Bookmark(
+                            chapterIndex = index,
+                            progress = currentProgress,
+                            characterCount = totalExploredCharCount,
+                            lastModified = System.currentTimeMillis(),
+                        ),
+                        rootUrl,
+                        FileNames.bookmark,
+                    )
+                }
+            }
+            runCatching { sync.syncBook(ttuBookRef()) }
+                .onFailure { Log.w("NovelReader", "close sync export failed", it) }
+        }
+    }
+
+    /** Re-seeds position + statistics views from durable storage after an import. */
+    private suspend fun reseedFromStorage() {
+        val bookmark = withContext(Dispatchers.IO) {
+            dbResumeBookmark() ?: BookStorage.loadBookmark(rootUrl)
+        }
+        if (bookmark != null) {
+            index = bookmark.chapterIndex.coerceIn(0, (chapterCount - 1).coerceAtLeast(0))
+            currentProgress = bookmark.progress.coerceIn(0.0, 1.0)
+            totalExploredCharCount = bookmark.characterCount
+            lastSavedChapterIndex = index
+            lastSavedProgress = currentProgress
+            lastSavedCharacterCount = totalExploredCharCount
+            statisticsTracker.resetBaseline(totalExploredCharCount)
+            bridge.updateProgress(currentProgress)
+        }
+        val history = withContext(Dispatchers.IO) {
+            if (openNovel == null) {
+                BookStorage.loadStatistics(rootUrl)
+            } else {
+                ttuStatsRepository?.let { repo ->
+                    runCatching { repo.getByNovelId(openNovel!!.id) }.getOrNull()
+                        ?.map {
+                            Statistics(
+                                title = document.title ?: "Unknown",
+                                dateKey = it.dateKey,
+                                charactersRead = it.charactersRead,
+                                readingTime = it.readingTime,
+                                minReadingSpeed = it.minReadingSpeed,
+                                altMinReadingSpeed = it.altMinReadingSpeed,
+                                lastReadingSpeed = it.lastReadingSpeed,
+                                maxReadingSpeed = it.maxReadingSpeed,
+                                completedBook = it.completedBook,
+                            )
+                        }
+                }
+            }
+        }
+        history?.let { statisticsTracker.replaceHistory(it) }
+    }
+
+    /** Re-renders the current chapter at the (possibly imported) position. */
+    private fun reloadCurrentChapter() {
+        scope.launch {
+            runCatching {
+                val html = loadChapterContent(index)
+                document.contentOverride[index] = html
+                withContext(Dispatchers.IO) { refreshAccumulatedCounts() }
+                sendChapter(html)
+            }.onFailure { Log.w("NovelReader", "reload after sync import failed", it) }
         }
     }
 
@@ -1294,6 +1428,9 @@ class ReaderViewModel(
     @Volatile
     private var flushedStatsByDate: Map<String, Pair<Int, Double>>? = null
 
+    /** Serializes stats flushes: the seed-read/delta/upsert sequence must be atomic. */
+    private val statsFlushMutex = Mutex()
+
     private fun persistStatsToDb(stats: List<Statistics>) {
         scope.launch(Dispatchers.IO) {
             runCatching { flushStatsToDb(stats) }
@@ -1307,7 +1444,8 @@ class ReaderViewModel(
         val repo = runCatching {
             Injekt.get<tachiyomi.domain.novel.repository.NovelReadingStatsRepository>()
         }.getOrNull() ?: return
-        runCatching {
+        statsFlushMutex.withLock {
+            runCatching {
                 val seed = flushedStatsByDate ?: repo.getByNovelId(novelId)
                     .associate { it.dateKey to (it.charactersRead to it.readingTime) }
                     .also { flushedStatsByDate = it }
@@ -1338,6 +1476,7 @@ class ReaderViewModel(
                     )
                 }
             }.onFailure { Log.w("NovelReader", "stats persist failed", it) }
+        }
     }
 
     companion object {

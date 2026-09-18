@@ -802,7 +802,26 @@ object SettingsDataScreen : SearchableSettings {
                     ),
                 ),
             ),
-        ) + getSyncServicePreferences(syncPreferences, syncService)
+        ) + getSyncServicePreferences(syncPreferences, syncService) + getTtuSyncPref()
+    }
+
+    @Composable
+    private fun getTtuSyncPref(): List<Preference> {
+        val navigator = LocalNavigator.currentOrThrow
+        return listOf(
+            Preference.PreferenceGroup(
+                title = stringResource(MR.strings.label_novels),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.TextPreference(
+                        title = "Novel TTU Sync",
+                        subtitle = "Sync novel progress with ツ reader via Google Drive",
+                        onClick = {
+                            navigator.push(TtuSyncScreen())
+                        },
+                    ),
+                ),
+            ),
+        )
     }
 
     @Composable

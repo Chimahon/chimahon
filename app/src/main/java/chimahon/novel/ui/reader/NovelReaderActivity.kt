@@ -18,6 +18,8 @@ import androidx.core.view.WindowCompat
 import chimahon.novel.data.BookMetadata
 import chimahon.novel.data.BookStorage
 import chimahon.novel.data.NovelReaderSettings
+import chimahon.novel.sync.ttu.ReaderLifecycleAutoSyncEvent
+import chimahon.novel.sync.ttu.readerLifecycleAutoSyncPlan
 import chimahon.ocr.OcrLanguage
 import chimahon.ocr.OcrResult
 import androidx.core.graphics.ColorUtils
@@ -249,13 +251,26 @@ open class NovelReaderActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        readerViewModel?.let { vm ->
+            val idleMillis = vm.inactiveSinceMillis?.let { System.currentTimeMillis() - it }
+            vm.inactiveSinceMillis = null
+            val plan = readerLifecycleAutoSyncPlan(
+                event = ReaderLifecycleAutoSyncEvent.Resume,
+                inactiveElapsedMillis = idleMillis,
+            )
+            if (plan.importOnForeground) {
+                vm.syncAfterForeground()
+            }
+        }
         setSystemBarsVisibility(showHud)
     }
 
     override fun onPause() {
         super.onPause()
         readerViewModel?.let { vm ->
+            vm.inactiveSinceMillis = System.currentTimeMillis()
             vm.flushReaderState()
+            vm.flushSyncExport()
         }
     }
 
@@ -263,6 +278,7 @@ open class NovelReaderActivity : ComponentActivity() {
         super.onStop()
         readerViewModel?.let { vm ->
             vm.flushReaderState()
+            vm.flushSyncExport()
         }
     }
 
