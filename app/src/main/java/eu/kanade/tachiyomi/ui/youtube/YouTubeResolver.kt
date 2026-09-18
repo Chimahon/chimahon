@@ -138,8 +138,8 @@ class YouTubeResolver {
                         subtitleTracks = subtitleTracks,
                         audioTracks = if (needsExternalAudio) audioTracks else emptyList(),
                         initialized = true,
-                        videoPageUrl = extractor.url,
-                    ).withoutExternalSubtitleLookup()
+                    ).apply { videoPageUrl = extractor.url }
+                        .withoutExternalSubtitleLookup()
 
                 }
 
@@ -158,8 +158,8 @@ class YouTubeResolver {
                             subtitleTracks = subtitleTracks,
                             audioTracks = emptyList(),
                             initialized = true,
-                            videoPageUrl = extractor.url,
-                        ).withoutExternalSubtitleLookup()
+                        ).apply { videoPageUrl = extractor.url }
+                            .withoutExternalSubtitleLookup()
                     }
                 }
 
