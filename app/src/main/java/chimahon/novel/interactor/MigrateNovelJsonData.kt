@@ -64,6 +64,17 @@ class MigrateNovelJsonData(
         }
         migrateLocalHome()
         foldSidecarsToDb()
+        // Public-first consolidation runs last: it prunes trees whose
+        // sidecars the fold just absorbed.
+        runCatching {
+            ConsolidateNovelHomes(
+                novelRepository,
+                novelChapterRepository,
+                registerLocalHome,
+                novelLibraryPreferences,
+                app,
+            ).await()
+        }
     }
 
     /**
@@ -176,22 +187,27 @@ class MigrateNovelJsonData(
             }
         }
 
-        // Statistics: backfill dateKeys the DB lacks; live rows always win.
+        // Statistics: backfill gaps vs the current row (the upsert
+        // accumulates, so full sidecar values must never be pushed blindly).
         if (!stats.isNullOrEmpty()) {
-            val present = novelReadingStatsRepository.getByNovelId(novelId)
-                .map { it.dateKey }.toSet()
-            stats.filter { it.dateKey !in present }.forEach { entry ->
+            val currentByDate = novelReadingStatsRepository.getByNovelId(novelId)
+                .associate { it.dateKey to it }
+            stats.forEach { entry ->
                 runCatching {
+                    val current = currentByDate[entry.dateKey]
+                    val charDelta = maxOf(0, entry.charactersRead - (current?.charactersRead ?: 0))
+                    val timeDelta = maxOf(0.0, entry.readingTime - (current?.readingTime ?: 0.0))
+                    if (charDelta == 0 && timeDelta == 0.0 && current != null) return@runCatching
                     novelReadingStatsRepository.upsert(
                         novelId = novelId,
                         dateKey = entry.dateKey,
-                        charactersRead = entry.charactersRead,
-                        readingTime = entry.readingTime,
+                        charactersRead = charDelta,
+                        readingTime = timeDelta,
                         minReadingSpeed = entry.minReadingSpeed,
                         altMinReadingSpeed = entry.altMinReadingSpeed,
                         lastReadingSpeed = entry.lastReadingSpeed,
-                        maxReadingSpeed = entry.maxReadingSpeed,
-                        completedBook = entry.completedBook,
+                        maxReadingSpeed = maxOf(entry.maxReadingSpeed, current?.maxReadingSpeed ?: 0),
+                        completedBook = current?.completedBook ?: entry.completedBook,
                     )
                 }
             }
@@ -314,17 +330,27 @@ class MigrateNovelJsonData(
     }
 
     private suspend fun migrateStatistics(bookId: String, novelId: Long) {
-        BookStorage.loadStatistics(BookStorage.getBookDirectory(app, bookId))?.forEach { entry ->
+        val entries = BookStorage.loadStatistics(BookStorage.getBookDirectory(app, bookId))
+            ?: return
+        // Failed runs retry everything, so this must be idempotent:
+        // push only the gap vs the current row (the upsert accumulates).
+        val currentByDate = novelReadingStatsRepository.getByNovelId(novelId)
+            .associate { it.dateKey to it }
+        entries.forEach { entry ->
+            val current = currentByDate[entry.dateKey]
+            val charDelta = maxOf(0, entry.charactersRead - (current?.charactersRead ?: 0))
+            val timeDelta = maxOf(0.0, entry.readingTime - (current?.readingTime ?: 0.0))
+            if (charDelta == 0 && timeDelta == 0.0 && current != null) return@forEach
             novelReadingStatsRepository.upsert(
                 novelId = novelId,
                 dateKey = entry.dateKey,
-                charactersRead = entry.charactersRead,
-                readingTime = entry.readingTime,
+                charactersRead = charDelta,
+                readingTime = timeDelta,
                 minReadingSpeed = entry.minReadingSpeed,
                 altMinReadingSpeed = entry.altMinReadingSpeed,
                 lastReadingSpeed = entry.lastReadingSpeed,
-                maxReadingSpeed = entry.maxReadingSpeed,
-                completedBook = entry.completedBook,
+                maxReadingSpeed = maxOf(entry.maxReadingSpeed, current?.maxReadingSpeed ?: 0),
+                completedBook = current?.completedBook ?: entry.completedBook,
             )
         }
     }
@@ -459,7 +485,7 @@ class MigrateNovelJsonData(
         if (metadata.novelSourceId != null) return
         if (!BookStorage.hasImportedBookContent(dir)) return
         val title = metadata.title?.takeIf { it.isNotBlank() } ?: return
-        val newFolder = BookStorage.uniqueTitleDir(publicRoot, title, metadata.author.orEmpty()).name
+        val newFolder = BookStorage.uniqueTitleDir(publicRoot, title).name
         if (newFolder == dir.name && dir.parentFile?.canonicalPath == publicRoot.canonicalPath) return
         val target = File(publicRoot, newFolder)
         dir.copyRecursively(target, overwrite = false)

@@ -69,6 +69,28 @@ object LocalNovelFiles {
         return publicRootUni(context)?.findFile(stableId)?.isDirectory == true
     }
 
+    /** A public book folder holding a top-level `.epub` — light check, never extracts. */
+    fun hasPublicBookEpub(context: Context, stableId: String): Boolean {
+        if (stableId.isBlank()) return false
+        val bookUni = publicRootUni(context)?.findFile(stableId)?.takeIf { it.isDirectory } ?: return false
+        return runCatching { bookUni.listFiles() }.getOrNull()
+            ?.any { it.isFile && it.name?.endsWith(".epub", ignoreCase = true) == true } == true
+    }
+
+    /**
+     * Deletes everything inside a document-tree book dir except top-level
+     * `.epub` files. Best-effort per entry; true when anything was removed.
+     */
+    fun pruneUniDirToEpubs(dir: UniFile): Boolean = runCatching {
+        var pruned = false
+        dir.listFiles()
+            ?.filterNot { it.isFile && it.name?.endsWith(".epub", ignoreCase = true) == true }
+            ?.forEach {
+                if (runCatching { it.delete() }.getOrDefault(false)) pruned = true
+            }
+        pruned
+    }.getOrDefault(false)
+
     /**
      * Readable File dir for a book: directly-readable extracted content wins
      * (private imports, legacy extracted trees), otherwise the public `.epub`
@@ -141,26 +163,11 @@ object LocalNovelFiles {
         resolver.openInputStream(file.uri)?.use { it.bufferedReader().readText() }
     }.getOrNull()
 
-    /** Unique `<Title>` dir inside a document-tree root (import collisions). */
-    suspend fun uniqueTitleDirUni(rootUni: UniFile, title: String, author: String): UniFile? = runCatching {
+    /** `<Title>` dir inside a document-tree root (folder is the identity). */
+    suspend fun uniqueTitleDirUni(rootUni: UniFile, title: String): UniFile? = runCatching {
         val base = BookStorage.sanitizeFileName(title.ifBlank { "Unknown" })
-        if (rootUni.findFile(base) == null) return rootUni.createDirectory(base)
-        val sameBook = runCatching {
-            Injekt.get<tachiyomi.domain.novel.repository.NovelRepository>()
-                .getNovelByLocalFolder(base)
-                ?.author?.trim().equals(author.trim(), ignoreCase = true)
-        }.getOrDefault(false)
-        if (sameBook) return rootUni.findFile(base)?.takeIf { it.isDirectory }
-        var n = 1
-        while (true) {
-            val candidate = "$base ($n)"
-            if (rootUni.findFile(candidate) == null) {
-                return rootUni.createDirectory(candidate)
-            }
-            n++
-        }
-        @Suppress("UNREACHABLE_CODE")
-        null
+        rootUni.findFile(base)?.takeIf { it.isDirectory }
+            ?: rootUni.createDirectory(base)
     }.getOrNull()
 
     // Marker filename keeps its legacy value so existing caches stay valid.

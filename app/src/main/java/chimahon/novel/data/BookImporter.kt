@@ -82,7 +82,7 @@ object BookImporter {
             // EPUB at read time.
             if (targetRootUni != null) {
                 val uniDir = chimahon.novel.source.LocalNovelFiles.uniqueTitleDirUni(
-                    targetRootUni, title, author,
+                    targetRootUni, title,
                 ) ?: return@withContext ImportResult(error = "Could not create book folder")
                 // Reimports replace files (DB carries resume/history/stats).
                 runCatching { uniDir.listFiles() }.getOrNull()
@@ -130,7 +130,7 @@ object BookImporter {
             val booksDir = BookStorage.getBooksDirectory(context).apply { mkdirs() }
             Log.d(TAG, "Books directory: ${booksDir.absolutePath}")
             val root = targetRoot?.takeIf { it.isDirectory || it.mkdirs() } ?: booksDir
-            val bookDir = BookStorage.uniqueTitleDir(root, title, author)
+            val bookDir = BookStorage.uniqueTitleDir(root, title)
 
             Log.d(TAG, "Import folder: ${bookDir.absolutePath} ($title | $author)")
 
@@ -139,7 +139,17 @@ object BookImporter {
             if (bookDir.exists()) {
                 bookDir.deleteRecursively()
             }
-            workDir.renameTo(bookDir)
+            // renameTo fails silently (returns false) across filesystems —
+            // fall back to copy, and never report success on an empty dir.
+            val moved = workDir.renameTo(bookDir) || runCatching {
+                workDir.copyRecursively(bookDir, overwrite = true)
+                workDir.deleteRecursively()
+                true
+            }.getOrDefault(false)
+            if (!moved || !BookStorage.hasImportedBookContent(bookDir)) {
+                runCatching { bookDir.deleteRecursively() }
+                return@withContext ImportResult(error = "Could not write book files")
+            }
 
             // Keep the original EPUB next to the extraction, named after the novel.
             runCatching {

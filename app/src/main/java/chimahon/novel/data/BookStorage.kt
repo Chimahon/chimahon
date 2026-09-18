@@ -46,27 +46,12 @@ object BookStorage {
     }
 
     /**
-     * Unique `<Title>` dir for a new import (manga local mirror: the folder is
-     * the identity). Reuses the dir when the same book is reimported, matched
-     * through the DB row instead of sidecar metadata.
+     * `<Title>` dir for an import (manga local mirror: the folder is the
+     * identity). An existing folder is always reused, whatever metadata
+     * drifted — matching is by novel name alone.
      */
-    suspend fun uniqueTitleDir(root: File, title: String, author: String): File {
-        val base = sanitizeFileName(title.ifBlank { "Unknown" })
-        val plain = File(root, base)
-        if (!plain.exists()) return plain
-        val sameBook = runCatching {
-            Injekt.get<NovelRepository>()
-                .getNovelByLocalFolder(plain.name)
-                ?.author?.trim().equals(author.trim(), ignoreCase = true)
-        }.getOrDefault(false)
-        if (sameBook) return plain
-        var n = 1
-        var dir = File(root, "$base ($n)")
-        while (dir.exists()) {
-            n++
-            dir = File(root, "$base ($n)")
-        }
-        return dir
+    fun uniqueTitleDir(root: File, title: String): File {
+        return File(root, sanitizeFileName(title.ifBlank { "Unknown" }))
     }
 
     fun sanitizeFileName(name: String): String {
@@ -182,10 +167,10 @@ object BookStorage {
     }
 
     fun bookIdentityKey(metadata: BookMetadata): String {
+        // Title alone is the identity (author is display-only metadata).
         val titleKey = metadata.title?.trim()?.lowercase().orEmpty()
-        val authorKey = metadata.author?.trim()?.lowercase().orEmpty()
-        if (titleKey.isNotEmpty() || authorKey.isNotEmpty()) {
-            return Hash.md5("$titleKey|$authorKey")
+        if (titleKey.isNotEmpty()) {
+            return Hash.md5(titleKey)
         }
 
         metadata.hash?.takeIf { it.isNotBlank() }?.let { return it }
@@ -198,6 +183,26 @@ object BookStorage {
         return directory.walkTopDown().any { file ->
             file.isFile && file.extension.lowercase() in contentExtensions
         }
+    }
+
+    /**
+     * Single readability verdict shared by the badge and the tap handler's
+     * gate: extracted content anywhere, a loose `.epub` waiting in a public
+     * folder (extractable on demand), or a warm extraction cache. One
+     * function so display and open can never disagree again.
+     */
+    fun hasReadableBookContent(context: android.content.Context, bookId: String): Boolean {
+        if (bookId.isBlank()) return false
+        val dir = getBookDirectory(context, bookId)
+        if (hasImportedBookContent(dir)) return true
+        if (dir.isDirectory && dir.listFiles()
+            ?.any { it.isFile && it.extension.equals("epub", ignoreCase = true) } == true
+        ) {
+            return true
+        }
+        if (LocalNovelFiles.hasPublicBookEpub(context, bookId)) return true
+        if (hasImportedBookContent(LocalNovelFiles.extractedCacheDir(context, bookId))) return true
+        return false
     }
 
     /**

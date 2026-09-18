@@ -787,9 +787,7 @@ abstract class SyncService(
             when {
                 firstStat != null && secondStat == null -> firstStat
                 firstStat == null && secondStat != null -> secondStat
-                firstStat != null && secondStat != null -> {
-                    if (firstStat.lastStatisticModified >= secondStat.lastStatisticModified) firstStat else secondStat
-                }
+                firstStat != null && secondStat != null -> mergeNovelStatDay(firstStat, secondStat)
                 else -> null
             }
         }
@@ -801,6 +799,42 @@ abstract class SyncService(
             stats = mergedStats,
             categoryIds = mergedCategoryIds,
         )
+    }
+
+    /**
+     * Same-day merge for cumulative counters. Recency is unavailable
+     * (DB-backed backups carry `lastStatisticModified = 0`), but counters
+     * only grow, so per-field max already contains the smaller side.
+     */
+    private fun mergeNovelStatDay(
+        first: eu.kanade.tachiyomi.data.backup.models.BackupStatEntry,
+        second: eu.kanade.tachiyomi.data.backup.models.BackupStatEntry,
+    ): eu.kanade.tachiyomi.data.backup.models.BackupStatEntry {
+        // Proxy for recency: the side that read more is further ahead.
+        val newer = if (second.charactersRead > first.charactersRead ||
+            (second.charactersRead == first.charactersRead && second.readingTime > first.readingTime)
+        ) {
+            second
+        } else {
+            first
+        }
+        return first.copy(
+            charactersRead = maxOf(first.charactersRead, second.charactersRead),
+            readingTime = maxOf(first.readingTime, second.readingTime),
+            minReadingSpeed = minNonZeroInt(first.minReadingSpeed, second.minReadingSpeed),
+            altMinReadingSpeed = minNonZeroInt(first.altMinReadingSpeed, second.altMinReadingSpeed),
+            lastReadingSpeed = newer.lastReadingSpeed,
+            maxReadingSpeed = maxOf(first.maxReadingSpeed, second.maxReadingSpeed),
+            lastStatisticModified = maxOf(first.lastStatisticModified, second.lastStatisticModified),
+        )
+    }
+
+    private fun minNonZeroInt(first: Int, second: Int): Int {
+        return when {
+            first <= 0 -> second
+            second <= 0 -> first
+            else -> minOf(first, second)
+        }
     }
 
     private fun mergeNovelCategoriesLists(

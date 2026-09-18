@@ -38,6 +38,9 @@ class RegisterLocalNovelHome(
                     initialized = true,
                     isLocal = true,
                     localFolder = stableId,
+                    // Cover is re-derived every register; bump the version so
+                    // the Coil key (`id;lastModified`) busts stale covers.
+                    coverLastModified = now,
                 ),
             )
         } else {
@@ -55,6 +58,7 @@ class RegisterLocalNovelHome(
                     // book back in the library, mirroring manga re-add.
                     favorite = true,
                     dateAdded = now,
+                    coverLastModified = now,
                     // Seed once: never overwrites an EPUB/import lang.
                     lang = snNovel.lang?.takeIf { it.isNotBlank() && existing.lang.isNullOrBlank() },
                 ),

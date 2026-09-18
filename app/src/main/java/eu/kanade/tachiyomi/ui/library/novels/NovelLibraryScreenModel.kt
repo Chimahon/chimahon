@@ -101,10 +101,11 @@ class NovelLibraryScreenModel(
                     novel.id to dm.getDownloadedCount(novel.id, chapters).toLong()
                 }
             } catch (_: Exception) { emptyMap() }
-            // Empty local entries (folder without EPUB content): derived per load,
-            // never stored — the ghost flag is gone.
+            // Empty local entries (folder without readable content): derived
+            // per load, never stored. Readability is one shared check, so the
+            // badge and the tap handler always agree.
             val booksWithoutContent = books
-                .filter { !BookStorage.hasImportedBookContent(BookStorage.getBookDirectory(app, it.id)) }
+                .filter { !BookStorage.hasReadableBookContent(app, it.id) }
                 .map { it.id }
                 .toSet()
 

@@ -19,6 +19,7 @@ data class BookMetadata(
     val novelSourceId: Long? = null,
     val novelUrl: String? = null,
     val isImported: Boolean = false,
+    val coverLastModified: Long = 0L,
 ) {
     companion object {
         /**
@@ -42,6 +43,7 @@ data class BookMetadata(
                 novelSourceId = if (isFileBook) null else novel.source,
                 novelUrl = if (isFileBook) null else novel.url,
                 isImported = isFileBook,
+                coverLastModified = novel.coverLastModified,
             )
         }
     }

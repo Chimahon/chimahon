@@ -168,18 +168,28 @@ class NovelRestorer(
             }
         }
 
+        // The stats upsert accumulates, so restore only the delta per dateKey.
+        // Backup entries carry full cumulatives; re-restoring must be a no-op.
+        val currentStats = runCatching {
+            novelReadingStatsRepository.getByNovelId(novelId)
+                .associate { it.dateKey to it }
+        }.getOrNull().orEmpty()
         backupNovel.stats.forEach { stat ->
             runCatching {
+                val current = currentStats[stat.dateKey]
+                val charDelta = maxOf(0, stat.charactersRead - (current?.charactersRead ?: 0))
+                val timeDelta = maxOf(0.0, stat.readingTime - (current?.readingTime ?: 0.0))
+                if (charDelta == 0 && timeDelta == 0.0 && current != null) return@runCatching
                 novelReadingStatsRepository.upsert(
                     novelId = novelId,
                     dateKey = stat.dateKey,
-                    charactersRead = stat.charactersRead,
-                    readingTime = stat.readingTime,
+                    charactersRead = charDelta,
+                    readingTime = timeDelta,
                     minReadingSpeed = stat.minReadingSpeed,
                     altMinReadingSpeed = stat.altMinReadingSpeed,
                     lastReadingSpeed = stat.lastReadingSpeed,
-                    maxReadingSpeed = stat.maxReadingSpeed,
-                    completedBook = null,
+                    maxReadingSpeed = maxOf(stat.maxReadingSpeed, current?.maxReadingSpeed ?: 0),
+                    completedBook = current?.completedBook,
                 )
             }.onFailure {
                 logcat(LogPriority.WARN, it) { "Novel restore stats failed for ${backupNovel.title}" }
