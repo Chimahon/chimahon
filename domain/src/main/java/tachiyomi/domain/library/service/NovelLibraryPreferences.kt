@@ -27,6 +27,10 @@ class NovelLibraryPreferences(
 
     fun defaultCategory() = preferenceStore.getString(NOVEL_DEFAULT_CATEGORY_PREF_KEY, "")
 
+    fun sortMode() = preferenceStore.getString("pref_novel_library_sort_mode", "DateAdded")
+
+    fun sortDescending() = preferenceStore.getBoolean("pref_novel_library_sort_descending", true)
+
     fun jsonMigrated() = preferenceStore.getBoolean("novel_json_migrated", false)
 
     fun sidecarsFolded() = preferenceStore.getBoolean("novel_sidecars_folded", false)

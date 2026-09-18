@@ -55,6 +55,15 @@ class NovelLibraryScreenModel(
     init {
         screenModelScope.launch { migrateNovelJsonData.await() }
         loadLibrary()
+        // Sort choice survives restarts (manga parity); unknown stored
+        // values fall back to the default.
+        mutableState.update {
+            it.copy(
+                sortMode = runCatching { SortMode.valueOf(libraryPreferences.sortMode().get()) }
+                    .getOrDefault(SortMode.DateAdded),
+                sortDescending = libraryPreferences.sortDescending().get(),
+            )
+        }
 
         screenModelScope.launch {
             _searchQuery
@@ -622,6 +631,8 @@ class NovelLibraryScreenModel(
     }
     
     fun setSort(mode: SortMode, descending: Boolean) {
+        libraryPreferences.sortMode().set(mode.name)
+        libraryPreferences.sortDescending().set(descending)
         mutableState.update { it.copy(sortMode = mode, sortDescending = descending) }
     }
     
