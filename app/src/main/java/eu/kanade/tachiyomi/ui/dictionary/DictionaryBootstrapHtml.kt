@@ -141,6 +141,13 @@ internal fun getDictionaryBootstrapHtml(
                 }
               }
             };
+            window.DictionaryClipboard = {
+              copyTranslation: function(content) {
+                if (typeof DictionaryClipboardBridge !== 'undefined') {
+                  DictionaryClipboardBridge.copyTranslation(String(content || ''));
+                }
+              }
+            };
           </script>
         </head>
         <body>

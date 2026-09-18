@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -73,6 +77,7 @@ import eu.kanade.tachiyomi.ui.dictionary.TabInfo
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import eu.kanade.tachiyomi.ui.dictionary.stopDictionaryAudio
+import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.toast
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,11 +90,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.i18n.stringResource as contextStringResource
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.util.collectAsState
+import tachiyomi.presentation.core.i18n.stringResource
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.UUID
@@ -660,7 +667,7 @@ fun OcrLookupPopup(
                         when (ankiResult) {
                             is AnkiResult.PermissionDenied -> context.toast(MR.strings.pref_anki_permission_denied)
                             is AnkiResult.Error -> context.toast(
-                                context.stringResource(MR.strings.anki_card_error, ankiResult.message),
+                                context.contextStringResource(MR.strings.anki_card_error, ankiResult.message),
                             )
                             is AnkiResult.NotConfigured -> context.toast(MR.strings.anki_not_configured)
                             else -> {}
@@ -732,7 +739,7 @@ fun OcrLookupPopup(
                         }
                         is AnkiResult.PermissionDenied -> context.toast(MR.strings.pref_anki_permission_denied)
                         is AnkiResult.Error -> context.toast(
-                            context.stringResource(MR.strings.anki_card_error, ankiResult.message),
+                            context.contextStringResource(MR.strings.anki_card_error, ankiResult.message),
                         )
                         is AnkiResult.NotConfigured -> context.toast(MR.strings.anki_not_configured)
                     }
@@ -1017,6 +1024,7 @@ fun OcrLookupPopup(
         "popup" -> false
         else -> recursiveTabs.size > 1
     }
+    val popupActionChromeHeight = 36.dp
 
     @Composable
     fun RecursiveLookupChrome() {
@@ -1113,7 +1121,14 @@ fun OcrLookupPopup(
     }
 
     @Composable
-    fun PopupCloseChrome() {
+    fun PopupActionChrome() {
+        var copied by remember { mutableStateOf(false) }
+        LaunchedEffect(copied) {
+            if (copied) {
+                delay(1_000)
+                copied = false
+            }
+        }
         val chromeBackground = if (eInkMode) {
             if (isDark) Color.Black else Color.White
         } else {
@@ -1148,7 +1163,7 @@ fun OcrLookupPopup(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = lookupString.take(20) + if (lookupString.length > 20) "…" else "",
+                    text = fullText.take(20) + if (fullText.length > 20) "…" else "",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelMedium,
@@ -1161,15 +1176,20 @@ fun OcrLookupPopup(
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
-                        ) { dismissPopup() },
+                        ) {
+                            copyOcrPopupFullText(fullText) { label, content ->
+                                context.copyToClipboard(label, content)
+                            }
+                            copied = true
+                        },
                     shape = RoundedCornerShape(if (eInkMode) 0.dp else 14.dp),
                     color = Color.Transparent,
                     contentColor = chromeText,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "\u2715",
-                            style = MaterialTheme.typography.labelMedium,
+                        Icon(
+                            imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                            contentDescription = stringResource(MR.strings.action_copy_to_clipboard),
                         )
                     }
                 }
@@ -1228,9 +1248,7 @@ fun OcrLookupPopup(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 RecursiveLookupChrome()
-                if (recursiveNavMode == "popup" && dismissOnOutsideTap) {
-                    PopupCloseChrome()
-                }
+                PopupActionChrome()
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1348,13 +1366,10 @@ fun OcrLookupPopup(
     }
 
     childPopupRequest?.let { request ->
-        val closeChromePx = if (dismissOnOutsideTap && recursiveNavMode == "popup") {
-            with(density) { 32.dp.toPx() }
-        } else {
-            0f
-        }
+        val actionChromePx = with(density) { popupActionChromeHeight.toPx() }
+        val fallbackY = (layoutResult.heightPx - actionChromePx).coerceAtLeast(0f) / 2f
         val tapScreenX = layoutResult.x + (request.tapX ?: layoutResult.widthPx / 2f)
-        val tapScreenY = layoutResult.y + closeChromePx + (request.tapY ?: layoutResult.heightPx / 2f)
+        val tapScreenY = layoutResult.y + actionChromePx + (request.tapY ?: fallbackY)
         OcrLookupPopup(
             visible = visible,
             lookupString = request.query,
