@@ -34,5 +34,7 @@ interface NovelRepository {
 
     suspend fun deleteNovel(novelId: Long)
 
+    suspend fun deleteNonLibraryNovelsByIds(ids: List<Long>, keepRead: Boolean)
+
     suspend fun setFavorite(novelId: Long, favorite: Boolean): Boolean
 }

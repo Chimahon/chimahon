@@ -147,3 +147,17 @@ SELECT *
 FROM novels
 WHERE favorite = 1
 AND source = :sourceId;
+
+deleteNonLibraryNovelsByIds:
+DELETE FROM novels
+WHERE _id IN :ids
+AND favorite = 0
+AND (
+    :keepRead = 0
+    OR _id NOT IN (
+        SELECT DISTINCT novel_id
+        FROM novel_chapters
+        WHERE read = 1
+        OR last_page_read != 0
+    )
+);

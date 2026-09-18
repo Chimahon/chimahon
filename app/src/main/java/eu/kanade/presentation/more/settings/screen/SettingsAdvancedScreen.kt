@@ -40,6 +40,7 @@ import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.advanced.ClearAnimeDatabaseScreen
 import eu.kanade.presentation.more.settings.screen.advanced.ClearDatabaseScreen
+import eu.kanade.presentation.more.settings.screen.advanced.ClearNovelDatabaseScreen
 import eu.kanade.presentation.more.settings.screen.debug.DebugInfoScreen
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
@@ -309,6 +310,11 @@ object SettingsAdvancedScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_clear_anime_database),
                     subtitle = stringResource(MR.strings.pref_clear_anime_database_summary),
                     onClick = { navigator.push(ClearAnimeDatabaseScreen()) },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.pref_clear_novel_database),
+                    subtitle = stringResource(MR.strings.pref_clear_novel_database_summary),
+                    onClick = { navigator.push(ClearNovelDatabaseScreen()) },
                 ),
             ),
         )

@@ -115,6 +115,13 @@ class NovelRepositoryImpl(
         handler.await { novelsQueries.deleteById(novelId) }
     }
 
+    override suspend fun deleteNonLibraryNovelsByIds(ids: List<Long>, keepRead: Boolean) {
+        if (ids.isEmpty()) return
+        handler.await {
+            novelsQueries.deleteNonLibraryNovelsByIds(ids, if (keepRead) 1L else 0L)
+        }
+    }
+
     override suspend fun setFavorite(novelId: Long, favorite: Boolean): Boolean {
         return try {
             handler.await {
