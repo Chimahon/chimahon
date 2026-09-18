@@ -4,6 +4,19 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.4]
+
+### Added
+- Floating add button in the manga library for local imports
+- Novel TTU (Google Drive) progress and statistics sync
+- Novel clear database screen
+
+### Fixed
+- Local manga covers not showing (uppercase extensions, missing cover fallback)
+- Novel stats duplication, local book imports, and broken-book repair
+- Novel library sort order not persisting across restarts
+- Anime extension ABI mismatch with extensions-lib v16
+
 ## [v2.4.3]
 
 ### Added
