@@ -49,7 +49,7 @@ object ImageUtil {
         // SY <--
 
         val extension = name.substringAfterLast('.')
-        return ImageType.entries.any { it.extension == extension } || openStream?.let { findImageType(it) } != null
+        return ImageType.entries.any { it.extension.equals(extension, ignoreCase = true) } || openStream?.let { findImageType(it) } != null
     }
 
     fun findImageType(openStream: () -> InputStream): ImageType? {

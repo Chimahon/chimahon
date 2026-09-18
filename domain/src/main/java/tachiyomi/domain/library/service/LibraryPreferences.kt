@@ -224,6 +224,8 @@ class LibraryPreferences(
     fun showHiddenCategories() = preferenceStore.getBoolean("hide_hidden_categories", false)
     // KMK <--
 
+    fun showFloatingAddButton() = preferenceStore.getBoolean("display_floating_add_button", true)
+
     fun updateCategories() = preferenceStore.getStringSet(LIBRARY_UPDATE_CATEGORIES_PREF_KEY, emptySet())
 
     fun updateCategoriesExclude() = preferenceStore.getStringSet(LIBRARY_UPDATE_CATEGORIES_EXCLUDE_PREF_KEY, emptySet())

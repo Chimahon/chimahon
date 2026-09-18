@@ -20,11 +20,15 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import eu.kanade.tachiyomi.util.lang.compareToCaseInsensitiveNaturalOrder
 import logcat.LogPriority
+import mihon.core.archive.archiveReader
+import mihon.core.archive.epubReader
 import okhttp3.CacheControl
 import okhttp3.Call
 import okhttp3.Request
 import okhttp3.Response
+import okio.Buffer
 import okio.BufferedSource
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
@@ -32,11 +36,17 @@ import okio.Source
 import okio.buffer
 import okio.sink
 import okio.source
+import tachiyomi.core.common.storage.extension
+import tachiyomi.core.common.storage.nameWithoutExtension
+import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaCover
 import tachiyomi.domain.manga.model.asMangaCover
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.domain.storage.service.StorageManager
+import tachiyomi.source.local.LocalSource
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
@@ -92,6 +102,13 @@ class MangaCoverFetcher(
             }
         }
 
+        // Local manga: never return empty if the manga has any readable page.
+        // Try the declared cover first, then explicit cover.* file, then first page
+        // image — all read-only, nothing is written to the device.
+        if (mangaCover.sourceId == LocalSource.ID) {
+            loadLocalCover()?.let { return it }
+        }
+
         // diskCacheKey is thumbnail_url
         if (url == null) error("No cover specified")
         return when (getResourceType(url)) {
@@ -99,6 +116,160 @@ class MangaCoverFetcher(
             Type.URI -> fileUriLoader(url)
             Type.URL -> httpLoader()
             null -> error("Invalid image")
+        }
+    }
+
+    /**
+     * Read-only local cover chain: declared url -> cover.* in manga dir ->
+     * first image of first chapter. Returns null only if nothing readable exists.
+     */
+    private suspend fun loadLocalCover(): FetchResult? {
+        // 1. Declared cover (content uri / file path) if it still opens
+        url?.let { cover ->
+            try {
+                when (getResourceType(cover)) {
+                    Type.File -> {
+                        val file = File(cover.substringAfter("file://"))
+                        if (file.exists()) return fileLoader(file)
+                    }
+                    Type.URI -> {
+                        val source = UniFile.fromUri(options.context, cover.toUri())
+                            ?.openInputStream()
+                            ?.source()
+                            ?.buffer()
+                        if (source != null) {
+                            setRatioAndColorsInScope(mangaCover)
+                            return SourceFetchResult(
+                                source = ImageSource(source = source, fileSystem = FileSystem.SYSTEM),
+                                mimeType = "image/*",
+                                dataSource = DataSource.DISK,
+                            )
+                        }
+                    }
+                    else -> Unit
+                }
+            } catch (_: Exception) {
+                // Fall through to directory scan below
+            }
+        }
+
+        // 2-3. Scan local storage (no writes)
+        return try {
+            val mangaRepository: MangaRepository = Injekt.get()
+            val storageManager: StorageManager = Injekt.get()
+            val manga = runCatching { mangaRepository.getMangaById(mangaCover.mangaId) }.getOrNull()
+                ?: return null
+            val baseDir = storageManager.getLocalSourceDirectory() ?: return null
+            val mangaDir = baseDir.findFile(manga.url) ?: return null
+            if (!mangaDir.isDirectory) return null
+
+            // 2. Explicit cover.* (stem must be "cover", extension case-insensitive
+            // via ImageUtil)
+            val explicitCover = mangaDir.listFiles().orEmpty()
+                .filter { it.isFile && it.nameWithoutExtension.equals("cover", ignoreCase = true) }
+                .firstOrNull {
+                    try {
+                        ImageUtil.isImage(it.name) { it.openInputStream() }
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+            if (explicitCover != null) {
+                return try {
+                    val source = explicitCover.openInputStream().source().buffer()
+                    setRatioAndColorsInScope(mangaCover)
+                    SourceFetchResult(
+                        source = ImageSource(source = source, fileSystem = FileSystem.SYSTEM),
+                        mimeType = "image/*",
+                        dataSource = DataSource.DISK,
+                    )
+                } catch (_: Exception) {
+                    null
+                } ?: firstPageFallback(mangaDir)
+            }
+
+            // 3. First image of first chapter
+            firstPageFallback(mangaDir)
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "Local cover fallback failed for mangaId=${mangaCover.mangaId}" }
+            null
+        }
+    }
+
+    private fun firstPageFallback(mangaDir: UniFile): FetchResult? {
+        return try {
+            val chapters = mangaDir.listFiles().orEmpty()
+                .filterNot { it.name.orEmpty().startsWith('.') }
+                .filter {
+                    it.isDirectory ||
+                        tachiyomi.source.local.io.Archive.isSupported(it) ||
+                        it.extension.equals("epub", ignoreCase = true)
+                }
+                .sortedWith { f1, f2 ->
+                    f1.name.orEmpty().compareToCaseInsensitiveNaturalOrder(f2.name.orEmpty())
+                }
+            if (chapters.isEmpty()) return null
+            for (chapterFile in chapters) {
+                readFirstPageBytes(chapterFile)?.let { bytes ->
+                    setRatioAndColorsInScope(mangaCover, bufferedSource = Buffer().apply { write(bytes) })
+                    return SourceFetchResult(
+                        source = ImageSource(
+                            source = Buffer().write(bytes),
+                            fileSystem = FileSystem.SYSTEM,
+                        ),
+                        mimeType = "image/*",
+                        dataSource = DataSource.DISK,
+                    )
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readFirstPageBytes(chapterFile: UniFile): ByteArray? {
+        return try {
+            when {
+                chapterFile.isDirectory -> {
+                    val entry = chapterFile.listFiles().orEmpty()
+                        .sortedWith { f1, f2 ->
+                            f1.name.orEmpty().compareToCaseInsensitiveNaturalOrder(f2.name.orEmpty())
+                        }
+                        .firstOrNull {
+                            try {
+                                !it.isDirectory && ImageUtil.isImage(it.name) { it.openInputStream() }
+                            } catch (_: Exception) {
+                                false
+                            }
+                        } ?: return null
+                    entry.openInputStream().use { it.readBytes() }
+                }
+                chapterFile.extension.equals("epub", ignoreCase = true) -> {
+                    chapterFile.epubReader(options.context).use { epub ->
+                        val entry = epub.getImagesFromPages().firstOrNull() ?: return null
+                        epub.getInputStream(entry)?.use { it.readBytes() }
+                    }
+                }
+                else -> {
+                    chapterFile.archiveReader(options.context).use { reader ->
+                        val entry = reader.useEntries { entries ->
+                            entries
+                                .sortedWith { f1, f2 -> f1.name.compareToCaseInsensitiveNaturalOrder(f2.name) }
+                                .firstOrNull {
+                                    try {
+                                        it.isFile && ImageUtil.isImage(it.name) { reader.getInputStream(it.name)!! }
+                                    } catch (_: Exception) {
+                                        false
+                                    }
+                                }
+                        } ?: return null
+                        reader.getInputStream(entry.name)?.use { it.readBytes() }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            null
         }
     }
 

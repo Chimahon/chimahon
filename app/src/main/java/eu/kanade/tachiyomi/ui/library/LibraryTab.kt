@@ -1,6 +1,9 @@
 package eu.kanade.tachiyomi.ui.library
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.graphics.res.animatedVectorResource
 import dev.icerock.moko.resources.StringResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
@@ -12,9 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
@@ -69,8 +74,10 @@ import eu.kanade.tachiyomi.data.connections.discord.DiscordScreen
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import eu.kanade.tachiyomi.ui.browse.source.LocalMangaImportDialogs
 import eu.kanade.tachiyomi.ui.browse.source.SourcesScreen
 import eu.kanade.tachiyomi.ui.browse.source.globalsearch.GlobalSearchScreen
+import eu.kanade.tachiyomi.ui.browse.source.rememberLocalMangaImportState
 import eu.kanade.tachiyomi.ui.category.CategoryScreen
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeLibraryPanel
@@ -266,6 +273,8 @@ data object LibraryTab : Tab {
         val snackbarHostState = remember { SnackbarHostState() }
         var showTrackerPicker by remember { mutableStateOf(false) }
         var selectedMangaIdsForTracker by remember { mutableStateOf<List<Long>>(emptyList()) }
+        val importState = rememberLocalMangaImportState()
+        LocalMangaImportDialogs(state = importState, includeNovelOption = false)
 
         val onClickRefresh: (Category?) -> Boolean = { category ->
             // SY -->
@@ -451,6 +460,22 @@ data object LibraryTab : Tab {
                 )
             },
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+            floatingActionButton = {
+                AnimatedVisibility(
+                    visible = !state.selectionMode && state.showFloatingAddButton,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
+                    FloatingActionButton(
+                        onClick = { importState.showImportDialog = true },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = stringResource(MR.strings.action_add),
+                        )
+                    }
+                }
+            },
         ) { contentPadding ->
             when {
                 state.isLoading -> {
