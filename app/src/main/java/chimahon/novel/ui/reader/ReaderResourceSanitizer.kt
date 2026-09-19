@@ -109,6 +109,23 @@ private fun declarations(indent: String, vararg pairs: Pair<String, String>): St
         "$indent$property: $value;"
     }
 
+/**
+ * Removes `<script>` elements from chapter HTML before it reaches the
+ * WebView. Publisher files (notably KADOKAWA's kobo-style header) ship
+ * self-closing `<script ... />` tags, which are valid XHTML but lethal as
+ * `text/html`: the HTML parser does not honor the self-close, so the rest
+ * of the document — head remainder included — is consumed as script text
+ * and the page renders blank. Everything else is left byte-identical.
+ */
+internal fun sanitizeReaderHtml(html: String): String =
+    readerScriptRegex.replace(html, "")
+
+private val readerScriptRegex =
+    Regex(
+        """<script\b[^>]*?(?:/>|>.*?</script\s*>)""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+    )
+
 private val calibreRuleRegex =
     Regex(
         """^(\s*\.(?:calibre\d*|body|c\d*|p\d+)\s*)\{(.*?)\}""",

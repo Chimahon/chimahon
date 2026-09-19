@@ -1255,7 +1255,7 @@ class ReaderViewModel(
         val fileUrl = chapterFileUrl(index) ?: throw IllegalStateException("Couldn't load chapter")
         val chapterTitle = getCurrentChapterTitle()
         bridge.updateState(fileUrl, currentProgress, chapterTitle)
-        bridge.send(WebViewCommand.LoadChapterHtml(fileUrl, html, currentProgress))
+        bridge.send(WebViewCommand.LoadChapterHtml(fileUrl, sanitizeReaderHtml(html), currentProgress))
     }
 
     private fun prefetchAround(center: Int) {
