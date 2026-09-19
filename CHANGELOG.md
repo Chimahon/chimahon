@@ -4,6 +4,11 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.5]
+
+### Fixed
+- Novel chapters rendering blank from publisher kobo-style script headers
+
 ## [v2.4.4]
 
 ### Added
