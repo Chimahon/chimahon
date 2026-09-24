@@ -15,6 +15,7 @@ import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.ui.browse.animesource.browse.BrowseAnimeSourceScreen
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import mihon.feature.animemigration.dialog.MigrateAnimeDialog
+import mihon.feature.animemigration.list.AnimeMigrationListScreen
 import eu.kanade.tachiyomi.ui.browse.animemigration.season.MigrateSeasonSelectScreen
 import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.entries.anime.model.Anime
@@ -47,7 +48,18 @@ class MigrateAnimeSearchScreen(private val animeId: Long) : Screen() {
                     navigator.push(BrowseAnimeSourceScreen(it.id, state.searchQuery, current.id))
                 }
             },
-            onClickItem = { targetAnime = it },
+            onClickItem = {
+                val migrationListScreen = navigator.items
+                    .filterIsInstance<AnimeMigrationListScreen>()
+                    .lastOrNull()
+
+                if (migrationListScreen == null) {
+                    targetAnime = it
+                } else {
+                    migrationListScreen.addMatchOverride(current = animeId, target = it.id)
+                    navigator.popUntil { screen -> screen is AnimeMigrationListScreen }
+                }
+            },
             onLongClickItem = { navigator.push(AnimeScreen(it.id, true)) },
         )
 
