@@ -22,6 +22,7 @@ import tachiyomi.core.common.preference.AndroidPreferenceStore
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.plusAssign
+import tachiyomi.domain.category.interactor.GetAnimeCategories
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.download.service.DownloadPreferences
@@ -32,16 +33,19 @@ import uy.kohesive.injekt.api.get
 class PreferenceRestorer(
     private val context: Context,
     private val getCategories: GetCategories = Injekt.get(),
+    private val getAnimeCategories: GetAnimeCategories = Injekt.get(),
     private val preferenceStore: PreferenceStore = Injekt.get(),
 ) {
     suspend fun restoreApp(
         preferences: List<BackupPreference>,
         backupCategories: List<BackupCategory>?,
+        backupAnimeCategories: List<BackupCategory>? = null,
     ) {
         restorePreferences(
             preferences,
             preferenceStore,
             backupCategories,
+            backupAnimeCategories,
         )
 
         LibraryUpdateJob.setupTask(context)
@@ -63,21 +67,30 @@ class PreferenceRestorer(
         toRestore: List<BackupPreference>,
         preferenceStore: PreferenceStore,
         backupCategories: List<BackupCategory>? = null,
+        backupAnimeCategories: List<BackupCategory>? = null,
     ) {
         val allCategories = if (backupCategories != null) getCategories.await() else emptyList()
         val categoriesByName = allCategories.associateBy { it.name }
         val backupCategoriesById = backupCategories?.associateBy { it.id.toString() }.orEmpty()
+        val allAnimeCategories = if (backupAnimeCategories != null) getAnimeCategories.await() else emptyList()
+        val animeCategoriesByName = allAnimeCategories.associateBy { it.name }
+        val backupAnimeCategoriesById = backupAnimeCategories?.associateBy { it.id.toString() }.orEmpty()
         val prefs = preferenceStore.getAll()
         toRestore.forEach { (key, value) ->
             try {
                 when (value) {
                     is IntPreferenceValue -> {
                         if (prefs[key] is Int?) {
-                            val newValue = if (key == LibraryPreferences.DEFAULT_CATEGORY_PREF_KEY) {
-                                backupCategoriesById[value.value.toString()]
-                                    ?.let { categoriesByName[it.name]?.id?.toInt() }
-                            } else {
-                                value.value
+                            val newValue = when (key) {
+                                LibraryPreferences.DEFAULT_CATEGORY_PREF_KEY -> {
+                                    backupCategoriesById[value.value.toString()]
+                                        ?.let { categoriesByName[it.name]?.id?.toInt() }
+                                }
+                                LibraryPreferences.DEFAULT_ANIME_CATEGORY_PREF_KEY -> {
+                                    backupAnimeCategoriesById[value.value.toString()]
+                                        ?.let { animeCategoriesByName[it.name]?.id?.toInt() }
+                                }
+                                else -> value.value
                             }
 
                             newValue?.let { preferenceStore.getInt(key).set(it) }

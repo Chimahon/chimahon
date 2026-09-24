@@ -550,6 +550,7 @@
     <string name="pref_library_update_refresh_metadata_summary">Check for new cover and details when updating library</string>
 
     <string name="default_category">Default category</string>
+    <string name="default_anime_category">Default anime category</string>
     <string name="default_category_summary">Always ask</string>
     <string name="categorized_display_settings">Per-category settings for sort</string>
     <string name="pref_library_update_categories_details">Entries in excluded categories will not be updated even if they are also in included categories.</string>

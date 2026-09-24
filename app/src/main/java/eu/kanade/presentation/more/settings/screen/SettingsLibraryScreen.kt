@@ -80,7 +80,7 @@ object SettingsLibraryScreen : SearchableSettings {
         val allNovelCategories by novelCategoryRepository.subscribe().collectAsState(initial = emptyList())
 
         return listOf(
-            getCategoriesGroup(LocalNavigator.currentOrThrow, allCategories, libraryPreferences),
+            getCategoriesGroup(LocalNavigator.currentOrThrow, allCategories, allAnimeCategories, libraryPreferences),
             getGlobalUpdateGroup(allCategories, allAnimeCategories, allNovelCategories, libraryPreferences),
             getSeasonBehaviorGroup(libraryPreferences),
             getBehaviorGroup(libraryPreferences),
@@ -94,6 +94,7 @@ object SettingsLibraryScreen : SearchableSettings {
     private fun getCategoriesGroup(
         navigator: Navigator,
         allCategories: List<Category>,
+        allAnimeCategories: List<AnimeCategory>,
         libraryPreferences: LibraryPreferences,
     ): Preference.PreferenceGroup {
         val scope = rememberCoroutineScope()
@@ -104,6 +105,17 @@ object SettingsLibraryScreen : SearchableSettings {
             allCategories.fastMap { it.id.toInt() }
         val labels = listOf(stringResource(MR.strings.default_category_summary)) +
             allCategories.fastMap { it.visualName }
+
+        // KMK -->
+        val animeIds = listOf(
+            libraryPreferences.defaultAnimeCategory().defaultValue(),
+            AnimeCategory.UNCATEGORIZED_ID.toInt(),
+        ) + allAnimeCategories.filterNot { it.isSystemCategory }.fastMap { it.id.toInt() }
+        val animeLabels = listOf(
+            stringResource(MR.strings.default_category_summary),
+            stringResource(MR.strings.label_default),
+        ) + allAnimeCategories.filterNot { it.isSystemCategory }.fastMap { it.name }
+        // KMK <--
 
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.categories),
@@ -122,6 +134,13 @@ object SettingsLibraryScreen : SearchableSettings {
                     entries = ids.zip(labels).toMap().toImmutableMap(),
                     title = stringResource(MR.strings.default_category),
                 ),
+                // KMK -->
+                Preference.PreferenceItem.ListPreference(
+                    preference = libraryPreferences.defaultAnimeCategory(),
+                    entries = animeIds.zip(animeLabels).toMap().toImmutableMap(),
+                    title = stringResource(MR.strings.default_anime_category),
+                ),
+                // KMK <--
                 Preference.PreferenceItem.SwitchPreference(
                     preference = libraryPreferences.categorizedDisplaySettings(),
                     title = stringResource(MR.strings.categorized_display_settings),

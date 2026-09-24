@@ -208,7 +208,7 @@ class LibraryPreferences(
 
     fun defaultCategory() = preferenceStore.getInt(DEFAULT_CATEGORY_PREF_KEY, -1)
 
-    fun defaultAnimeCategory() = preferenceStore.getInt("default_anime_category", 0)
+    fun defaultAnimeCategory() = preferenceStore.getInt(DEFAULT_ANIME_CATEGORY_PREF_KEY, -1)
 
     fun lastUsedCategory() = preferenceStore.getInt(Preference.appStateKey("last_used_category"), 0)
 
@@ -502,6 +502,9 @@ class LibraryPreferences(
         const val MARK_DUPLICATE_CHAPTER_READ_EXISTING = "existing"
 
         const val DEFAULT_CATEGORY_PREF_KEY = "default_category"
+        // KMK -->
+        const val DEFAULT_ANIME_CATEGORY_PREF_KEY = "default_anime_category"
+        // KMK <--
         private const val LIBRARY_UPDATE_CATEGORIES_PREF_KEY = "library_update_categories"
         private const val LIBRARY_UPDATE_CATEGORIES_EXCLUDE_PREF_KEY = "library_update_categories_exclude"
         private const val LIBRARY_UPDATE_ANIME_CATEGORIES_PREF_KEY = "animelib_update_categories"
