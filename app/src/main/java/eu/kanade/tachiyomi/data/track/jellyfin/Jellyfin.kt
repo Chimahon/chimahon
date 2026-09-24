@@ -137,4 +137,8 @@ class Jellyfin(id: Long) : BaseTracker(id, "Jellyfin"), EnhancedAnimeTracker, An
     }
 
     override fun hasNotStartedReading(status: Long): Boolean = status == UNSEEN
+
+    // KMK -->
+    override fun hasNotStartedWatching(status: Long): Boolean = status == UNSEEN
+    // KMK <--
 }

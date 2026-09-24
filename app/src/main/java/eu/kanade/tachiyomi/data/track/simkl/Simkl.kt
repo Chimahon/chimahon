@@ -184,4 +184,8 @@ class Simkl(id: Long) : BaseTracker(id, "Simkl"), AnimeTracker {
     }
 
     override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_WATCH
+
+    // KMK -->
+    override fun hasNotStartedWatching(status: Long): Boolean = status == PLAN_TO_WATCH
+    // KMK <--
 }

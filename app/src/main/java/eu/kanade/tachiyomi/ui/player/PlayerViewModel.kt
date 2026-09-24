@@ -3277,7 +3277,11 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     private fun updateTrackEpisodeSeen(episode: Episode) {
-        if (basePreferences.incognitoMode().get() || !hasTrackers) return
+        // KMK -->
+        // No hasTrackers gate: it was a stale snapshot taken at init, so trackers bound
+        // later were silently skipped. TrackEpisode.await already no-ops without tracks.
+        if (basePreferences.incognitoMode().get()) return
+        // KMK <--
         if (!trackPreferences.autoUpdateTrack().get()) return
 
         val anime = currentAnime.value ?: return

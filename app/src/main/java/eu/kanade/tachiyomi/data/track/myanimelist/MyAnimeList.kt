@@ -296,4 +296,8 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker, 
     // KMK -->
     override fun hasNotStartedReading(status: Long): Boolean = status == PLAN_TO_READ
     // KMK <--
+
+    // KMK -->
+    override fun hasNotStartedWatching(status: Long): Boolean = status == PLAN_TO_WATCH
+    // KMK <--
 }

@@ -1158,6 +1158,15 @@ class AnimeScreenModel(
                 return@launchIO
             }
 
+            // KMK -->
+            // Refresh first so the prompt/tracker decision uses current remote progress,
+            // mirroring MangaScreenModel.markChaptersRead. Gated by the same preference that
+            // gates tracker -> local syncing to avoid pulling progress when it is disabled.
+            if (trackPreferences.autoSyncProgressFromTrackers().get()) {
+                refreshAnimeTracks.await(animeId)
+            }
+            // KMK <--
+
             val tracks = animeTrackRepository.getTracksByAnimeId(animeId)
             val maxEpisodeNumber = episodes.maxOf { it.episodeNumber }
             val shouldPromptTrackingUpdate = tracks.any { track -> maxEpisodeNumber > track.lastEpisodeSeen }

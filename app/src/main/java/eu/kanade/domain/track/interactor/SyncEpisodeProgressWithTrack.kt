@@ -18,15 +18,31 @@ class SyncEpisodeProgressWithTrack(
     private val getEpisodesByAnimeId: GetEpisodesByAnimeId,
 ) {
 
+    /**
+     * Sync episode progress with the [EnhancedAnimeTracker]
+     */
     suspend fun await(
         animeId: Long,
         remoteTrack: AnimeTrack,
         service: AnimeTracker,
-    ) {
+    ): Int? {
         if (service !is EnhancedAnimeTracker) {
-            return
+            return null
         }
+        // KMK -->
+        return sync(animeId, remoteTrack, service)
+        // KMK <--
+    }
 
+    /**
+     * Sync episode progress with all trackers.
+     */
+    suspend fun sync(
+        animeId: Long,
+        remoteTrack: AnimeTrack,
+        service: AnimeTracker,
+    ): Int? {
+        // KMK <--
         val sortedEpisodes = getEpisodesByAnimeId.await(animeId)
             .sortedBy { it.episodeNumber }
             .filter { it.isRecognizedNumber }
@@ -41,11 +57,24 @@ class SyncEpisodeProgressWithTrack(
         val updatedTrack = remoteTrack.copy(lastEpisodeSeen = lastSeen)
 
         try {
-            service.update(updatedTrack.toDbTrack())
-            updateEpisode.awaitAll(episodeUpdates)
-            insertTrack.await(updatedTrack)
+            // Update Tracker to localLastSeen if needed
+            if (lastSeen > remoteTrack.lastEpisodeSeen) {
+                service.update(updatedTrack.toDbTrack())
+                // update Track in database
+                insertTrack.await(updatedTrack)
+            }
+            // KMK -->
+            // Always update local episodes following Tracker even past episodes
+            if (episodeUpdates.isNotEmpty() && !service.hasNotStartedWatching(remoteTrack.status)) {
+                updateEpisode.awaitAll(episodeUpdates)
+                return lastSeen.toInt()
+            }
+            // KMK <--
         } catch (e: Throwable) {
             logcat(LogPriority.WARN, e)
         }
+        // KMK -->
+        return null
+        // KMK <--
     }
 }

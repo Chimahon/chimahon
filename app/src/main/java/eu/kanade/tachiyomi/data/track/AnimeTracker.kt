@@ -120,4 +120,8 @@ interface AnimeTracker {
     }
 
     fun getStatusForAnime(status: Long): StringResource?
+
+    // KMK -->
+    fun hasNotStartedWatching(status: Long): Boolean = false
+    // KMK <--
 }
