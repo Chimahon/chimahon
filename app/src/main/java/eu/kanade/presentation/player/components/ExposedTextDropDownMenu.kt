@@ -17,11 +17,12 @@
 
 package eu.kanade.presentation.player.components
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -71,22 +72,26 @@ fun ExposedTextDropDownMenu(
                 .fillMaxWidth(),
         )
 
+        // Cap the menu height so long option lists (e.g. system fonts) stay usable
+        val sizeOfOneItem by remember { mutableStateOf(50.dp) }
+        val screenHeight = with(LocalDensity.current) {
+            LocalWindowInfo.current.containerSize.height.toDp()
+        }
+        val height by remember(options.size, screenHeight) {
+            val itemsSize = sizeOfOneItem * options.size
+            mutableStateOf(minOf(itemsSize, screenHeight * 3 / 4))
+        }
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            // Cap the menu height so long option lists (e.g. system fonts) stay usable
-            val sizeOfOneItem by remember { mutableStateOf(50.dp) }
-            val screenHeight = with(LocalDensity.current) {
-                LocalWindowInfo.current.containerSize.height.toDp()
-            }
-            val height by remember(options.size, screenHeight) {
-                val itemsSize = sizeOfOneItem * options.size
-                mutableStateOf(minOf(itemsSize, screenHeight * 3 / 4))
-            }
-            LazyColumn(
+            // Column instead of LazyColumn: ExposedDropdownMenu measures content
+            // intrinsics on newer Material3 versions, which LazyColumn
+            // (a SubcomposeLayout) does not support and crashes on.
+            Column(
                 modifier = Modifier
                     .widthIn(max = 500.dp)
-                    .height(height),
+                    .height(height)
+                    .verticalScroll(rememberScrollState()),
             ) {
-                items(options) { option ->
+                options.forEach { option ->
                     DropdownMenuItem(
                         text = { Text(text = option) },
                         onClick = {
