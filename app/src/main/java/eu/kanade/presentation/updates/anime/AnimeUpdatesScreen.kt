@@ -1,6 +1,7 @@
 package eu.kanade.presentation.updates.anime
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarHost
@@ -66,6 +67,13 @@ fun AnimeUpdateScreen(
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { contentPadding ->
+        // KMK -->
+        // Only keep the bottom inset: the parent already offsets the top for its own
+        // top bar, so consuming this Scaffold's top inset again leaves a phantom gap.
+        val listPadding = remember(contentPadding) {
+            PaddingValues(bottom = contentPadding.calculateBottomPadding())
+        }
+        // KMK <--
         when {
             state.isLoading -> LoadingScreen(Modifier.padding(contentPadding))
             state.items.isEmpty() -> EmptyScreen(
@@ -89,10 +97,10 @@ fun AnimeUpdateScreen(
                         }
                     },
                     enabled = !state.selectionMode,
-                    indicatorPadding = contentPadding,
+                    indicatorPadding = listPadding,
                 ) {
                     FastScrollLazyColumn(
-                        contentPadding = contentPadding,
+                        contentPadding = listPadding,
                     ) {
                         animeUpdatesLastUpdatedItem(lastUpdated)
 
