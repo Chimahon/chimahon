@@ -28,6 +28,7 @@ import eu.kanade.tachiyomi.data.cache.AnimeBackgroundCache
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
+import eu.kanade.tachiyomi.util.updateLocalCoverFromSourceFetch
 import eu.kanade.tachiyomi.source.model.UpdateStrategy
 import eu.kanade.tachiyomi.util.storage.getUriCompat
 import eu.kanade.tachiyomi.util.system.createFileInCacheDir
@@ -338,11 +339,14 @@ class AnimeLibraryUpdateJob(private val context: Context, workerParams: WorkerPa
             updateAnime.awaitUpdateFromSource(anime, networkAnime, manualFetch = false, coverCache, backgroundCache)
         }
 
-        val episodes = source.getEpisodeList(anime.toSAnime())
+        val sAnime = anime.toSAnime()
+        val episodes = source.getEpisodeList(sAnime)
 
         val dbAnime = getAnime.await(anime.id)?.takeIf { it.parentId != null || it.favorite } ?: return emptyList()
 
-        return syncEpisodesWithSource.await(episodes, dbAnime, source, false, fetchWindow)
+        return syncEpisodesWithSource.await(episodes, dbAnime, source, false, fetchWindow).also {
+            dbAnime.updateLocalCoverFromSourceFetch(source, sAnime, updateAnime, coverCache)
+        }
     }
 
     private fun downloadEpisodes(anime: Anime, episodes: List<Episode>) {

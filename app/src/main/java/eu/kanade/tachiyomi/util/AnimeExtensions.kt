@@ -4,9 +4,11 @@ import eu.kanade.domain.entries.anime.interactor.UpdateAnime
 import eu.kanade.domain.entries.anime.model.hasCustomBackground
 import eu.kanade.domain.entries.anime.model.hasCustomCover
 import eu.kanade.domain.entries.anime.model.toSAnime
+import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.data.cache.AnimeBackgroundCache
 import eu.kanade.tachiyomi.data.cache.AnimeCoverCache
+import eu.kanade.tachiyomi.data.cache.CoverCache
 import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.source.local.entries.anime.isLocal
 import tachiyomi.source.local.image.anime.LocalAnimeBackgroundManager
@@ -62,6 +64,18 @@ fun Anime.prepUpdateBackground(
             this.copy(backgroundLastModified = Instant.now().toEpochMilli())
         }
     }
+}
+
+suspend fun Anime.updateLocalCoverFromSourceFetch(
+    source: AnimeSource,
+    sourceAnime: SAnime,
+    updateAnime: UpdateAnime = Injekt.get(),
+    coverCache: CoverCache = Injekt.get(),
+) {
+    val generatedCover = sourceAnime.thumbnail_url?.takeIf { it.isNotBlank() } ?: return
+    if (!source.isLocal() || generatedCover == thumbnailUrl) return
+
+    updateAnime.awaitUpdateFromSource(this, sourceAnime, manualFetch = false, coverCache)
 }
 
 fun Anime.removeCovers(coverCache: AnimeCoverCache = Injekt.get()): Anime {

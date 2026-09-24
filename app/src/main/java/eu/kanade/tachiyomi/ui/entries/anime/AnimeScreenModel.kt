@@ -69,6 +69,7 @@ import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.util.AniChartApi
 import eu.kanade.tachiyomi.util.episode.getNextUnseen
 import eu.kanade.tachiyomi.util.removeCovers
+import eu.kanade.tachiyomi.util.updateLocalCoverFromSourceFetch
 import eu.kanade.tachiyomi.util.system.getBitmapOrNull
 import eu.kanade.tachiyomi.util.system.toast
 import exh.util.nullIfEmpty
@@ -898,7 +899,8 @@ class AnimeScreenModel(
         val state = successState ?: return
         try {
             withIOContext {
-                val episodes = state.source.getEpisodeList(state.anime.toSAnime())
+                val sAnime = state.anime.toSAnime()
+                val episodes = state.source.getEpisodeList(sAnime)
 
                 val newEpisodes = syncEpisodesWithSource.await(
                     episodes,
@@ -906,6 +908,7 @@ class AnimeScreenModel(
                     state.source,
                     manualFetch,
                 )
+                state.anime.updateLocalCoverFromSourceFetch(state.source, sAnime, updateAnime)
 
                 if (manualFetch) {
                     downloadNewEpisodes(newEpisodes)
