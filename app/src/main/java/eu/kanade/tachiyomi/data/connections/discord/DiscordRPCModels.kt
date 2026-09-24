@@ -180,6 +180,16 @@ data class ReaderData(
     val startTimestamp: Long? = null,
 )
 
+data class PlayerData(
+    val incognitoMode: Boolean = false,
+    val animeId: Long? = null,
+    val animeTitle: String? = null,
+    val episodeNumber: String? = null,
+    val thumbnailUrl: String? = null,
+    val startTimestamp: Long? = null,
+    val endTimestamp: Long? = null,
+)
+
 // Enum class for standard Rich Presence in-app screens
 enum class DiscordScreen(
     @StringRes val text: Int,
@@ -194,6 +204,7 @@ enum class DiscordScreen(
     MORE(R.string.label_settings, R.string.discord_status_messing, MORE_IMAGE_URL),
     WEBVIEW(R.string.action_web_view, R.string.discord_status_browsing, WEBVIEW_IMAGE_URL),
     MANGA(R.string.manga, R.string.reading, MANGA_IMAGE_URL),
+    VIDEO(R.string.video, R.string.watching, VIDEO_IMAGE_URL),
 }
 
 // Constants for standard Rich Presence image urls
@@ -208,4 +219,5 @@ private const val BROWSE_IMAGE_URL = "emojis/1365263374992146576.webp?quality=lo
 private const val MORE_IMAGE_URL = "emojis/1365261438276599849.webp?quality=lossless"
 private const val WEBVIEW_IMAGE_URL = "emojis/1365262268811579443.webp?quality=lossless"
 private const val MANGA_IMAGE_URL = "emojis/1365263962622529576.webp?quality=lossless"
+private const val VIDEO_IMAGE_URL = "emojis/1365261809182965832.webp?quality=lossless"
 // <-- AM (DISCORD)

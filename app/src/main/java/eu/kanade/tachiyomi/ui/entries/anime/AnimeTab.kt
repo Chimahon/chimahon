@@ -44,6 +44,8 @@ import eu.kanade.tachiyomi.ui.library.LibraryViewMode
 import cafe.adriel.voyager.core.screen.Screen
 import eu.kanade.presentation.util.Tab
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
+import eu.kanade.tachiyomi.data.connections.discord.DiscordScreen
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
 import eu.kanade.tachiyomi.ui.browse.animesource.globalsearch.GlobalAnimeSearchScreen
@@ -327,6 +329,12 @@ fun Screen.AnimeLibraryPanel(
     LaunchedEffect(state.isLoading) {
         if (!state.isLoading) {
             (context as? MainActivity)?.ready = true
+
+            // KMK -->
+            with(DiscordRPCService) {
+                discordScope.launchIO { setScreen(context, DiscordScreen.LIBRARY) }
+            }
+            // <-- KMK
         }
     }
 

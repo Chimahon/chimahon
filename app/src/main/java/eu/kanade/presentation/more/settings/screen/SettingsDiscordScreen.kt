@@ -36,6 +36,7 @@ import eu.kanade.tachiyomi.data.connections.ConnectionsManager
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableMap
+import tachiyomi.domain.category.interactor.GetAnimeCategories
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.kmk.KMR
@@ -254,6 +255,8 @@ object SettingsDiscordScreen : SearchableSettings {
     ): Preference.PreferenceGroup {
         val getCategories = remember { Injekt.get<GetCategories>() }
         val allCategories by getCategories.subscribe().collectAsState(initial = emptyList())
+        val getAnimeCategories = remember { Injekt.get<GetAnimeCategories>() }
+        val allAnimeCategories by getAnimeCategories.subscribe().collectAsState(initial = emptyList())
 
         val discordRPCIncognitoPref = connectionsPreferences.discordRPCIncognito()
         val discordRPCIncognitoCategoriesPref = connectionsPreferences.discordRPCIncognitoCategories()
@@ -268,8 +271,10 @@ object SettingsDiscordScreen : SearchableSettings {
                 ),
                 Preference.PreferenceItem.MultiSelectListPreference(
                     preference = discordRPCIncognitoCategoriesPref,
-                    entries = allCategories
-                        .associate { it.id.toString() to it.visualName }
+                    entries = (
+                        allCategories.associate { it.id.toString() to it.visualName } +
+                            allAnimeCategories.associate { it.id.toString() to it.visualName }
+                        )
                         .toImmutableMap(),
                     title = stringResource(MR.strings.categories),
                 ),

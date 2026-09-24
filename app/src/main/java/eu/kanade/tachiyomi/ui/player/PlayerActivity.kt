@@ -62,12 +62,15 @@ import androidx.media.AudioAttributesCompat
 import androidx.media.AudioFocusRequestCompat
 import androidx.media.AudioManagerCompat
 import com.hippo.unifile.UniFile
+import eu.kanade.domain.connections.service.ConnectionsPreferences
 import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.animesource.model.ChapterType
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SerializableHoster.Companion.serialize
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
+import eu.kanade.tachiyomi.data.connections.discord.PlayerData
 import eu.kanade.tachiyomi.data.notification.NotificationReceiver
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.torrentServer.service.TorrentServerService
@@ -106,6 +109,7 @@ import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.core.common.util.system.UrlUtils
 import tachiyomi.domain.custombuttons.model.CustomButton
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.i18n.MR
@@ -133,6 +137,7 @@ class PlayerActivity : BaseActivity() {
     private val playerPreferences: PlayerPreferences by lazy { viewModel.playerPreferences }
     private val audioPreferences: AudioPreferences = Injekt.get()
     private val advancedPlayerPreferences: AdvancedPlayerPreferences = Injekt.get()
+    private val connectionsPreferences: ConnectionsPreferences = Injekt.get()
     private val subtitlePreferences: SubtitlePreferences = Injekt.get()
     private val networkPreferences: NetworkPreferences = Injekt.get()
     private val storageManager: StorageManager = Injekt.get()
@@ -400,6 +405,13 @@ class PlayerActivity : BaseActivity() {
                 }
             }
             .launchIn(lifecycleScope)
+
+        // KMK -->
+        viewModel.viewModelScope.launchIO {
+            updateDiscordRPC(exitingPlayer = false)
+        }
+        // <-- KMK
+
         // Cast -->
         castManager
         // <-- Cast
@@ -548,6 +560,9 @@ class PlayerActivity : BaseActivity() {
         player.destroyPlayer()
         castManager.cleanup()
 
+        // KMK -->
+        updateDiscordRPC(exitingPlayer = true)
+        // <-- KMK
 
         super.onDestroy()
     }
@@ -557,6 +572,10 @@ class PlayerActivity : BaseActivity() {
 
         // Mantener sesión Cast activa
         castManager.maintainCastSessionBackground()
+
+        // KMK -->
+        updateDiscordRPC(exitingPlayer = true)
+        // <-- KMK
 
 
 
@@ -955,6 +974,10 @@ class PlayerActivity : BaseActivity() {
             registerSessionListener()
         }
 
+        // KMK -->
+        updateDiscordRPC(exitingPlayer = false)
+        // <-- KMK
+
 
 
         if (!player.isExiting) {
@@ -1030,6 +1053,10 @@ class PlayerActivity : BaseActivity() {
                     viewModel.unpause()
                     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
+
+                // KMK -->
+                updateDiscordRPC(exitingPlayer = false)
+                // <-- KMK
 
                 runCatching {
                     updatePictureInPictureParamsIfAvailable()
@@ -1684,8 +1711,70 @@ class PlayerActivity : BaseActivity() {
     // at void eu.kanade.tachiyomi.ui.player.PlayerActivity.fileLoaded() (PlayerActivity.kt:1874)
     // at void eu.kanade.tachiyomi.ui.player.PlayerActivity.event(int) (PlayerActivity.kt:1566)
     // at void is.xyz.mpv.MPVLib.event(int) (MPVLib.java:86)
+    // KMK -->
+    /**
+     * Updates the Discord Rich Presence (RPC) status based on the current player activity.
+     *
+     * @param exitingPlayer A boolean flag indicating whether the user is exiting the player.
+     * If true, the Discord RPC status is set to the last used screen.
+     * If false, the Discord RPC status is set to the current player activity, displaying details such as the anime title and episode number.
+     */
+    private fun updateDiscordRPC(exitingPlayer: Boolean) {
+        if (!connectionsPreferences.enableDiscordRPC().get()) return
+
+        DiscordRPCService.discordScope.launchIO {
+            try {
+                if (!exitingPlayer) {
+                    val timePos = viewModel.pos.value
+                    val duration = viewModel.duration.value.toInt().takeIf { it > 0 } ?: 1440
+
+                    val currentPosition = timePos.toLong() * 1000
+                    val startTimestamp = Calendar.getInstance().apply {
+                        timeInMillis = System.currentTimeMillis() - currentPosition
+                    }
+                    val endTimestamp = Calendar.getInstance().apply {
+                        timeInMillis = startTimestamp.timeInMillis
+                        add(Calendar.SECOND, duration)
+                    }
+
+                    val anime = viewModel.currentAnime.value ?: return@launchIO
+                    val episode = viewModel.currentEpisode.value ?: return@launchIO
+
+                    DiscordRPCService.setPlayerActivity(
+                        context = this@PlayerActivity,
+                        PlayerData(
+                            incognitoMode = viewModel.incognitoMode,
+                            animeId = anime.id,
+                            animeTitle = anime.ogTitle,
+                            thumbnailUrl = anime.thumbnailUrl.takeIf { UrlUtils.isOnlineUrl(it) } ?: anime.ogThumbnailUrl,
+                            episodeNumber = if (connectionsPreferences.useChapterTitles().get()) {
+                                episode.name
+                            } else {
+                                episode.episode_number.toString()
+                            },
+                            startTimestamp = startTimestamp.timeInMillis,
+                            endTimestamp = endTimestamp.timeInMillis,
+                        ),
+                    )
+                } else {
+                    with(DiscordRPCService) {
+                        setScreen(this@PlayerActivity)
+                    }
+                }
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR) { "Error updating Discord RPC: ${e.message}" }
+            }
+        }
+    }
+    // KMK <--
+
     private fun fileLoaded() {
         if (player.isExiting) return
+
+        // KMK -->
+        updateDiscordRPC(exitingPlayer = false)
+        // <-- KMK
+
         setMpvMediaTitle()
         setupPlayerOrientation()
         setupChapters()
