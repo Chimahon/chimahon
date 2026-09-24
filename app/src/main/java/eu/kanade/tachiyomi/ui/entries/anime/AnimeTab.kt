@@ -257,7 +257,13 @@ fun Screen.AnimeLibraryPanel(
                             GlobalAnimeSearchScreen(screenModel.state.value.searchQuery ?: ""),
                         )
                     },
-                    getNumberOfAnimeForCategory = { state.getAnimeCountForCategory(it) },
+                    getNumberOfAnimeForCategory = {
+                        if (state.showAnimeCount || !state.searchQuery.isNullOrEmpty()) {
+                            state.getAnimeCountForCategory(it)
+                        } else {
+                            null
+                        }
+                    },
                     getDisplayMode = { screenModel.getDisplayMode() },
                     getColumnsForOrientation = {
                         screenModel.getColumnsPreferenceForCurrentOrientation(

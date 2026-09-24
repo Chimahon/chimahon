@@ -635,13 +635,23 @@ class AnimeLibraryScreenModel(
             LibrarySort.Type.Alphabetical -> Comparator { a, b ->
                 collator.compare(a.libraryAnime.anime.title, b.libraryAnime.anime.title)
             }
-            LibrarySort.Type.LastRead -> compareByDescending { it.libraryAnime.lastSeen }
-            LibrarySort.Type.LastUpdate -> compareByDescending { it.libraryAnime.anime.lastUpdate }
-            LibrarySort.Type.UnreadCount -> compareByDescending { it.libraryAnime.unseenCount }
-            LibrarySort.Type.TotalChapters -> compareByDescending { it.libraryAnime.totalEpisodes }
-            LibrarySort.Type.LatestChapter -> compareByDescending { it.libraryAnime.latestUpload }
-            LibrarySort.Type.ChapterFetchDate -> compareByDescending { it.libraryAnime.episodeFetchedAt }
-            LibrarySort.Type.DateAdded -> compareByDescending { it.libraryAnime.anime.dateAdded }
+            LibrarySort.Type.LastRead -> compareBy { it.libraryAnime.lastSeen }
+            LibrarySort.Type.LastUpdate -> compareBy { it.libraryAnime.anime.lastUpdate }
+            LibrarySort.Type.UnreadCount -> Comparator { a, b ->
+                val aCount = a.libraryAnime.unseenCount
+                val bCount = b.libraryAnime.unseenCount
+                when {
+                    // Ensure unseen content comes first, empty counts always last
+                    aCount == bCount -> 0
+                    aCount == 0L -> if (sort.isAscending) 1 else -1
+                    bCount == 0L -> if (sort.isAscending) -1 else 1
+                    else -> aCount.compareTo(bCount)
+                }
+            }
+            LibrarySort.Type.TotalChapters -> compareBy { it.libraryAnime.totalEpisodes }
+            LibrarySort.Type.LatestChapter -> compareBy { it.libraryAnime.latestUpload }
+            LibrarySort.Type.ChapterFetchDate -> compareBy { it.libraryAnime.episodeFetchedAt }
+            LibrarySort.Type.DateAdded -> compareBy { it.libraryAnime.anime.dateAdded }
             LibrarySort.Type.TrackerMean -> compareBy {
                 trackerScores[it.libraryAnime.id] ?: DEFAULT_TRACKER_SCORE_SORT_VALUE
             }
