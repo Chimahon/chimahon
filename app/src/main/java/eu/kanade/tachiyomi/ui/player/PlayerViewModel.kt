@@ -286,6 +286,18 @@ class PlayerViewModel @JvmOverloads constructor(
     val selectedHosterVideoIndex = _selectedHosterVideoIndex.asStateFlow()
     private val _currentVideo = MutableStateFlow<Video?>(null)
     val currentVideo = _currentVideo.asStateFlow()
+
+    /**
+     * Replaces the current video with an equivalent carrying a different url.
+     *
+     * Used for extensions-lib 17 sources, where the url only becomes usable once the local http
+     * server is started and the placeholder port is swapped. Everything that reads
+     * [currentVideo] - media capture, external subtitle lookup - has to see the rewritten url,
+     * not the placeholder.
+     */
+    fun updateCurrentVideoUrl(video: Video) {
+        _currentVideo.update { video }
+    }
     private var videoClickHandler: (Int, Int) -> Unit = ::onSourceVideoClicked
 
     private val _chapters = MutableStateFlow<List<IndexedSegment>>(emptyList())

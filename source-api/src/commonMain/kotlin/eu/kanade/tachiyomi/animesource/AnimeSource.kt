@@ -1,7 +1,10 @@
 package eu.kanade.tachiyomi.animesource
 
+import eu.kanade.tachiyomi.animesource.model.AnimeRelation
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SAnimeEpisodeUpdate
+import eu.kanade.tachiyomi.animesource.model.SAnimeSeasonUpdate
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import rx.Observable
@@ -71,4 +74,42 @@ interface AnimeSource {
         pushResults: suspend (relatedAnime: Pair<String, List<SAnime>>, completed: Boolean) -> Unit,
     ): Unit = throw UnsupportedOperationException()
     // KMK <--
+
+    // AY -->
+    /**
+     * Get anime related to [anime], grouped by relation label
+     *
+     * extensions-lib 17 shape. The three-argument [getRelatedAnimeList] above is the older API and
+     * is kept so existing extensions keep working.
+     *
+     * @since extensions-lib 17
+     */
+    suspend fun getRelatedAnimeList(anime: SAnime): List<AnimeRelation> = emptyList()
+
+    /**
+     * Fetches updated information for an anime: metadata, episodes, or both. Unrequested values
+     * may be returned as-is.
+     *
+     * @since extensions-lib 17
+     */
+    suspend fun getAnimeEpisodeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeEpisodeUpdate = SAnimeEpisodeUpdate(anime, episodes)
+
+    /**
+     * Fetches updated information for an anime: metadata, seasons, or both. Unrequested values
+     * may be returned as-is.
+     *
+     * @since extensions-lib 17
+     */
+    suspend fun getAnimeSeasonUpdate(
+        anime: SAnime,
+        seasons: List<SAnime>,
+        fetchDetails: Boolean,
+        fetchSeasons: Boolean,
+    ): SAnimeSeasonUpdate = SAnimeSeasonUpdate(anime, seasons)
+    // <-- AY
 }

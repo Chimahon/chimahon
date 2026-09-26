@@ -14,25 +14,28 @@ import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.sync.SyncPreferences
 import eu.kanade.domain.track.interactor.TrackEpisode
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.tachiyomi.animesource.AnimeSource
+import eu.kanade.tachiyomi.animesource.model.HttpServer
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
 import eu.kanade.tachiyomi.data.connections.discord.PlayerData
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
-import eu.kanade.tachiyomi.animesource.AnimeSource
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.util.system.LocaleHelper
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.DelicateCoroutinesApi
+import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
+import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.entries.anime.model.Anime
-import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.episode.interactor.GetEpisodesByAnimeId
 import tachiyomi.domain.episode.interactor.UpdateEpisode
 import tachiyomi.domain.episode.model.Episode
@@ -81,7 +84,22 @@ class ExternalIntents {
             ?: HosterLoader.getBestVideo(source, hosters)
             ?: throw Exception("Video list is empty")
 
-        val videoUrl = getVideoUrl(source, context, video) ?: return null
+        // AY -->
+        // extensions-lib 17: the source serves the video itself and hands back placeholder urls,
+        // so point the external player at the local server's real port instead. The server is
+        // held statically so it survives this activity going away while the external player
+        // streams from it; only one is kept and the previous one is stopped.
+        var videoUrl = getVideoUrl(source, context, video) ?: return null
+        if (video.usesHttpServer()) {
+            val httpSource = source as? AnimeHttpSource
+            val port = startExternalHttpServer(httpSource)
+            if (port <= 0) {
+                withUIContext { context.toast(AMR.strings.http_server_start_failure) }
+                return null
+            }
+            videoUrl = getVideoUrl(source, context, video.copyHttpServer(port)) ?: return null
+        }
+        // <-- AY
 
         val pkgName = playerPreferences.externalPlayerPreference().get()
 
@@ -606,6 +624,30 @@ class ExternalIntents {
         suspend fun newIntent(context: Context, animeId: Long, episodeId: Long, video: Video?): Intent? {
             return externalIntents.getExternalIntent(context, animeId, episodeId, video)
         }
+
+        // AY -->
+        /**
+         * Server backing an external player session, kept out of the instance so it outlives the
+         * activity that launched the player. Anikku runs the equivalent in a foreground service so
+         * it also survives process death; without that, streaming stops if the app is killed while
+         * the external player is in the foreground.
+         */
+        private var externalHttpServer: HttpServer? = null
+
+        private fun startExternalHttpServer(source: AnimeHttpSource?): Int {
+            if (source == null) return 0
+            return try {
+                externalHttpServer?.stop()
+                val server = source.createHttpServer() ?: return 0
+                server.start()
+                externalHttpServer = server
+                server.listeningPort
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Failed to start http server for external player" }
+                0
+            }
+        }
+        // <-- AY
     }
 }
 

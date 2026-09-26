@@ -2,6 +2,8 @@
 
 package eu.kanade.tachiyomi.animesource.model
 
+import kotlinx.serialization.json.JsonObject
+
 class SAnimeImpl : SAnime {
 
     override lateinit var url: String
@@ -29,4 +31,6 @@ class SAnimeImpl : SAnime {
     override var initialized: Boolean = false
 
     override var update_strategy: AnimeUpdateStrategy = AnimeUpdateStrategy.ALWAYS_UPDATE
+
+    override var memo: JsonObject = JsonObject.EMPTY
 }

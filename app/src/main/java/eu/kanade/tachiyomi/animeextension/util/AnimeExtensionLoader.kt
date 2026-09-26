@@ -45,7 +45,9 @@ internal object AnimeExtensionLoader {
     private const val METADATA_HAS_CHANGELOG = "tachiyomi.animeextension.hasChangelog"
     private const val METADATA_TORRENT = "tachiyomi.animeextension.torrent"
     const val LIB_VERSION_MIN = 12.0
-    const val LIB_VERSION_MAX = 16.0
+    // AY -->
+    const val LIB_VERSION_MAX = 17.0
+    // <-- AY
 
     @Suppress("DEPRECATION")
     private val PACKAGE_FLAGS = PackageManager.GET_CONFIGURATIONS or

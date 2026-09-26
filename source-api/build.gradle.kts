@@ -17,6 +17,9 @@ kotlin {
                 api(libs.rxjava)
                 api(libs.jsoup)
 
+                // AY -->
+                api(libs.nanohttpd)
+                // <-- AY
                 // SY -->
                 api(projects.i18n)
                 api(projects.i18nSy)

@@ -3,6 +3,7 @@
 package eu.kanade.tachiyomi.animesource.model
 
 import eu.kanade.tachiyomi.animesource.model.FetchType
+import kotlinx.serialization.json.JsonObject
 import java.io.Serializable
 
 interface SAnime : Serializable {
@@ -33,6 +34,22 @@ interface SAnime : Serializable {
 
     var initialized: Boolean
 
+    /**
+     * Extra metadata associated with the anime.
+     *
+     * The JSON object is not visible to users and intended for internal or source-specific
+     * purposes. Apps may define their own namespaced keys (e.g. `"aniyomi.*"`) for sources to
+     * populate.
+     *
+     * Defaults to a no-op so implementations outside this module do not have to change;
+     * [SAnimeImpl] stores the real value.
+     *
+     * @since extensions-lib 17
+     */
+    var memo: JsonObject
+        get() = JsonObject.EMPTY
+        set(@Suppress("UNUSED_PARAMETER") _) = Unit
+
     fun getGenres(): List<String>? {
         if (genre.isNullOrBlank()) return null
         return genre?.split(", ")?.map { it.trim() }?.filterNot { it.isBlank() }?.distinct()
@@ -52,6 +69,7 @@ interface SAnime : Serializable {
         it.season_number = season_number
         it.update_strategy = update_strategy
         it.initialized = initialized
+        it.memo = memo
     }
 
     companion object {

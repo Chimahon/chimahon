@@ -66,6 +66,7 @@ import eu.kanade.domain.connections.service.ConnectionsPreferences
 import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.animesource.model.ChapterType
 import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.HttpServer
 import eu.kanade.tachiyomi.animesource.model.SerializableHoster.Companion.serialize
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
@@ -113,6 +114,7 @@ import tachiyomi.core.common.util.system.UrlUtils
 import tachiyomi.domain.custombuttons.model.CustomButton
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.ank.AMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
@@ -135,6 +137,9 @@ class PlayerActivity : BaseActivity() {
     private var mediaSession: MediaSession? = null
     private val gesturePreferences: GesturePreferences by lazy { viewModel.gesturePreferences }
     private val playerPreferences: PlayerPreferences by lazy { viewModel.playerPreferences }
+    // AY -->
+    private var httpServer: HttpServer? = null
+    // <-- AY
     private val audioPreferences: AudioPreferences = Injekt.get()
     private val advancedPlayerPreferences: AdvancedPlayerPreferences = Injekt.get()
     private val connectionsPreferences: ConnectionsPreferences = Injekt.get()
@@ -559,6 +564,9 @@ class PlayerActivity : BaseActivity() {
         MPVLib.command(arrayOf("stop"))
         player.destroyPlayer()
         castManager.cleanup()
+        // AY -->
+        stopHttpServer()
+        // <-- AY
 
         // KMK -->
         updateDiscordRPC(exitingPlayer = true)
@@ -1513,10 +1521,33 @@ class PlayerActivity : BaseActivity() {
                 torrentLinkHandler(video.videoUrl, video.quality, video.mpvArgs)
             }
         } else {
+            // AY -->
+            // extensions-lib 17: the source can serve the video itself over a local http server
+            // and hands back placeholder urls, so swap in the real port before loading.
+            // The previous server is dropped on every setVideo, so switching to a video that
+            // does not use one does not leave it running, and each video gets a fresh handler.
+            stopHttpServer()
+            val videoToLoad = if (video.usesHttpServer()) {
+                val source = viewModel.currentSource.value as? AnimeHttpSource
+                val port = if (source == null) {
+                    0
+                } else {
+                    startHttpServer(source)?.listeningPort ?: 0
+                }
+                if (port <= 0) {
+                    logcat(LogPriority.ERROR) { "Failed to start http server for ${source?.id}" }
+                    toast(AMR.strings.http_server_start_failure)
+                    return
+                }
+                video.copyHttpServer(port).also { viewModel.updateCurrentVideoUrl(it) }
+            } else {
+                video
+            }
+            // <-- AY
             val playableUrl = try {
-                parseVideoUrl(video.videoUrl) ?: video.videoUrl
+                parseVideoUrl(videoToLoad.videoUrl) ?: videoToLoad.videoUrl
             } catch (e: Exception) {
-                logcat(LogPriority.ERROR, e) { "Failed to resolve video URI: ${video.videoUrl}" }
+                logcat(LogPriority.ERROR, e) { "Failed to resolve video URI: ${videoToLoad.videoUrl}" }
                 toast(e.message ?: "Unable to open video")
                 null
             }
@@ -1524,13 +1555,39 @@ class PlayerActivity : BaseActivity() {
                 toast("Unable to open video")
                 return
             }
-            if (video.mpvArgs.isEmpty()) {
+            if (videoToLoad.mpvArgs.isEmpty()) {
                 loadPlayableUrl(playableUrl)
             } else {
-                loadFile(playableUrl, video.mpvArgs)
+                loadFile(playableUrl, videoToLoad.mpvArgs)
             }
         }
 
+    }
+
+    /**
+     * Starts the [HttpServer] an [AnimeHttpSource] provided for this video, if any.
+     *
+     * @since extensions-lib 17
+     */
+    private fun startHttpServer(source: AnimeHttpSource): HttpServer? {
+        return try {
+            val server = source.createHttpServer() ?: return null
+            server.start()
+            httpServer = server
+            server
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to start http server" }
+            null
+        }
+    }
+
+    private fun stopHttpServer() {
+        try {
+            httpServer?.stop()
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "Failed to stop http server" }
+        }
+        httpServer = null
     }
 
     /**

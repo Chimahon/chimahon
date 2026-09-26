@@ -174,6 +174,12 @@
 
         <!-- Komikku -->
     <string name="sync_progress_from_trackers_up_to_episode">Sync progress from Trackers up to episode %d</string>
+    <string name="http_server_start_failure">Failed to start the local http server required by this source</string>
+    <string name="action_order_by_episode_number">By episode number</string>
+    <string name="episode_download_progress">%1$d%%</string>
+    <string name="download_retry">Retry</string>
+    <string name="download_queued_indeterminate">Queued</string>
+    <string name="no_app_for_external_download">No app available to download this episode externally</string>
     <string name="download_cache_renew_interval_info_anime">If set to "manual", either refresh each anime or using the "Reindex downloads" action in "Advanced"</string>
     <string name="pref_top_align_cover_summary_anime">Show the cover aligned to the top alongside anime info</string>
     <string name="pref_anime_info">Anime Info</string>
