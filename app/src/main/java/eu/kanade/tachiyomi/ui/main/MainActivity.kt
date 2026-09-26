@@ -9,11 +9,14 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
+import android.app.Activity
 import android.os.Bundle
 import android.os.Looper
 import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -54,13 +57,13 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.NavigatorDisposeBehavior
 import cafe.adriel.voyager.navigator.currentOrThrow
+import chimahon.novel.plugin.NovelPluginManager
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.connections.service.ConnectionsPreferences
-import chimahon.novel.plugin.NovelPluginManager
 import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.source.service.SourcePreferences
-import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.components.AppStateBanners
 import eu.kanade.presentation.components.DownloadedOnlyBannerBackgroundColor
 import eu.kanade.presentation.components.IncognitoModeBannerBackgroundColor
@@ -101,7 +104,10 @@ import eu.kanade.tachiyomi.ui.manga.MangaScreen
 import eu.kanade.tachiyomi.ui.more.NewUpdateScreen
 import eu.kanade.tachiyomi.ui.more.OnboardingScreen
 import eu.kanade.tachiyomi.ui.more.WhatsNewScreen
+import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.ui.player.ExternalIntents
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
+import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isDebugBuildType
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
@@ -131,6 +137,8 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.lang.launchIO
+import tachiyomi.core.common.util.lang.launchNonCancellable
+import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.backup.service.BackupPreferences
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -209,6 +217,35 @@ class MainActivity : BaseActivity() {
         val splashScreen = if (isLaunch) installSplashScreen() else null
 
         super.onCreate(savedInstanceState)
+
+        // AY -->
+        // Registered before the activity is STARTED, and owned by the companion rather than a
+        // Composable because the external player outlives whichever screen launched it. Without
+        // this the external player can never report its final position back, so a watched episode
+        // is never marked seen, no history is written and the tracker is not updated.
+        externalPlayerResult = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+            val externalIntents = ExternalIntents.externalIntents
+            // NonCancellable: the user can swipe the task away the instant the external player
+            // closes, and a cancelled job would drop the position they just watched.
+            lifecycleScope.launchNonCancellable {
+                // The process can be killed while the external player is in the foreground, which
+                // drops the singleton's in-memory state. Rebuild it from the ids persisted in
+                // onSaveInstanceState. onActivityResult reads those fields, so this has to
+                // complete first; it is awaited here rather than runBlocking'd on the main thread.
+                if (externalIntents.episodeId == null) {
+                    val animeId = savedInstanceState?.longOrNull(SAVED_STATE_ANIME_KEY)
+                    val episodeId = savedInstanceState?.longOrNull(SAVED_STATE_EPISODE_KEY)
+                    if (animeId != null && episodeId != null) {
+                        externalIntents.initAnime(animeId, episodeId)
+                    }
+                }
+                externalIntents.onActivityResult(applicationContext, result.data)
+            }
+        }
+        // <-- AY
 
         val didMigration = if (isLaunch) {
             Migrator.awaitAndRelease()
@@ -482,6 +519,17 @@ class MainActivity : BaseActivity() {
             }
         }
     }
+
+    // AY -->
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+
+        // Persist the external playback session so the result callback can rebuild the
+        // ExternalIntents state if the process was killed while the external player was in front.
+        ExternalIntents.externalIntents.animeId?.let { outState.putLong(SAVED_STATE_ANIME_KEY, it) }
+        ExternalIntents.externalIntents.episodeId?.let { outState.putLong(SAVED_STATE_EPISODE_KEY, it) }
+    }
+    // <-- AY
 
     // KMK -->
     override fun onPause() {
@@ -812,6 +860,50 @@ class MainActivity : BaseActivity() {
         const val INTENT_SEARCH_QUERY = "query"
         const val INTENT_SEARCH_FILTER = "filter"
 
+        // AY -->
+        /** Bundle keys for the in-flight external playback session, see [onSaveInstanceState]. */
+        const val SAVED_STATE_ANIME_KEY = "saved_state_anime_key"
+        const val SAVED_STATE_EPISODE_KEY = "saved_state_episode_key"
+
+        private var externalPlayerResult: ActivityResultLauncher<Intent>? = null
+
+        /**
+         * Single entry point for anime playback, internal or external.
+         *
+         * External playback deliberately goes through [externalPlayerResult] instead of a bare
+         * `startActivity`, so the player can hand its final position back through
+         * [ExternalIntents.onActivityResult]. Falls back to the in-app player when no external app
+         * can handle the intent, or when there is no launcher registered yet, so a play request can
+         * never silently do nothing.
+         */
+        suspend fun startPlayerActivity(
+            context: Context,
+            animeId: Long,
+            episodeId: Long,
+            video: Video? = null,
+            extPlayer: Boolean = false,
+        ) {
+            if (extPlayer) {
+                val intent = try {
+                    ExternalIntents.newIntent(context, animeId, episodeId, video)
+                } catch (e: Exception) {
+                    logcat(LogPriority.ERROR, e) { "Failed to build external player intent" }
+                    withUIContext { context.toast(e.message ?: "Cannot open episode") }
+                    null
+                }
+                val launcher = externalPlayerResult
+                if (intent != null && launcher != null) {
+                    launcher.launch(intent)
+                    return
+                }
+                // Nothing can play it externally, so degrade to the in-app player rather than
+                // dropping the request.
+                logcat(LogPriority.WARN) { "No external player available, falling back to in-app" }
+            }
+            context.startActivity(PlayerActivity.newIntent(context, animeId, episodeId))
+        }
+        // <-- AY
+
         private val INTENT_URI_GRANT_FLAGS =
             Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
@@ -848,3 +940,9 @@ class MainActivity : BaseActivity() {
 private const val SPLASH_MIN_DURATION = 500 // ms
 private const val SPLASH_MAX_DURATION = 5000 // ms
 private const val SPLASH_EXIT_ANIM_DURATION = 400L // ms
+
+/**
+ * [Bundle.getLong] returns 0 for a missing key, which would make a restored-but-absent id look
+ * like a real one. Null out anything that was never written.
+ */
+private fun Bundle.longOrNull(key: String): Long? = if (containsKey(key)) getLong(key) else null
