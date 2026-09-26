@@ -202,7 +202,7 @@ class DownloadQueueScreenModel(
                             val header = AnimeDownloadHeaderItem(entry.key.id, entry.key.name, entry.value.size)
                             header.addSubItems(0, entry.value.map { AnimeDownloadItem(it, header) })
                             add(header)
-                    }
+                        }
                 }
             }.collect { newList -> _state.update { newList } }
         }
@@ -298,6 +298,25 @@ class DownloadQueueScreenModel(
             newDownloads.addAll(headerItem.subItems.map { it.download })
         }
         reorder(newDownloads)
+    }
+
+    /**
+     * Anime counterpart of [reorderQueue]. The two queues are kept in separate header types, so
+     * without this the sort menu silently did nothing for anime downloads.
+     */
+    fun <R : Comparable<R>> reorderAnimeQueue(selector: (AnimeDownloadItem) -> R, reverse: Boolean = false) {
+        val adapter = adapter ?: return
+        val newDownloads = mutableListOf<AnimeDownload>()
+        adapter.headerItems.forEach { headerItem ->
+            if (headerItem !is AnimeDownloadHeaderItem) return@forEach
+            headerItem.subItems = headerItem.subItems.sortedBy(selector).toMutableList().apply {
+                if (reverse) {
+                    reverse()
+                }
+            }
+            newDownloads.addAll(headerItem.subItems.map { it.download })
+        }
+        reorderAnime(newDownloads)
     }
 
     fun onStatusChange(download: Download) {

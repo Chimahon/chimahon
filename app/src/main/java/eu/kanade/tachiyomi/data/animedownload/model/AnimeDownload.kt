@@ -17,6 +17,11 @@ data class AnimeDownload(
     val anime: Anime,
     val episode: Episode,
     @Volatile var video: Video? = null,
+    /**
+     * Hand this episode to an external downloader instead of fetching it ourselves. The queue
+     * entry is dropped as soon as the intent is fired: the other app owns the file from there.
+     */
+    val useExternalDownloader: Boolean = false,
 ) {
     @Volatile
     var totalBytes: Long = -1L

@@ -17,6 +17,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
@@ -35,13 +37,14 @@ import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.anime.model.Anime
-import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.episode.model.Episode
+import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.storage.service.StorageManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 
 class AnimeDownloadCache(
     private val context: Context,
@@ -250,7 +253,18 @@ class AnimeDownloadCache(
                 _isInitializing.emit(true)
             }
 
-            val sources = animeSourceManager.getOnlineSources() + animeSourceManager.getStubSources()
+            // Wait for sources to finish loading before mapping directories back to source ids.
+            // Without this a cold start can build an empty sourceMap, which makes every
+            // downloaded episode look like it was never downloaded until the next renewal.
+            // Same guard as the manga cache.
+            var sources = emptyList<AnimeSource>()
+            withTimeoutOrNull(30.seconds) {
+                animeSourceManager.isInitialized.first { it }
+                sources = animeSourceManager.getOnlineSources() + animeSourceManager.getStubSources()
+            }
+            if (sources.isEmpty()) {
+                sources = animeSourceManager.getOnlineSources() + animeSourceManager.getStubSources()
+            }
             val sourceMap = sources.associate { provider.getSourceDirName(it).lowercase() to it.id }
 
             val updatedRootDir = RootDirectory(storageManager.getAnimeDownloadsDirectory())
@@ -299,7 +313,6 @@ class AnimeDownloadCache(
                 notifyChanges()
             }
         }
-
     }
 
     private fun notifyChanges() {

@@ -74,6 +74,7 @@ import eu.kanade.tachiyomi.databinding.DownloadListBinding
 import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.ank.AMR
 import tachiyomi.presentation.core.components.Pill
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.stringResource
@@ -105,6 +106,7 @@ object DownloadQueueScreen : Screen() {
             }
         }
         val hasMangaDownloads = downloadList.any { it is DownloadHeaderItem }
+        val hasAnimeDownloads = downloadList.any { it is AnimeDownloadHeaderItem }
 
         val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
         var fabExpanded by remember { mutableStateOf(true) }
@@ -211,10 +213,66 @@ object DownloadQueueScreen : Screen() {
                                         )
                                     },
                                 )
+                                // AY -->
+                                // The two queues live in separate header types, so the anime queue
+                                // needs its own sort entries or the menu does nothing for it.
+                                if (hasAnimeDownloads) {
+                                    NestedMenuItem(
+                                        text = { Text(text = stringResource(MR.strings.action_order_by_upload_date)) },
+                                        children = { closeMenu ->
+                                            DropdownMenuItem(
+                                                text = { Text(text = stringResource(MR.strings.action_newest)) },
+                                                onClick = {
+                                                    screenModel.reorderAnimeQueue(
+                                                        { it.download.episode.dateUpload },
+                                                        true,
+                                                    )
+                                                    closeMenu()
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(text = stringResource(MR.strings.action_oldest)) },
+                                                onClick = {
+                                                    screenModel.reorderAnimeQueue(
+                                                        { it.download.episode.dateUpload },
+                                                        false,
+                                                    )
+                                                    closeMenu()
+                                                },
+                                            )
+                                        },
+                                    )
+                                    NestedMenuItem(
+                                        text = { Text(text = stringResource(AMR.strings.action_order_by_episode_number)) },
+                                        children = { closeMenu ->
+                                            DropdownMenuItem(
+                                                text = { Text(text = stringResource(MR.strings.action_asc)) },
+                                                onClick = {
+                                                    screenModel.reorderAnimeQueue(
+                                                        { it.download.episode.episodeNumber },
+                                                        false,
+                                                    )
+                                                    closeMenu()
+                                                },
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text(text = stringResource(MR.strings.action_desc)) },
+                                                onClick = {
+                                                    screenModel.reorderAnimeQueue(
+                                                        { it.download.episode.episodeNumber },
+                                                        true,
+                                                    )
+                                                    closeMenu()
+                                                },
+                                            )
+                                        },
+                                    )
+                                }
+                                // <-- AY
                             }
 
                             val actions = buildList<AppBar.AppBarAction> {
-                                if (hasMangaDownloads) {
+                                if (hasMangaDownloads || hasAnimeDownloads) {
                                     add(
                                         AppBar.Action(
                                             title = stringResource(MR.strings.action_sort),
@@ -297,7 +355,7 @@ object DownloadQueueScreen : Screen() {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .nestedScroll(nestedScrollConnection)
+                    .nestedScroll(nestedScrollConnection),
             ) {
                 if (ocrQueue.isNotEmpty()) {
                     val maxOcrHeight = LocalConfiguration.current.screenHeightDp.dp / 2
@@ -307,8 +365,11 @@ object DownloadQueueScreen : Screen() {
                         onRetryClick = { screenModel.retryOcr(it) },
                         modifier = Modifier
                             .then(
-                                if (downloadList.isEmpty()) Modifier.weight(1f)
-                                else Modifier.heightIn(max = maxOcrHeight)
+                                if (downloadList.isEmpty()) {
+                                    Modifier.weight(1f)
+                                } else {
+                                    Modifier.heightIn(max = maxOcrHeight)
+                                },
                             )
                             .padding(
                                 start = with(density) { left.toDp() },
@@ -348,8 +409,11 @@ object DownloadQueueScreen : Screen() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(
-                            if (downloadList.isNotEmpty()) Modifier.weight(1f).clipToBounds()
-                            else Modifier.height(0.dp)
+                            if (downloadList.isNotEmpty()) {
+                                Modifier.weight(1f).clipToBounds()
+                            } else {
+                                Modifier.height(0.dp)
+                            },
                         ),
                     factory = { context ->
                         screenModel.controllerBinding = DownloadListBinding.inflate(LayoutInflater.from(context))
@@ -453,7 +517,7 @@ private fun OcrQueueItemRow(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = Icons.Outlined.DragHandle,

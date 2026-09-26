@@ -1,6 +1,10 @@
 package eu.kanade.tachiyomi.data.animedownload
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import androidx.core.net.toUri
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.FFmpegSession
@@ -11,6 +15,7 @@ import com.arthenica.ffmpegkit.LogCallback
 import com.arthenica.ffmpegkit.ReturnCode
 import com.arthenica.ffmpegkit.StatisticsCallback
 import com.hippo.unifile.UniFile
+import eu.kanade.tachiyomi.animesource.model.HttpServer
 import eu.kanade.tachiyomi.animesource.model.SerializableVideo.Companion.serialize
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -18,44 +23,50 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.data.animedownload.model.AnimeDownload
 import eu.kanade.tachiyomi.data.torrentServer.service.TorrentServerService
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.ProgressListener
+import eu.kanade.tachiyomi.source.isSourceForTorrents
 import eu.kanade.tachiyomi.torrentServer.TorrentServerApi
 import eu.kanade.tachiyomi.torrentServer.TorrentServerUtils
-import eu.kanade.tachiyomi.source.isSourceForTorrents
+import eu.kanade.tachiyomi.ui.player.isTorrentUrl
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.mining.isHlsLikeInput
-import eu.kanade.tachiyomi.ui.player.isTorrentUrl
-import eu.kanade.tachiyomi.network.ProgressListener
 import eu.kanade.tachiyomi.util.storage.DiskUtil
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import okhttp3.Headers
 import okhttp3.Request
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
+import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.anime.model.Anime
-import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.episode.model.Episode
+import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.i18n.ank.AMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.Collections
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class AnimeDownloader(
     private val context: Context,
@@ -78,11 +89,14 @@ class AnimeDownloader(
     private val _queueState = MutableStateFlow<List<AnimeDownload>>(emptyList())
     private val _stateVersion = MutableStateFlow(0L)
 
+    private val downloadPreferences: DownloadPreferences = Injekt.get()
+
     val queueState = _queueState.asStateFlow()
     val stateVersion = _stateVersion.asStateFlow()
 
-    @Volatile
-    private var currentFFmpegSession: FFmpegSession? = null
+    // Every ffmpeg session currently running, so stop() can cancel all of them: downloads are
+    // dispatched in parallel, so a single "current" session would leave the rest decoding.
+    private val activeFFmpegSessions: MutableSet<FFmpegSession> = Collections.synchronizedSet(HashSet())
 
     private fun notifyQueueChanged() {
         _stateVersion.update { it + 1 }
@@ -194,7 +208,7 @@ class AnimeDownloader(
             .filter { provider.findEpisodeDir(it.name, it.scanlator, anime.title, source) == null }
             .sortedByDescending { it.sourceOrder }
             .filter { episode -> _queueState.value.none { it.episode.id == episode.id } }
-            .map { AnimeDownload(source, anime, it, video) }
+            .map { AnimeDownload(source, anime, it, video, useExternalDownloader = changeDownloader) }
             .toList()
 
         if (episodesToQueue.isEmpty()) {
@@ -280,31 +294,20 @@ class AnimeDownloader(
 
     private suspend fun processQueue() {
         logcat(LogPriority.INFO) { "AnimeDownloader: processQueue started" }
-        supervisorScope {
-            while (true) {
-                val download = _queueState.value.firstOrNull { it.status == AnimeDownload.State.QUEUE }
-                    ?: break
+        // Dispatch in parallel like the manga downloader: at most `parallelSourceLimit` at a time,
+        // never two from the same source so a single host is not hammered.
+        val parallelLimit = downloadPreferences.parallelSourceLimit().get().coerceAtLeast(1)
+        while (true) {
+            val batch = _queueState.value
+                .filter { it.status == AnimeDownload.State.QUEUE }
+                .groupBy { it.source }
+                .values
+                .take(parallelLimit)
+                .map { it.first() }
+            if (batch.isEmpty()) break
 
-                logcat(LogPriority.INFO) { "AnimeDownloader: downloading ${download.episode.name}" }
-                try {
-                    downloadEpisode(download)
-                    if (download.status == AnimeDownload.State.DOWNLOADED) {
-                        store.remove(download)
-                        removeFromQueueState(download)
-                        notifyQueueChanged()
-                        logcat(LogPriority.INFO) { "AnimeDownloader: completed ${download.episode.name}" }
-                    } else if (download.status == AnimeDownload.State.ERROR) {
-                        notifyQueueChanged()
-                        logcat(LogPriority.WARN) { "AnimeDownloader: kept failed download in queue: ${download.episode.name}" }
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    logcat(LogPriority.ERROR, e) { "Failed to download ${download.episode.name}" }
-                    download.status = AnimeDownload.State.ERROR
-                    notifyQueueChanged()
-                    notifier.onError(e.message, download.episode.name, download.anime.title, download.anime.id)
-                }
+            supervisorScope {
+                batch.map { download -> async { processItem(download) } }.awaitAll()
             }
         }
 
@@ -312,6 +315,29 @@ class AnimeDownloader(
             notifier.onPaused()
         } else {
             notifier.onComplete()
+        }
+    }
+
+    private suspend fun processItem(download: AnimeDownload) {
+        logcat(LogPriority.INFO) { "AnimeDownloader: downloading ${download.episode.name}" }
+        try {
+            downloadEpisode(download)
+            if (download.status == AnimeDownload.State.DOWNLOADED) {
+                store.remove(download)
+                removeFromQueueState(download)
+                notifyQueueChanged()
+                logcat(LogPriority.INFO) { "AnimeDownloader: completed ${download.episode.name}" }
+            } else if (download.status == AnimeDownload.State.ERROR) {
+                notifyQueueChanged()
+                logcat(LogPriority.WARN) { "AnimeDownloader: kept failed download in queue: ${download.episode.name}" }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to download ${download.episode.name}" }
+            download.status = AnimeDownload.State.ERROR
+            notifyQueueChanged()
+            notifier.onError(e.message, download.episode.name, download.anime.title, download.anime.id)
         }
     }
 
@@ -334,6 +360,14 @@ class AnimeDownloader(
             throw IllegalStateException("Video URL is blank for episode ${download.episode.name}")
         }
 
+        // Hand off to an external downloader instead of fetching it here. Done before any
+        // directory work: the other app writes the file, so we must not create episode folders.
+        if (download.useExternalDownloader) {
+            startExternalDownload(download, video)
+            download.status = AnimeDownload.State.DOWNLOADED
+            return
+        }
+
         download.status = AnimeDownload.State.DOWNLOADING
         notifyQueueChanged()
         notifier.onProgressChange(download)
@@ -350,14 +384,44 @@ class AnimeDownloader(
         val tmpDir = animeDir.createDirectory(tmpDirName)
             ?: throw IllegalStateException("Failed to create temp directory")
 
+        // AY -->
+        // extensions-lib 17 server for this episode. Kept local (not a field) so parallel
+        // downloads each get their own, and stopped in the finally below because the download
+        // itself reads from that url.
+        var httpServer: HttpServer? = null
+        // <-- AY
+
         try {
             DiskUtil.createNoMediaFile(tmpDir, context)
 
-            if (isTorrentUrl(videoUrl)) {
+            // A torrent-server link is already playable, so only hand magnet/.torrent urls to the
+            // resolver. Without the second check addTorrent() would be fed our own server url.
+            if (isTorrentUrl(videoUrl) || videoUrl.startsWith(TorrentServerUtils.hostUrl)) {
                 resolveTorrentVideo(video)
             }
 
-            val resolvedVideo = resolveExternalTracks(video)
+            // AY -->
+            // extensions-lib 17: the source serves the video itself and hands back placeholder
+            // urls, so rewrite them to the local server's real port before downloading. The server
+            // has to outlive this block - the download reads from that url - so it is stopped in
+            // the finally below, not here.
+            var effectiveVideo = video
+            if (video.usesHttpServer()) {
+                val source = download.source as? AnimeHttpSource
+                httpServer = source?.createHttpServer()
+                val port = httpServer?.let {
+                    it.start()
+                    it.listeningPort
+                } ?: 0
+                if (port <= 0) {
+                    throw IllegalStateException("Failed to start the local http server for episode ${download.episode.name}")
+                }
+                effectiveVideo = video.copyHttpServer(port)
+                download.video = effectiveVideo
+            }
+            // <-- AY
+
+            val resolvedVideo = resolveExternalTracks(effectiveVideo)
 
             when {
                 resolvedVideo.canUseDirectHttpDownload() -> {
@@ -395,12 +459,90 @@ class AnimeDownloader(
             download.status = AnimeDownload.State.ERROR
             notifyQueueChanged()
             notifier.onError(e.message, download.episode.name, download.anime.title, download.anime.id)
+        } finally {
+            // AY -->
+            httpServer?.stop()
+            httpServer = null
+            // <-- AY
+        }
+    }
+
+    /**
+     * Fires the intent that hands [video] to an external downloader. 1DM and ADM get their
+     * package-specific extras (including the request headers, which most sources need), anything
+     * else gets a plain `ACTION_VIEW`.
+     */
+    private suspend fun startExternalDownload(download: AnimeDownload, video: Video) {
+        val filename = DiskUtil.buildValidFilename(download.episode.name)
+        val pkgName = downloadPreferences.externalDownloaderSelection().get()
+        val headers = video.headers ?: download.source.headers
+
+        val intent = if (pkgName.isNotEmpty()) {
+            when {
+                pkgName.startsWith(ONE_DOWNLOAD_MANAGER) -> Intent(Intent.ACTION_VIEW).apply {
+                    component = ComponentName(pkgName, "$ONE_DOWNLOAD_MANAGER.Downloader")
+                    data = video.videoUrl.toUri()
+                    putExtra("extra_filename", "$filename.mkv")
+                    putExtra("extra_headers", headers.toBundle())
+                }
+
+                pkgName.startsWith(ADM_DOWNLOAD_MANAGER) -> Intent().apply {
+                    component = ComponentName(pkgName, "$pkgName.AEditor")
+                    putExtra(
+                        ADM_ACTION_LIST_ADD,
+                        "${video.videoUrl.toUri()}<info>$filename.mkv",
+                    )
+                    putExtra("android.media.intent.extra.HTTP_HEADERS", headers.toAdmBundle())
+                }
+
+                else -> Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(video.videoUrl.toUri(), "video/*")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+        } else {
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(video.videoUrl.toUri(), "video/*")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra("extra_filename", filename)
+            }
+        }
+
+        withUIContext {
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "No app handled the external download intent" }
+                context.toast(
+                    context.stringResource(AMR.strings.no_app_for_external_download),
+                )
+                throw e
+            }
+        }
+    }
+
+    private fun Headers.toBundle(): Bundle = Bundle().apply {
+        forEach { (name, value) -> putString(name, value) }
+    }
+
+    // ADM expects the scheme obfuscated in its header bundle.
+    private fun Headers?.toAdmBundle(): Bundle = Bundle().apply {
+        this@toAdmBundle?.forEach { (name, value) ->
+            putString(name, value.replace("http", "h_ttp"))
         }
     }
 
     private fun resolveTorrentVideo(video: Video) {
         TorrentServerService.start()
         TorrentServerService.wait(10)
+        // A url that already points at the torrent server is not something addTorrent() accepts,
+        // so rebuild the magnet from the hash the server link carries. Same as Animiru's
+        // torrentDownload.
+        if (video.videoUrl.startsWith(TorrentServerUtils.hostUrl)) {
+            val hash = video.videoUrl.substringAfter("link=").substringBefore("&")
+            val index = video.videoUrl.substringAfter("index=").substringBefore("&")
+            video.videoUrl = "magnet:?xt=urn:btih:$hash&index=$index"
+        }
         var index = 0
         if (video.videoUrl.contains("index=")) {
             index = try {
@@ -457,7 +599,7 @@ class AnimeDownloader(
                         val session = FFmpegKit.executeWithArgumentsAsync(
                             ffmpegOptions,
                             { returnedSession ->
-                                currentFFmpegSession = null
+                                activeFFmpegSessions.remove(returnedSession)
                                 if (ReturnCode.isSuccess(returnedSession.getReturnCode())) {
                                     cont.resume(Unit)
                                 } else {
@@ -472,11 +614,11 @@ class AnimeDownloader(
                             logCallback,
                             statCallback,
                         )
-                        currentFFmpegSession = session
+                        activeFFmpegSessions.add(session)
 
                         cont.invokeOnCancellation {
                             session.cancel()
-                            currentFFmpegSession = null
+                            activeFFmpegSessions.remove(session)
                         }
                     }
                 }
@@ -607,19 +749,29 @@ class AnimeDownloader(
             add("-headers")
             add(headers.joinToString("") { "${it.first}: ${it.second}\r\n" })
         }
-        add("-rw_timeout"); add("15000000")
+        add("-rw_timeout")
+        add("15000000")
         if (isHlsLikeInput(video.videoUrl)) {
-            add("-allowed_extensions"); add("ALL"); add("-allowed_segment_extensions"); add("ALL"); add("-extension_picky"); add("0")
+            add("-allowed_extensions")
+            add("ALL")
+            add("-allowed_segment_extensions")
+            add("ALL")
+            add("-extension_picky")
+            add("0")
         }
-        add("-v"); add("error")
-        add("-show_entries"); add("format=duration")
-        add("-of"); add("default=noprint_wrappers=1:nokey=1")
+        add("-v")
+        add("error")
+        add("-show_entries")
+        add("format=duration")
+        add("-of")
+        add("default=noprint_wrappers=1:nokey=1")
         add(video.videoUrl)
     }.toTypedArray()
 
     private fun cancelFFmpeg() {
-        currentFFmpegSession?.cancel()
-        currentFFmpegSession = null
+        // Every in-flight session has to go, not just the newest one: downloads run in parallel.
+        activeFFmpegSessions.toList().forEach { it.cancel() }
+        activeFFmpegSessions.clear()
     }
 
     private suspend fun downloadVideoFile(video: Video, tmpDir: UniFile, download: AnimeDownload) {
@@ -825,7 +977,6 @@ class AnimeDownloader(
             else -> "mp4"
         }
     }
-
 }
 
 // Video files are much larger than manga pages — require 500 MB free
@@ -879,6 +1030,10 @@ private fun String.isFFmpegBannerLine(): Boolean {
 }
 
 private const val MIN_DISK_SPACE = 500L * 1024 * 1024
+
+private const val ONE_DOWNLOAD_MANAGER = "idm.internet.download.manager"
+private const val ADM_DOWNLOAD_MANAGER = "com.dv.adm"
+private const val ADM_ACTION_LIST_ADD = "com.dv.get.ACTION_LIST_ADD"
 
 private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "m4v", "ts")
 

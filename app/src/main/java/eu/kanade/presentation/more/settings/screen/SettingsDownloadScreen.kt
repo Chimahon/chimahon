@@ -9,16 +9,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.util.fastMap
+import eu.kanade.domain.base.BasePreferences
 import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toPersistentMap
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.ank.AMR
 import tachiyomi.i18n.kmk.KMR
 import tachiyomi.presentation.core.i18n.pluralStringResource
 import tachiyomi.presentation.core.i18n.stringResource
@@ -39,6 +42,7 @@ object SettingsDownloadScreen : SearchableSettings {
         val allCategories by getCategories.subscribe().collectAsState(initial = emptyList())
 
         val downloadPreferences = remember { Injekt.get<DownloadPreferences>() }
+        val basePreferences = remember { Injekt.get<BasePreferences>() }
         val parallelSourceLimit by downloadPreferences.parallelSourceLimit().collectAsState()
         val parallelPageLimit by downloadPreferences.parallelPageLimit().collectAsState()
         return listOf(
@@ -80,6 +84,12 @@ object SettingsDownloadScreen : SearchableSettings {
             // KMK -->
             getDownloadCacheRenewInterval(downloadPreferences = downloadPreferences),
             // KMK <--
+            // AY -->
+            getExternalDownloaderGroup(
+                downloadPreferences = downloadPreferences,
+                basePreferences = basePreferences,
+            ),
+            // <-- AY
         )
     }
 
@@ -241,4 +251,44 @@ object SettingsDownloadScreen : SearchableSettings {
         )
     }
     // KMK <--
+
+    // AY -->
+    @Composable
+    private fun getExternalDownloaderGroup(
+        downloadPreferences: DownloadPreferences,
+        basePreferences: BasePreferences,
+    ): Preference.PreferenceGroup {
+        val pm = basePreferences.context.packageManager
+        val supportedDownloaders = pm.getInstalledPackages(0).filter {
+            it.packageName in EXTERNAL_DOWNLOADERS
+        }
+        val entries = (
+            mapOf("" to stringResource(MR.strings.none)) +
+                supportedDownloaders.associate { it.packageName to pm.getApplicationLabel(it.applicationInfo!!).toString() }
+            ).toPersistentMap()
+
+        return Preference.PreferenceGroup(
+            title = stringResource(AMR.strings.pref_category_external_downloader),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = downloadPreferences.useExternalDownloader(),
+                    title = stringResource(AMR.strings.pref_use_external_downloader),
+                ),
+                Preference.PreferenceItem.ListPreference(
+                    preference = downloadPreferences.externalDownloaderSelection(),
+                    entries = entries,
+                    title = stringResource(AMR.strings.pref_external_downloader_selection),
+                ),
+            ),
+        )
+    }
+    // <-- AY
 }
+
+/** Download managers we can hand a magnet or direct url to. */
+private val EXTERNAL_DOWNLOADERS = listOf(
+    "idm.internet.download.manager",
+    "idm.internet.download.manager.plus",
+    "idm.internet.download.manager.adm.lite",
+    "com.dv.adm",
+)

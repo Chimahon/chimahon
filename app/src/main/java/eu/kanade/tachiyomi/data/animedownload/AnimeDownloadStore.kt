@@ -9,8 +9,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.entries.anime.model.Anime
-import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.episode.interactor.GetEpisode
+import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -67,13 +67,20 @@ class AnimeDownloadStore(
         val downloads = mutableListOf<AnimeDownload>()
         if (objs.isNotEmpty()) {
             val cachedAnime = mutableMapOf<Long, Anime?>()
-            for ((animeId, episodeId) in objs) {
-                val anime = cachedAnime.getOrPut(animeId) {
-                    getAnime.await(animeId)
+            for (obj in objs) {
+                val anime = cachedAnime.getOrPut(obj.animeId) {
+                    getAnime.await(obj.animeId)
                 } ?: continue
                 val source = animeSourceManager.get(anime.source) as? AnimeHttpSource ?: continue
-                val episode = getEpisode.await(episodeId) ?: continue
-                downloads.add(AnimeDownload(source, anime, episode))
+                val episode = getEpisode.await(obj.episodeId) ?: continue
+                downloads.add(
+                    AnimeDownload(
+                        source,
+                        anime,
+                        episode,
+                        useExternalDownloader = obj.useExternalDownloader,
+                    ),
+                )
             }
         }
 
@@ -82,7 +89,12 @@ class AnimeDownloadStore(
     }
 
     private fun serialize(download: AnimeDownload): String {
-        val obj = AnimeDownloadObject(download.anime.id, download.episode.id, counter++)
+        val obj = AnimeDownloadObject(
+            download.anime.id,
+            download.episode.id,
+            counter++,
+            download.useExternalDownloader,
+        )
         return json.encodeToString(obj)
     }
 
@@ -96,4 +108,10 @@ class AnimeDownloadStore(
 }
 
 @Serializable
-private data class AnimeDownloadObject(val animeId: Long, val episodeId: Long, val order: Int)
+private data class AnimeDownloadObject(
+    val animeId: Long,
+    val episodeId: Long,
+    val order: Int,
+    // Absent in queues persisted before the external downloader handoff existed.
+    val useExternalDownloader: Boolean = false,
+)
