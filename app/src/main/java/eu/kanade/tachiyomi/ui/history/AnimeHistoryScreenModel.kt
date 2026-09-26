@@ -253,10 +253,19 @@ class AnimeHistoryScreenModel(
         data object DeleteAll : Dialog
         data class Delete(val history: AnimeHistoryWithRelations) : Dialog
         data class DuplicateAnime(val anime: Anime, val duplicate: Anime) : Dialog
+        data class Migrate(val current: Anime, val target: Anime) : Dialog
         data class ChangeCategory(
             val anime: Anime,
             val initialSelection: ImmutableList<CheckboxState<Category>>,
         ) : Dialog
+    }
+
+    fun showMigrateDialog(current: Anime, target: Anime) {
+        mutableState.update { it.copy(dialog = Dialog.Migrate(current, target)) }
+    }
+
+    fun onDialogDismissed() {
+        mutableState.update { it.copy(dialog = null) }
     }
 
     sealed interface Event {

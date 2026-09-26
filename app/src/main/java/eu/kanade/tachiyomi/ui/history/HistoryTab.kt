@@ -58,11 +58,11 @@ import eu.kanade.presentation.util.Tab
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
 import eu.kanade.tachiyomi.data.connections.discord.DiscordScreen
+import eu.kanade.tachiyomi.ui.browse.animemigration.season.MigrateSeasonSelectScreen
 import eu.kanade.tachiyomi.ui.category.CategoryScreen
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.manga.MangaScreen
-import eu.kanade.tachiyomi.ui.player.ExternalIntents
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
@@ -70,6 +70,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import mihon.feature.animemigration.dialog.MigrateAnimeDialog
 import mihon.feature.migration.dialog.MigrateMangaDialog
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
@@ -415,7 +416,26 @@ data object HistoryTab : Tab {
                     onDismissRequest = onAnimeDismissRequest,
                     onConfirm = { animeScreenModel.addFavorite(dialog.anime) },
                     onOpenAnime = { navigator.push(AnimeScreen(dialog.duplicate.id)) },
-                    onMigrate = { navigator.push(AnimeScreen(dialog.duplicate.id)) },
+                    onMigrate = {
+                        // Was identical to onOpenAnime, so the migrate action did nothing.
+                        animeScreenModel.showMigrateDialog(dialog.anime, dialog.duplicate)
+                    },
+                )
+            }
+            is AnimeHistoryScreenModel.Dialog.Migrate -> {
+                MigrateAnimeDialog(
+                    current = dialog.current,
+                    target = dialog.target,
+                    // Initiated from the context of [dialog.target] so we show [dialog.current].
+                    onClickTitle = { navigator.push(AnimeScreen(dialog.current.id, true)) },
+                    onClickSeasons = {
+                        navigator.push(MigrateSeasonSelectScreen(dialog.current, dialog.target))
+                    },
+                    onDismissRequest = onAnimeDismissRequest,
+                    onComplete = {
+                        animeScreenModel.onDialogDismissed()
+                        navigator.replace(AnimeScreen(dialog.target.id))
+                    },
                 )
             }
             is AnimeHistoryScreenModel.Dialog.ChangeCategory -> {
@@ -524,18 +544,12 @@ data object HistoryTab : Tab {
 
         val playerPreferences: PlayerPreferences by injectLazy()
         withIOContext {
-            if (playerPreferences.alwaysUseExternalPlayer().get()) {
-                try {
-                    val intent = ExternalIntents().getExternalIntent(context, episode.animeId, episode.id, null)
-                    if (intent != null) {
-                        context.startActivity(intent)
-                        return@withIOContext
-                    }
-                } catch (e: Throwable) {
-                    snackbarHostState.showSnackbar(e.message ?: context.stringResource(MR.strings.internal_error))
-                }
-            }
-            context.startActivity(PlayerActivity.newIntent(context, episode.animeId, episode.id))
+            MainActivity.startPlayerActivity(
+                context = context,
+                animeId = episode.animeId,
+                episodeId = episode.id,
+                extPlayer = playerPreferences.alwaysUseExternalPlayer().get(),
+            )
         }
     }
 }

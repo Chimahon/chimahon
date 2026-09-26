@@ -55,13 +55,17 @@ abstract class AnimeSearchScreenModel(
 
     protected var extensionFilter: String? = null
 
-    private val sortComparator = { map: Map<AnimeCatalogueSource, AnimeSearchItemResult> ->
+    // AY -->
+    // Open so MigrateAnimeSearchScreenModel can order results by the user's configured migration
+    // sources instead of pinned sources, matching the manga search model.
+    protected open val sortComparator = { map: Map<AnimeCatalogueSource, AnimeSearchItemResult> ->
         compareBy<AnimeCatalogueSource>(
             { (map[it] as? AnimeSearchItemResult.Success)?.isEmpty ?: true },
             { "${it.id}" !in pinnedSources },
             { "${it.name.lowercase()} (${it.lang})" },
         )
     }
+    // <-- AY
 
     init {
         screenModelScope.launch {
@@ -132,6 +136,10 @@ abstract class AnimeSearchScreenModel(
         this.lastQuery = query
         this.lastSourceFilter = sourceFilter
 
+        // Drop the previous search: without this an in-flight search for the old query keeps
+        // running and writes its results into the new result set.
+        searchJob?.cancel()
+
         val sources = getSelectedSources()
 
         if (sameQuery) {
@@ -160,9 +168,10 @@ abstract class AnimeSearchScreenModel(
                             source.getSearchAnime(1, query, source.getFilterList())
                         }
 
-                        val titles = page.animes.map {
-                            networkToLocalAnime.await(it.toDomainAnime(source.id))
-                        }
+                        val titles = page.animes
+                            .map { networkToLocalAnime.await(it.toDomainAnime(source.id)) }
+                            // Extensions can return the same entry twice across pages/ids.
+                            .distinctBy { it.url }
 
                         if (isActive) {
                             updateItem(source, AnimeSearchItemResult.Success(titles))

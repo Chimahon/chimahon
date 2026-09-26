@@ -60,6 +60,7 @@ import eu.kanade.tachiyomi.ui.player.controls.components.sheets.getChangedAt
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.util.system.toast
+import tachiyomi.core.common.i18n.stringResource
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,8 +86,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
-import android.net.Uri
-import androidx.core.net.toUri
+import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 
 class EpisodeOptionsDialogScreen(
@@ -516,8 +516,18 @@ private fun VideoList(
                         scope.launch { context.toast(copiedString) }
                     },
                     onExtPlayerClicked = {
-                        val intent = PlayerActivity.newStandaloneIntent(context, currentVideo.videoUrl.toUri(), currentVideo.videoTitle)
-                        context.startActivity(intent)
+                        // Actually hand off to an external player (the episode list already does
+                        // this); the in-app standalone intent was a different feature entirely.
+                        // Falls back to the in-app player when nothing can handle the intent.
+                        scope.launchIO {
+                            MainActivity.startPlayerActivity(
+                                context = context,
+                                animeId = anime.id,
+                                episodeId = episode.id,
+                                video = currentVideo,
+                                extPlayer = true,
+                            )
+                        }
                     },
                     onIntPlayerClicked = {
                         val intent = PlayerActivity.newIntent(

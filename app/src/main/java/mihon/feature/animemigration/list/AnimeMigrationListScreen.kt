@@ -21,7 +21,7 @@ import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import eu.kanade.tachiyomi.util.system.toast
 import mihon.feature.animemigration.list.models.MigratingAnime
 import mihon.feature.migration.config.MigrationConfigScreen
-import mihon.feature.migration.config.MigrationConfigScreenSheet
+import mihon.feature.animemigration.config.AnimeMigrationConfigScreenSheet
 import mihon.feature.migration.list.components.MigrationExitDialog
 import mihon.feature.migration.list.components.MigrationMangaDialog
 import mihon.feature.migration.list.components.MigrationProgressDialog
@@ -153,14 +153,16 @@ class AnimeMigrationListScreen(
                 )
             }
             AnimeMigrationListScreenModel.Dialog.Options -> {
-                MigrationConfigScreenSheet(
+                val flags by screenModel.animeFlags.collectAsState()
+                AnimeMigrationConfigScreenSheet(
                     preferences = screenModel.preferences,
+                    flags = flags,
+                    onToggleFlag = screenModel::toggleAnimeFlag,
                     onDismissRequest = screenModel::dismissDialog,
-                    onStartMigration = { _ ->
+                    onStartMigration = {
                         screenModel.dismissDialog()
                         screenModel.updateOptions()
                     },
-                    fullSettings = false,
                 )
             }
             null -> Unit

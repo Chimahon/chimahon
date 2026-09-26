@@ -21,6 +21,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -63,6 +66,22 @@ class AnimeMigrationListScreenModel(
 ) : StateScreenModel<AnimeMigrationListScreenModel.State>(State()) {
 
     private val animeMigrationFlags = preferenceStore.getInt("anime_migrate_flags", Int.MAX_VALUE)
+
+    // AY -->
+    // Held in state so the options sheet can both read and write the anime flag set. The sheet used
+    // to be the manga one, which bound to migration_flags and therefore changed manga settings
+    // while having no effect at all on anime migration: the two enums have diverged bit layouts.
+    private val _animeFlags = MutableStateFlow(AnimeMigrationFlag.fromBit(animeMigrationFlags.get()))
+    val animeFlags: StateFlow<Set<AnimeMigrationFlag>> = _animeFlags.asStateFlow()
+
+    fun toggleAnimeFlag(flag: AnimeMigrationFlag) {
+        val updated = _animeFlags.value.toMutableSet().apply {
+            if (!add(flag)) remove(flag)
+        }
+        _animeFlags.value = updated
+        animeMigrationFlags.set(AnimeMigrationFlag.toBit(updated))
+    }
+    // <-- AY
 
     private val smartSearchEngine = AnimeSmartSourceSearchEngine(extraSearchQuery)
 
@@ -134,7 +153,10 @@ class AnimeMigrationListScreenModel(
     }
 
     private suspend fun runMigrations(animes: List<MigratingAnime>) {
-        val sources = preferences.migrationSources().get()
+        // The anime-specific key, not the manga one: migrationAnimeSources() is what the anime
+        // migration config screen writes. Reading migrationSources() here searched manga source
+        // ids, so anime smart migration matched nothing.
+        val sources = preferences.migrationAnimeSources().get()
             .mapNotNull { sourceManager.get(it) as? AnimeCatalogueSource }
 
         for (anime in animes) {
@@ -338,7 +360,7 @@ class AnimeMigrationListScreenModel(
                             }
                         }
                         if (target != null) {
-                            val flags = AnimeMigrationFlag.fromBit(animeMigrationFlags.get())
+                            val flags = _animeFlags.value
                             migrateAnime(current = anime.anime, target = target, replace = replace, flags = flags)
                         }
                     } catch (e: Exception) {
@@ -371,7 +393,7 @@ class AnimeMigrationListScreenModel(
         screenModelScope.launchIO {
             val anime = items.find { it.anime.id == animeId } ?: return@launchIO
             val target = (anime.searchResult.value as? SearchResult.Success)?.anime ?: return@launchIO
-            val flags = AnimeMigrationFlag.fromBit(animeMigrationFlags.get())
+            val flags = _animeFlags.value
             migrateAnime(current = anime.anime, target = target, replace = replace, flags = flags)
 
             removeAnime(animeId)
