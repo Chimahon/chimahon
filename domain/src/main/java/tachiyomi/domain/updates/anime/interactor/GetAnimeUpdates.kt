@@ -13,8 +13,21 @@ class GetAnimeUpdates(
         return repository.awaitWithSeen(seen, after, limit = 500)
     }
 
-    fun subscribe(instant: Instant): Flow<List<AnimeUpdatesWithRelations>> {
-        return repository.subscribeAllAnimeUpdates(instant.toEpochMilli(), limit = 500)
+    fun subscribe(
+        instant: Instant,
+        seen: Boolean? = null,
+        started: Boolean? = null,
+        bookmarked: Boolean? = null,
+        fillermarked: Boolean? = null,
+    ): Flow<List<AnimeUpdatesWithRelations>> {
+        return repository.subscribeAllAnimeUpdates(
+            after = instant.toEpochMilli(),
+            limit = 500,
+            seen = seen,
+            started = started,
+            bookmarked = bookmarked,
+            fillermarked = fillermarked,
+        )
     }
 
     fun subscribe(seen: Boolean, after: Long): Flow<List<AnimeUpdatesWithRelations>> {

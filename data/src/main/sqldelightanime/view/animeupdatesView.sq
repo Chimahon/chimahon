@@ -28,10 +28,24 @@ FROM animeupdatesView
 WHERE dateUpload > :after
 LIMIT :limit;
 
+getRecentAnimeUpdatesWithFilters:
+SELECT *
+FROM animeupdatesView
+WHERE dateUpload > :after
+AND (:seen IS NULL OR seen = :seen)
+-- Started means some progress but not finished, Seen means finished episode, thus:
+AND (
+    :started IS NULL
+    OR (:started = 1 AND last_second_seen > 0 AND seen = 0)
+    OR (:started = 0 AND last_second_seen = 0 AND seen = 0)
+)
+AND (:bookmarked IS NULL OR bookmark = :bookmarked)
+AND (:fillermarked IS NULL OR fillermark = :fillermarked)
+LIMIT :limit;
+
 getUpdatesBySeenStatus:
 SELECT *
 FROM animeupdatesView
 WHERE seen = :seen
 AND dateUpload > :after
-
 LIMIT :limit;

@@ -39,6 +39,28 @@ class UpdatesPreferences(
         false,
     )
     // KMK <--
+
+    // AY -->
+    fun filterSeen() = preferenceStore.getEnum(
+        "pref_filter_anime_updates_seen",
+        TriState.DISABLED,
+    )
+
+    fun filterStartedAnime() = preferenceStore.getEnum(
+        "pref_filter_anime_updates_started",
+        TriState.DISABLED,
+    )
+
+    fun filterBookmarkedAnime() = preferenceStore.getEnum(
+        "pref_filter_anime_updates_bookmarked",
+        TriState.DISABLED,
+    )
+
+    fun filterFillermarked() = preferenceStore.getEnum(
+        "pref_filter_anime_updates_fillermarked",
+        TriState.DISABLED,
+    )
+    // <-- AY
 }
 
 // KMK -->

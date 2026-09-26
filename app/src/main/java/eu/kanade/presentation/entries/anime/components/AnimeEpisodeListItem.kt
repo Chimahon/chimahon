@@ -252,7 +252,7 @@ private fun RowScope.SimpleEpisodeListItemImpl(
     )
 }
 
-private fun getSwipeAction(
+internal fun getSwipeAction(
     action: LibraryPreferences.EpisodeSwipeAction,
     seen: Boolean,
     bookmark: Boolean,
@@ -351,7 +351,7 @@ private fun swipeAction(
     )
 }
 
-private val swipeActionThreshold = 56.dp
+internal val swipeActionThreshold = 56.dp
 
 @Composable
 private fun EpisodeThumbnail(

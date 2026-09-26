@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesItem
 import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesScreenModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.FastScrollLazyColumn
 import tachiyomi.presentation.core.components.material.PullRefresh
@@ -50,6 +51,11 @@ fun AnimeUpdateScreen(
     onMultiDeleteClicked: (List<AnimeUpdatesItem>) -> Unit,
     onUpdateSelected: (AnimeUpdatesItem, Boolean, Boolean, Boolean) -> Unit,
     onOpenEpisode: (AnimeUpdatesItem, altPlayer: Boolean) -> Unit,
+    usePanoramaCover: Boolean,
+    collapseToggle: (key: String) -> Unit,
+    updateSwipeStartAction: LibraryPreferences.EpisodeSwipeAction,
+    updateSwipeEndAction: LibraryPreferences.EpisodeSwipeAction,
+    onUpdateSwipe: (AnimeUpdatesItem, LibraryPreferences.EpisodeSwipeAction) -> Unit,
 ) {
     BackHandler(enabled = state.selectionMode, onBack = { onSelectAll(false) })
 
@@ -106,11 +112,17 @@ fun AnimeUpdateScreen(
 
                         animeUpdatesUiItems(
                             uiModels = state.getUiModel(),
+                            expandedState = state.expandedState,
+                            collapseToggle = collapseToggle,
+                            usePanoramaCover = usePanoramaCover,
                             selectionMode = state.selectionMode,
                             onUpdateSelected = onUpdateSelected,
                             onClickCover = onClickCover,
                             onClickUpdate = onOpenEpisode,
                             onDownloadEpisode = onDownloadEpisode,
+                            updateSwipeStartAction = updateSwipeStartAction,
+                            updateSwipeEndAction = updateSwipeEndAction,
+                            onUpdateSwipe = onUpdateSwipe,
                         )
                     }
                 }
@@ -170,6 +182,9 @@ private fun AnimeUpdatesBottomBar(
 }
 
 sealed interface AnimeUpdatesUiModel {
-    data class Header(val date: LocalDate) : AnimeUpdatesUiModel
-    data class Item(val item: AnimeUpdatesItem) : AnimeUpdatesUiModel
+    data class Header(val date: LocalDate, val animeCount: Int) : AnimeUpdatesUiModel
+    open class Item(open val item: AnimeUpdatesItem, open val isExpandable: Boolean = false) : AnimeUpdatesUiModel
+
+    /** The first [Item] in a group of episodes from the same anime */
+    data class Leader(override val item: AnimeUpdatesItem, override val isExpandable: Boolean) : Item(item, isExpandable)
 }

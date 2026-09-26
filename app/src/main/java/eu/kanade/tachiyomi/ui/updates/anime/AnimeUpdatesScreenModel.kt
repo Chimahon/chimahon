@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.util.fastFilter
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.core.preference.asState
@@ -20,6 +21,7 @@ import eu.kanade.tachiyomi.util.lang.toLocalDate
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.mutate
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -27,16 +29,22 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import logcat.LogPriority
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.anime.interactor.GetAnime
+import tachiyomi.domain.entries.anime.model.applyFilter
 import tachiyomi.domain.episode.interactor.GetEpisode
 import tachiyomi.domain.episode.interactor.UpdateEpisode
 import tachiyomi.domain.episode.model.EpisodeUpdate
@@ -44,6 +52,7 @@ import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.updates.anime.interactor.GetAnimeUpdates
 import tachiyomi.domain.updates.anime.model.AnimeUpdatesWithRelations
+import tachiyomi.domain.updates.service.UpdatesPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.time.ZonedDateTime
@@ -58,6 +67,7 @@ class AnimeUpdatesScreenModel(
     private val getAnime: GetAnime = Injekt.get(),
     private val getEpisode: GetEpisode = Injekt.get(),
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
+    private val updatesPreferences: UpdatesPreferences = Injekt.get(),
     val snackbarHostState: SnackbarHostState = SnackbarHostState(),
     downloadPreferences: DownloadPreferences = Injekt.get(),
 ) : StateScreenModel<AnimeUpdatesScreenModel.State>(State()) {
@@ -76,13 +86,32 @@ class AnimeUpdatesScreenModel(
     init {
         screenModelScope.launchIO {
             // Set date limit for recent episodes
-
             val limit = ZonedDateTime.now().minusMonths(3).toInstant()
             combine(
-                getUpdates.subscribe(limit).distinctUntilChanged(),
+                // needed for SQL filters (seen, started, bookmarked, fillermarked)
+                getUpdatesItemPreferenceFlow()
+                    .distinctUntilChanged()
+                    .flatMapLatest { prefs ->
+                        getUpdates.subscribe(
+                            instant = limit,
+                            seen = prefs.filterSeen.toBooleanOrNull(),
+                            started = prefs.filterStarted.toBooleanOrNull(),
+                            bookmarked = prefs.filterBookmarked.toBooleanOrNull(),
+                            fillermarked = prefs.filterFillermarked.toBooleanOrNull(),
+                        ).distinctUntilChanged()
+                    },
                 downloadCache.changes,
                 downloadManager.queueState,
-            ) { updates, _, _ -> updates }
+                // needed for Kotlin filters (downloaded)
+                getUpdatesItemPreferenceFlow().distinctUntilChanged { old, new ->
+                    old.filterDownloaded == new.filterDownloaded
+                },
+            ) { updates, _, _, itemPreferences ->
+                updates
+                    .toUpdateItems()
+                    .applyFilters(itemPreferences)
+                    .toPersistentList()
+            }
                 .catch {
                     logcat(LogPriority.ERROR, it)
                     _events.send(Event.InternalError)
@@ -91,7 +120,7 @@ class AnimeUpdatesScreenModel(
                     mutableState.update {
                         it.copy(
                             isLoading = false,
-                            items = updates.toUpdateItems(),
+                            items = updates,
                         )
                     }
                 }
@@ -102,6 +131,69 @@ class AnimeUpdatesScreenModel(
                 .catch { logcat(LogPriority.ERROR, it) }
                 .collect(this@AnimeUpdatesScreenModel::updateDownloadState)
         }
+
+        getUpdatesItemPreferenceFlow()
+            .map { prefs ->
+                listOf(
+                    prefs.filterSeen,
+                    prefs.filterDownloaded,
+                    prefs.filterStarted,
+                    prefs.filterBookmarked,
+                    prefs.filterFillermarked,
+                )
+                    .any { it != TriState.DISABLED }
+            }
+            .distinctUntilChanged()
+            .onEach { active ->
+                mutableState.update { it.copy(hasActiveFilters = active) }
+            }
+            .launchIn(screenModelScope)
+    }
+
+    private fun getUpdatesItemPreferenceFlow(): Flow<ItemPreferences> {
+        return combine(
+            updatesPreferences.filterDownloaded().changes(),
+            updatesPreferences.filterSeen().changes(),
+            updatesPreferences.filterStartedAnime().changes(),
+            updatesPreferences.filterBookmarkedAnime().changes(),
+            updatesPreferences.filterFillermarked().changes(),
+        ) { downloaded, seen, started, bookmarked, fillermarked ->
+            ItemPreferences(
+                filterDownloaded = downloaded,
+                filterSeen = seen,
+                filterStarted = started,
+                filterBookmarked = bookmarked,
+                filterFillermarked = fillermarked,
+            )
+        }
+    }
+
+    private fun List<AnimeUpdatesItem>.applyFilters(
+        preferences: ItemPreferences,
+    ): List<AnimeUpdatesItem> {
+        val filterDownloaded = preferences.filterDownloaded
+
+        val filterFnDownloaded: (AnimeUpdatesItem) -> Boolean = {
+            applyFilter(filterDownloaded) {
+                it.downloadStateProvider() == AnimeDownload.State.DOWNLOADED
+            }
+        }
+
+        return fastFilter {
+            filterFnDownloaded(it)
+        }
+    }
+
+    private fun TriState.toBooleanOrNull(): Boolean? {
+        return when (this) {
+            TriState.ENABLED_IS -> true
+            TriState.ENABLED_NOT -> false
+            TriState.DISABLED -> null
+        }
+    }
+
+    fun showFilterDialog() {
+        mutableState.update { it.copy(dialog = Dialog.FilterSheet) }
     }
 
     private fun List<AnimeUpdatesWithRelations>.toUpdateItems(): PersistentList<AnimeUpdatesItem> {
@@ -389,6 +481,65 @@ class AnimeUpdatesScreenModel(
         mutableState.update { it.copy(dialog = dialog) }
     }
 
+    fun toggleExpandedState(key: String) {
+        mutableState.update {
+            it.copy(
+                expandedState = it.expandedState.toMutableSet().apply {
+                    if (it.expandedState.contains(key)) remove(key) else add(key)
+                },
+            )
+        }
+    }
+
+    val episodeSwipeStartAction by libraryPreferences.swipeEpisodeEndAction().asState(screenModelScope)
+    val episodeSwipeEndAction by libraryPreferences.swipeEpisodeStartAction().asState(screenModelScope)
+
+    /**
+     * @throws IllegalStateException if the swipe action is [LibraryPreferences.EpisodeSwipeAction.Disabled]
+     */
+    fun updateSwipe(updateItem: AnimeUpdatesItem, swipeAction: LibraryPreferences.EpisodeSwipeAction) {
+        screenModelScope.launch {
+            executeUpdateSwipeAction(updateItem, swipeAction)
+        }
+    }
+
+    /**
+     * @throws IllegalStateException if the swipe action is [LibraryPreferences.EpisodeSwipeAction.Disabled]
+     */
+    private fun executeUpdateSwipeAction(
+        updateItem: AnimeUpdatesItem,
+        swipeAction: LibraryPreferences.EpisodeSwipeAction,
+    ) {
+        val update = updateItem.update
+        when (swipeAction) {
+            LibraryPreferences.EpisodeSwipeAction.ToggleSeen -> {
+                markUpdatesSeen(listOf(updateItem), !update.seen)
+            }
+            LibraryPreferences.EpisodeSwipeAction.ToggleBookmark -> {
+                bookmarkUpdates(listOf(updateItem), !update.bookmark)
+            }
+            LibraryPreferences.EpisodeSwipeAction.ToggleFillermark -> {
+                fillermarkUpdates(listOf(updateItem), !update.fillermark)
+            }
+            LibraryPreferences.EpisodeSwipeAction.Download -> {
+                val downloadAction = when (updateItem.downloadStateProvider()) {
+                    AnimeDownload.State.ERROR,
+                    AnimeDownload.State.NOT_DOWNLOADED,
+                    -> EpisodeDownloadAction.START_NOW
+                    AnimeDownload.State.QUEUE,
+                    AnimeDownload.State.DOWNLOADING,
+                    -> EpisodeDownloadAction.CANCEL
+                    AnimeDownload.State.DOWNLOADED -> EpisodeDownloadAction.DELETE
+                }
+                downloadEpisodes(
+                    items = listOf(updateItem),
+                    action = downloadAction,
+                )
+            }
+            LibraryPreferences.EpisodeSwipeAction.Disabled -> throw IllegalStateException()
+        }
+    }
+
     fun resetNewUpdatesCount() {
         libraryPreferences.newAnimeUpdatesCount().set(0)
     }
@@ -396,7 +547,9 @@ class AnimeUpdatesScreenModel(
     @Immutable
     data class State(
         val isLoading: Boolean = true,
+        val hasActiveFilters: Boolean = false,
         val items: PersistentList<AnimeUpdatesItem> = persistentListOf(),
+        val expandedState: Set<String> = persistentSetOf(),
         val dialog: Dialog? = null,
     ) {
         val selected = items.filter { it.selected }
@@ -404,20 +557,37 @@ class AnimeUpdatesScreenModel(
 
         fun getUiModel(): List<AnimeUpdatesUiModel> {
             return items
-                .map { AnimeUpdatesUiModel.Item(it) }
-                .insertSeparators { before, after ->
-                    val beforeDate = before?.item?.update?.dateFetch?.toLocalDate()
-                    val afterDate = after?.item?.update?.dateFetch?.toLocalDate()
-                    when {
-                        beforeDate != afterDate && afterDate != null -> AnimeUpdatesUiModel.Header(afterDate)
-                        // Return null to avoid adding a separator between two items.
-                        else -> null
+                .groupBy { it.update.dateFetch.toLocalDate() }
+                .flatMap { (date, animes) ->
+                    val header = AnimeUpdatesUiModel.Header(date, animes.size)
+                    val animeItems = animes
+                        .groupBy { it.update.animeId }
+                        .values
+                        .flatMap { animeEpisodes ->
+                            val isExpandable = animeEpisodes.size > 1
+                            var lastAnimeId = -1L
+                            animeEpisodes.map { episode ->
+                                if (episode.update.animeId != lastAnimeId) {
+                                    lastAnimeId = episode.update.animeId
+                                    AnimeUpdatesUiModel.Leader(episode, isExpandable)
+                                } else {
+                                    AnimeUpdatesUiModel.Item(episode, isExpandable)
+                                }
+                            }
+                        }
+                    listOf(header) + animeItems
+                }
+                .distinctBy {
+                    when (it) {
+                        is AnimeUpdatesUiModel.Header -> it.hashCode()
+                        is AnimeUpdatesUiModel.Item -> "${it.item.update.animeId}-${it.item.update.episodeId}"
                     }
                 }
         }
     }
 
     sealed interface Dialog {
+        data object FilterSheet : Dialog
         data class DeleteConfirmation(val toDelete: List<AnimeUpdatesItem>) : Dialog
         data class ShowQualities(
             val episodeTitle: String,
@@ -426,6 +596,15 @@ class AnimeUpdatesScreenModel(
             val sourceId: Long,
         ) : Dialog
     }
+
+    @Immutable
+    private data class ItemPreferences(
+        val filterDownloaded: TriState,
+        val filterSeen: TriState,
+        val filterStarted: TriState,
+        val filterBookmarked: TriState,
+        val filterFillermarked: TriState,
+    )
 
     sealed interface Event {
         data object InternalError : Event
@@ -440,3 +619,5 @@ data class AnimeUpdatesItem(
     val downloadProgressProvider: () -> Int,
     val selected: Boolean = false,
 )
+
+fun AnimeUpdatesWithRelations.groupByDateAndAnime() = "${dateFetch.toLocalDate().toEpochDay()}-$animeId"

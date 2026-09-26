@@ -48,6 +48,7 @@ import eu.kanade.presentation.updates.UpdateScreen
 import eu.kanade.presentation.updates.UpdatesDeleteConfirmationDialog
 import eu.kanade.presentation.updates.UpdatesFilterDialog
 import eu.kanade.presentation.updates.anime.AnimeUpdateScreen
+import eu.kanade.presentation.updates.anime.AnimeUpdatesFilterDialog
 import eu.kanade.presentation.updates.novel.NovelUpdatesScreen
 import eu.kanade.presentation.util.Tab
 import eu.kanade.tachiyomi.R
@@ -58,6 +59,7 @@ import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import eu.kanade.tachiyomi.ui.home.HomeScreen
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.manga.MangaScreen
+import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.updates.UpdatesScreenModel.Event
 import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesScreenModel
@@ -138,6 +140,18 @@ data object UpdatesTab : Tab {
                             if (selectedTab == TAB_ANIME) {
                                 AppBarActions(
                                     persistentListOf(
+                                        // AY -->
+                                        AppBar.Action(
+                                            title = stringResource(MR.strings.action_filter),
+                                            icon = Icons.Outlined.FilterList,
+                                            iconTint = if (animeState.hasActiveFilters) {
+                                                MaterialTheme.colorScheme.active
+                                            } else {
+                                                LocalContentColor.current
+                                            },
+                                            onClick = animeScreenModel::showFilterDialog,
+                                        ),
+                                        // <-- AY
                                         AppBar.Action(
                                             title = stringResource(MR.strings.action_update_library),
                                             icon = Icons.Outlined.Refresh,
@@ -230,9 +244,29 @@ data object UpdatesTab : Tab {
                             onMultiMarkAsSeenClicked = animeScreenModel::markUpdatesSeen,
                             onMultiDeleteClicked = animeScreenModel::showConfirmDeleteEpisodes,
                             onUpdateSelected = animeScreenModel::toggleSelection,
-                            onOpenEpisode = { _, _ ->
-                                // TODO: wire up episode player for anime updates
+                            onOpenEpisode = { item, altPlayer ->
+                                val animeId = item.update.animeId
+                                val episodeId = item.update.episodeId
+                                launchIO {
+                                    // Tapping an update used to be a no-op, which also made the
+                                    // play external / play internal buttons in the selection bar do
+                                    // nothing. startPlayerActivity falls back to the in-app player
+                                    // when no external player is available.
+                                    MainActivity.startPlayerActivity(
+                                        context = context,
+                                        animeId = animeId,
+                                        episodeId = episodeId,
+                                        extPlayer = altPlayer,
+                                    )
+                                }
                             },
+                            // AY -->
+                            usePanoramaCover = usePanoramaCover,
+                            collapseToggle = animeScreenModel::toggleExpandedState,
+                            updateSwipeStartAction = animeScreenModel.episodeSwipeStartAction,
+                            updateSwipeEndAction = animeScreenModel.episodeSwipeEndAction,
+                            onUpdateSwipe = animeScreenModel::updateSwipe,
+                            // <-- AY
                         )
                         TAB_NOVEL -> NovelUpdatesScreen(
                             isLoading = novelScreenModel.state.collectAsState().value.isLoading,
@@ -303,6 +337,12 @@ data object UpdatesTab : Tab {
 
         val animeOnDismissDialog = { animeScreenModel.setDialog(null) }
         when (val dialog = animeState.dialog) {
+            is AnimeUpdatesScreenModel.Dialog.FilterSheet -> {
+                AnimeUpdatesFilterDialog(
+                    onDismissRequest = animeOnDismissDialog,
+                    screenModel = settingsScreenModel,
+                )
+            }
             is AnimeUpdatesScreenModel.Dialog.DeleteConfirmation -> {
                 UpdatesDeleteConfirmationDialog(
                     onDismissRequest = animeOnDismissDialog,
