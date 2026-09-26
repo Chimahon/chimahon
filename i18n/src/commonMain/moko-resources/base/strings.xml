@@ -1075,6 +1075,7 @@
     <string name="show_chapter_number">Chapter number</string>
     <string name="sort_by_source">By source</string>
     <string name="sort_by_number">By chapter number</string>
+    <string name="sort_by_season_number">Season number</string>
     <string name="sort_by_upload_date">By upload date</string>
     <string name="manga_download">Download</string>
     <string name="download_unread">Unread</string>

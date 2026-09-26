@@ -21,12 +21,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import eu.kanade.domain.base.BasePreferences
-import eu.kanade.domain.entries.anime.model.seasonDownloadedFilter
-import eu.kanade.domain.entries.anime.model.seasonUnseenFilter
-import eu.kanade.domain.entries.anime.model.seasonStartedFilter
-import eu.kanade.domain.entries.anime.model.seasonCompletedFilter
 import eu.kanade.domain.entries.anime.model.seasonBookmarkedFilter
+import eu.kanade.domain.entries.anime.model.seasonCompletedFilter
+import eu.kanade.domain.entries.anime.model.seasonDownloadedFilter
 import eu.kanade.domain.entries.anime.model.seasonFillermarkedFilter
+import eu.kanade.domain.entries.anime.model.seasonStartedFilter
+import eu.kanade.domain.entries.anime.model.seasonUnseenFilter
 import eu.kanade.presentation.components.TabbedDialog
 import eu.kanade.presentation.components.TabbedDialogPaddings
 import kotlinx.collections.immutable.persistentListOf
@@ -213,12 +213,12 @@ private fun ColumnScope.SeasonSortPage(
 ) {
     val sortItems = listOf(
         stringResource(MR.strings.sort_by_source) to Anime.SEASON_SORTING_SOURCE,
-        "Season number" to Anime.SEASON_SORTING_NUMBER,
+        stringResource(MR.strings.sort_by_season_number) to Anime.SEASON_SORTING_NUMBER,
         stringResource(MR.strings.sort_by_upload_date) to Anime.SEASON_SORTING_UPLOAD_DATE,
         stringResource(MR.strings.action_sort_alpha) to Anime.SEASON_SORTING_ALPHABET,
-        "Unseen count" to Anime.SEASON_SORTING_UNSEEN,
-        "Last seen" to Anime.SEASON_SORTING_LAST_SEEN,
-        "Episode fetch date" to Anime.SEASON_SORTING_EP_FETCH_DATE,
+        stringResource(MR.strings.action_sort_unseen_count) to Anime.SEASON_SORTING_UNSEEN,
+        stringResource(MR.strings.action_sort_last_seen) to Anime.SEASON_SORTING_LAST_SEEN,
+        stringResource(MR.strings.action_sort_episode_fetch_date) to Anime.SEASON_SORTING_EP_FETCH_DATE,
     )
     sortItems.map { (label, mode) ->
         SortItem(

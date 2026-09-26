@@ -22,8 +22,9 @@ import eu.kanade.presentation.components.AppBarTitle
 import eu.kanade.presentation.components.EntryDownloadDropdownMenu
 import eu.kanade.presentation.entries.DownloadAction
 import kotlinx.collections.immutable.persistentListOf
-import tachiyomi.i18n.kmk.KMR
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.kmk.KMR
+import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.theme.active
 
@@ -36,6 +37,9 @@ fun EntryToolbar(
     onClickShare: (() -> Unit)?,
     onClickDownload: ((DownloadAction) -> Unit)?,
     onClickEditCategory: (() -> Unit)?,
+    // SY -->
+    onClickEditInfo: (() -> Unit)? = null,
+    // SY <--
     onClickRefresh: () -> Unit,
     onClickMigrate: (() -> Unit)?,
     onClickSettings: (() -> Unit)?,
@@ -155,6 +159,16 @@ fun EntryToolbar(
                             ),
                         )
                     }
+                    // SY -->
+                    if (onClickEditInfo != null) {
+                        add(
+                            AppBar.OverflowAction(
+                                title = stringResource(SYMR.strings.action_edit_info),
+                                onClick = onClickEditInfo,
+                            ),
+                        )
+                    }
+                    // SY <--
                     if (onClickMigrate != null) {
                         add(
                             AppBar.OverflowAction(
