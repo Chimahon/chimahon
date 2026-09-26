@@ -43,13 +43,32 @@ class SyncEpisodeProgressWithTrack(
         service: AnimeTracker,
     ): Int? {
         // KMK <--
-        val sortedEpisodes = getEpisodesByAnimeId.await(animeId)
-            .sortedBy { it.episodeNumber }
+        // Sort by source order first because the database order is not reliable, then drop
+        // unrecognised numbers so a 0/negative special can't halt the continuity check below.
+        val dbEpisodes = getEpisodesByAnimeId.await(animeId)
+            .sortedByDescending { it.sourceOrder }
             .filter { it.isRecognizedNumber }
 
-        val episodeUpdates = sortedEpisodes
-            .filter { episode -> episode.episodeNumber <= remoteTrack.lastEpisodeSeen && !episode.seen }
+        val sortedEpisodes = dbEpisodes
+            .sortedBy { it.episodeNumber }
+
+        // AY -->
+        // Only take continuous, incremental episodes: any out-of-order number stops the run, so a
+        // non-contiguous entry (absolute numbering, "Season 2" entries, 0/negative specials) cannot
+        // cause a whole unrelated range to be marked seen. Mirrors SyncChapterProgressWithTrack.
+        var lastCheckEpisode: Double
+        var checkingEpisode = 0.0
+
+        val episodeUpdates = dbEpisodes
+            .takeWhile { episode ->
+                lastCheckEpisode = checkingEpisode
+                checkingEpisode = episode.episodeNumber.toDouble()
+                episode.episodeNumber >= lastCheckEpisode &&
+                    episode.episodeNumber <= remoteTrack.lastEpisodeSeen
+            }
+            .filter { episode -> !episode.seen }
             .map { it.copy(seen = true).toEpisodeUpdate() }
+        // <-- AY
 
         // only take into account continuous watching
         val localLastSeen = sortedEpisodes.takeWhile { it.seen }.lastOrNull()?.episodeNumber ?: 0F
