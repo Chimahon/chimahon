@@ -17,6 +17,7 @@
     <string name="action_open_folder">Open folder</string>
     <string name="action_clear_manga">Clear manga</string>
     <string name="action_clear_ocr_cache">Clear OCR cache</string>
+    <string name="action_scan_from_camera">Scan text with camera</string>
     <string name="confirm_clear_ocr_cache">Are you sure you want to clear the OCR cache? This will delete all cached OCR files for this entry.</string>
     <string name="action_update">Update</string>
         <!-- History section -->
@@ -309,4 +310,11 @@
     <!-- Search history -->
     <string name="pref_search_history">Search history</string>
     <string name="pref_search_history_summary">Remember recent searches across screens</string>
+    <!-- Camera OCR -->
+    <string name="camera_ocr_title">Camera OCR</string>
+    <string name="camera_ocr_capture">Take photo</string>
+    <string name="camera_ocr_retake">Retake</string>
+    <string name="camera_ocr_unavailable">No camera app is available on this device.</string>
+    <string name="camera_ocr_permission_denied">Camera permission was not granted.</string>
+    <string name="camera_ocr_capture_failed">Could not capture the photo.</string>
 </resources>

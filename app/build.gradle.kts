@@ -316,6 +316,9 @@ dependencies {
     // Image cropper
     implementation(libs.android.image.cropper)
 
+    // EXIF orientation for camera captures (already shipped via :core:common)
+    implementation(sylibs.exifinterface)
+
     // UI libraries
     implementation(libs.material)
     implementation(libs.flexible.adapter.core)
