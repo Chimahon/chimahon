@@ -160,12 +160,6 @@ android {
                 "**/libLiteRtClGlAccelerator.so",
                 "**/liblitert_jni.so",
             )
-            // quickjs-kt (io.github.dokar3:quickjs-kt) and core:common's
-            // quickjs-android (com.github.zhanghai:quickjs-java) both bundle
-            // libquickjs.so at the same JNI path. The two wrappers are different
-            // Java APIs over the same QuickJS engine, so the first native wins.
-            // pickFirsts keeps the build green without dropping either dependency.
-            pickFirsts += listOf("**/libquickjs.so")
         }
     }
 
@@ -277,7 +271,11 @@ dependencies {
     implementation(androidx.bundles.lifecycle)
     implementation(libs.datastore.preferences)
 
-    // JS engine for LNReader plugins (Hayai reference)
+    // JS engine for LNReader plugins (Hayai reference), used directly by
+    // chimahon.novel.plugin.runtime. Also backs the app.cash.quickjs API that manga
+    // extensions link against, via the shim in core:common. This is the app's only
+    // QuickJS native library; do not add com.github.zhanghai.quickjs-java, whose
+    // libquickjs.so would collide with this one and break every extension JS call.
     implementation(libs.quickjs.kt)
 
     // Job scheduling

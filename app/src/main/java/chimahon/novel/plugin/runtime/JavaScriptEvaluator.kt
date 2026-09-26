@@ -7,7 +7,8 @@ import java.util.concurrent.Executors
 
 /**
  * One native QuickJS runtime for both J2K extension helpers and Novel novel plugins.
- * Keeping one implementation avoids two incompatible JNI libraries with the same filename.
+ * The app.cash.quickjs API that manga extensions link against runs on this same engine,
+ * via the shim in core:common, so only one libquickjs.so is ever packaged.
  *
  * QuickJS is single-threaded: the runtime is confined to one thread, never the
  * shared IO pool (whose threads hop between calls and corrupt the VM).

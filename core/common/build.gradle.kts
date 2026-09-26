@@ -54,8 +54,11 @@ dependencies {
     // Sort
     implementation(libs.natural.comparator)
 
-    // JavaScript engine
-    implementation(libs.bundles.js.engine)
+    // JavaScript engine. The app.cash.quickjs API extensions link against is provided by
+    // the shim in this module, implemented on top of this engine. Do not also depend on
+    // com.github.zhanghai.quickjs-java: the two ship libquickjs.so at the same APK path
+    // with different JNI ABIs, and the loser fails every native call at runtime.
+    implementation(libs.quickjs.kt)
 
     testImplementation(libs.bundles.test)
     testRuntimeOnly(libs.junit.platform.launcher)

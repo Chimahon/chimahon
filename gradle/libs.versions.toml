@@ -41,11 +41,9 @@ conscrypt-android = "org.conscrypt:conscrypt-android:2.5.3"
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 
 
-quickjs-android = { group = "com.github.zhanghai.quickjs-java", name = "quickjs-android", version = "547f5b1597" }
+quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjs-kt" }
 
 jsoup = "org.jsoup:jsoup:1.22.2"
-
-quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjs-kt" }
 
 newpipe-extractor = { module = "com.github.TeamNewPipe:NewPipeExtractor", version.ref = "newpipe-extractor" }
 
@@ -156,7 +154,6 @@ firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.
 
 [bundles]
 okhttp = ["okhttp-core", "okhttp-logging", "okhttp-brotli", "okhttp-dnsoverhttps", "okhttp-zstd"]
-js-engine = ["quickjs-android"]
 sqlite = ["sqlite-framework", "sqlite-ktx", "sqlite-android"]
 coil = ["coil-core", "coil-gif", "coil-compose", "coil-network-okhttp"]
 shizuku = ["shizuku-api", "shizuku-provider"]
