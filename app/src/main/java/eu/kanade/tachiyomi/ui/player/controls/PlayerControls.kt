@@ -895,7 +895,12 @@ private fun PlayerSubtitleTextLayer(
     var textLayout by remember(subtitleText) { mutableStateOf<TextLayoutResult?>(null) }
     var textLayerOrigin by remember(subtitleText) { mutableStateOf(Offset.Zero) }
     val fontSizeSp = (subtitleFontSize * subtitleScale * fontSizeFactor).coerceIn(minFontSize, maxFontSize)
-    val resolvedBottomPadding = bottomPadding ?: (28f + (100 - subtitlePos).coerceIn(0, 100) * 2.2f).dp
+    // Map the position preference the same way mpv's sub-pos behaves: 100 sits flush at the
+    // bottom, lower values lift the text, higher values push it down into the lower black bars.
+    val resolvedBottomPadding = bottomPadding ?: when {
+        subtitlePos >= 100 -> -((subtitlePos - 100) * 0.9f).dp
+        else -> ((100 - subtitlePos) * 2.2f).dp
+    }
     val outlineWidth = borderSize.coerceAtLeast(1) * 1.8f
     val lookupHighlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
     val boxBackgroundColor = Color(backgroundColor).let {
