@@ -23,6 +23,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import chimahon.novel.data.BookStorage
 import chimahon.novel.manager.NovelSourceManager
+import chimahon.novel.source.LocalNovelFiles
 import chimahon.novel.ui.detail.SourceChapterBookBuilder
 import chimahon.novel.ui.reader.NovelReaderActivity
 import eu.kanade.tachiyomi.R
@@ -64,8 +65,7 @@ class NovelProgressWidget : GlanceAppWidget() {
                         it.localFolder?.takeIf { f -> f.isNotBlank() }?.let { folder ->
                             // Content gate (not mere existence): epub-only
                             // public dirs parse nothing until extracted.
-                            BookStorage.getBookDirectory(context, folder)
-                                .takeIf { d -> BookStorage.hasImportedBookContent(d) }
+                            readableBookDir(context, folder)
                         }
                     } else {
                         val source = runCatching {
@@ -73,8 +73,7 @@ class NovelProgressWidget : GlanceAppWidget() {
                         }.getOrNull()
                         if (source != null) {
                             val bookId = SourceChapterBookBuilder.bookId(source, it.toSNNovel())
-                            BookStorage.getBookDirectory(context, bookId)
-                                .takeIf { d -> BookStorage.hasImportedBookContent(d) }
+                            readableBookDir(context, bookId)
                         } else {
                             null
                         }
@@ -198,6 +197,16 @@ class NovelProgressWidget : GlanceAppWidget() {
 
     companion object {
         private val PROGRESS_FORMAT = DecimalFormat("#.##")
+
+        /**
+         * Book dir holding readable content. getBookDirectory can return a
+         * public `.epub`-only folder, so the extraction cache is tried too.
+         */
+        private fun readableBookDir(context: Context, folder: String): java.io.File? =
+            BookStorage.firstReadableDir(
+                BookStorage.getBookDirectory(context, folder),
+                LocalNovelFiles.extractedCacheDir(context, folder),
+            )
 
         /**
          * 1-based chapter number matching [eu.kanade.tachiyomi.ui.stats.StatsScreenModel] novel logic:

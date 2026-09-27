@@ -144,12 +144,11 @@ fun ReaderScreen(
         var damageCleaned = false
         var healFailed = false
         value = try {
-            // Post-import reloads must re-warm the extraction cache: the
-            // loader resolves through it, never extracts by itself.
-            if (reloadCounter > 0) {
-                withContext(Dispatchers.IO) {
-                    book.folder?.let { LocalNovelFiles.ensureReadableDir(context, it) }
-                }
+            // The loader resolves through the cache, never extracts; re-warm on
+            // every open since widget/history/notification opens have no prior
+            // staging. Marker keeps it a no-op once extracted.
+            withContext(Dispatchers.IO) {
+                book.folder?.let { LocalNovelFiles.ensureReadableDir(context, it) }
             }
             val firstLoad = withContext(Dispatchers.IO) {
                 ReaderLoaderViewModel(context, book, novelId)

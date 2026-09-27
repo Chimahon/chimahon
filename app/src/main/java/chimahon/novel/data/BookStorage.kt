@@ -186,6 +186,15 @@ object BookStorage {
     }
 
     /**
+     * First candidate that actually holds importable content, or null. Mere
+     * existence must not win: a public book folder holds only a loose `.epub`
+     * and parses nothing, so it can shadow the extracted copy. Candidate order
+     * mirrors [LocalNovelFiles.ensureReadableDir].
+     */
+    fun firstReadableDir(vararg candidates: File): File? =
+        candidates.firstOrNull { hasImportedBookContent(it) }
+
+    /**
      * Single readability verdict shared by the badge and the tap handler's
      * gate: extracted content anywhere, a loose `.epub` waiting in a public
      * folder (extractable on demand), or a warm extraction cache. One

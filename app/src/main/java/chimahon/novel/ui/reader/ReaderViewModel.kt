@@ -22,6 +22,7 @@ import chimahon.novel.data.epub.EpubBook
 import chimahon.novel.data.epub.SpineItemType
 import chimahon.novel.data.epub.VirtualNovelBook
 import chimahon.novel.reader.NovelChapterLoader
+import chimahon.novel.source.LocalNovelFiles
 import chimahon.novel.sync.ttu.SyncResult
 import chimahon.novel.sync.ttu.TtuBookRef
 import chimahon.novel.sync.ttu.TtuSyncManager
@@ -136,8 +137,13 @@ class ReaderLoaderViewModel(
     var document: EpubBook? = null
         private set
 
+    // Public book folders are `.epub`-only, so getBookDirectory can return a
+    // folder the parser cannot read. Same resolution NovelLocalSource uses.
     val rootUrl: File? =
-        book.folder?.let { BookStorage.getBookDirectory(context, it) }
+        book.folder?.let { folder ->
+            LocalNovelFiles.ensureReadableDir(context, folder)
+                ?: BookStorage.getBookDirectory(context, folder)
+        }
 
     init {
         loadBook(book, context)
@@ -145,11 +151,15 @@ class ReaderLoaderViewModel(
 
     private fun loadBook(book: BookMetadata, context: Context) {
         val root = rootUrl ?: return
-        // The EPUB parse never throws raw errors (e.g. container.xml) into
-        // the UI: unparseable shells resolve to null and the screen shows its
-        // generic open-failure message instead.
+        // Unparseable shells resolve to null so the screen shows its generic
+        // open-failure message. Exception, not Throwable, so a real OOM shows.
         document = loadVirtualBook(book, root, openNovelId)
-            ?: runCatching { BookStorage.loadEpub(root) }.getOrNull()
+            ?: try {
+                BookStorage.loadEpub(root)
+            } catch (e: Exception) {
+                Log.w("ReaderLoader", "loadEpub failed for '${book.folder}' at $root", e)
+                null
+            }
     }
 
     /**

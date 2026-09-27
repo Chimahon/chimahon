@@ -211,7 +211,9 @@ open class NovelReaderActivity : ComponentActivity() {
                 }
                 row?.let { BookMetadata.fromRow(it, root.name) }
             }
-        }.getOrNull() ?: BookStorage.loadMetadata(root) ?: BookMetadata(folder = root.name)
+        }.getOrNull()
+            ?: BookStorage.loadMetadata(root)?.copy(folder = root.name)
+            ?: BookMetadata(folder = root.name)
         bookMetadata = metadata
         val openNovelId = novelIdExtra
         val openChapterIndex = chapterIndexExtra
