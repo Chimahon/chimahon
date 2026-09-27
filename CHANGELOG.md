@@ -4,6 +4,32 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.6]
+
+### Added
+- Camera OCR dictionary lookup
+- Anime updates screen parity with manga, including filters and sort order
+- External video player playback for anime
+- Parallel anime downloads and external downloader support
+- Anime extension lib 17 support
+- Default anime category in library settings
+- Discord rich presence for anime playback
+- Edit info action on the anime details screen
+
+### Fixed
+- Local EPUB books failing to open when all-files access is granted
+- Novel TTU progress sync overwriting remote progress and misreading timestamps
+- Anime tracking on a season not finding the series track
+- Anime tracker sync not updating local episodes past the last seen one
+- Anime migration, history, and search behaviour
+- Anime library sort direction and unread pinning
+- Tapping a search result in anime migration not applying the match
+- Local anime covers not refreshing when episodes are fetched
+- Subtitle position not being lowered to the bottom of the video
+- Crash when changing the subtitle font in the player
+- some manga extensions crashing when running JavaScript
+- Extra gap at the top of the updates screen
+
 ## [v2.4.5]
 
 ### Fixed
