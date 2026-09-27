@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -364,15 +365,24 @@ class AnimeScreen(
                 onSetAsDefault = screenModel::setSeasonSettingsAsDefault,
             )
             AnimeScreenModel.Dialog.TrackSheet -> {
-                NavigatorAdaptiveSheet(
-                    screen = AnimeTrackInfoDialogHomeScreen(
-                        animeId = successState.anime.id,
-                        animeTitle = successState.anime.title,
-                        sourceId = successState.source.id,
-                    ),
-                    enableSwipeDismiss = { it.lastItem is AnimeTrackInfoDialogHomeScreen },
-                    onDismissRequest = onDismissRequest,
-                )
+                // AY -->
+                // Track the series, not the season row.
+                val trackableAnime by produceState<Anime?>(initialValue = null, successState.anime.id) {
+                    value = screenModel.getTrackableAnime()
+                }
+                val trackTarget = trackableAnime
+                // <-- AY
+                if (trackTarget != null) {
+                    NavigatorAdaptiveSheet(
+                        screen = AnimeTrackInfoDialogHomeScreen(
+                            animeId = trackTarget.id,
+                            animeTitle = trackTarget.title,
+                            sourceId = successState.source.id,
+                        ),
+                        enableSwipeDismiss = { it.lastItem is AnimeTrackInfoDialogHomeScreen },
+                        onDismissRequest = onDismissRequest,
+                    )
+                }
             }
             AnimeScreenModel.Dialog.FullImages -> {
                 val sm = rememberScreenModel { AnimeImageScreenModel(successState.anime.id) }

@@ -191,8 +191,10 @@ class AnimeDomainModule : InjektModule {
         addFactory { GetTracksPerAnime(get()) }
         addFactory { SyncEpisodeProgressWithTrack(get(), get(), get()) }
         addFactory { AddAnimeTracks(get(), get(), get(), get()) }
-        addFactory { RefreshAnimeTracks(get(), get(), get(), get()) }
-        addFactory { TrackEpisode(get(), get(), get(), get()) }
+        // AY -->
+        addFactory { RefreshAnimeTracks(get(), get(), get(), get(), get()) }
+        addFactory { TrackEpisode(get(), get(), get(), get(), get()) }
+        // <-- AY
         addFactory {
             MigrateAnimeUseCase(
                 get(),

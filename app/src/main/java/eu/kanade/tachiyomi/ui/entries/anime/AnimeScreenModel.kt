@@ -106,6 +106,7 @@ import tachiyomi.domain.category.interactor.SetAnimeCategories
 import tachiyomi.domain.category.model.AnimeCategory
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.download.service.DownloadPreferences
+import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.entries.anime.interactor.GetAnimeWithEpisodes
 import tachiyomi.domain.entries.anime.interactor.GetDuplicateLibraryAnime
 import tachiyomi.domain.entries.anime.interactor.NetworkToLocalAnime
@@ -162,6 +163,9 @@ class AnimeScreenModel(
     private val animeDownloadManager: AnimeDownloadManager = Injekt.get(),
     private val animeDownloadCache: AnimeDownloadCache = Injekt.get(),
     private val getAnimeAndEpisodes: GetAnimeWithEpisodes = Injekt.get(),
+    // AY -->
+    private val getAnime: GetAnime = Injekt.get(),
+    // <-- AY
     // SY -->
     private val animeSourceManager: AnimeSourceManager = Injekt.get(),
     private val setCustomAnimeInfo: SetCustomAnimeInfo = Injekt.get(),
@@ -1167,16 +1171,22 @@ class AnimeScreenModel(
                 return@launchIO
             }
 
+            // AY -->
+            // A season's track lives on the parent, and its episode numbers are its own, so an
+            // entry numbered absolutely (Season 2 = episodes 13-24) will over-report progress.
+            val trackAnimeId = successState?.anime?.parentId ?: animeId
+            // <-- AY
+
             // KMK -->
             // Refresh first so the prompt/tracker decision uses current remote progress,
             // mirroring MangaScreenModel.markChaptersRead. Gated by the same preference that
             // gates tracker -> local syncing to avoid pulling progress when it is disabled.
             if (trackPreferences.autoSyncProgressFromTrackers().get()) {
-                refreshAnimeTracks.await(animeId)
+                refreshAnimeTracks.await(trackAnimeId)
             }
             // KMK <--
 
-            val tracks = animeTrackRepository.getTracksByAnimeId(animeId)
+            val tracks = animeTrackRepository.getTracksByAnimeId(trackAnimeId)
             val maxEpisodeNumber = episodes.maxOf { it.episodeNumber }
             val shouldPromptTrackingUpdate = tracks.any { track -> maxEpisodeNumber > track.lastEpisodeSeen }
 
@@ -1646,6 +1656,15 @@ class AnimeScreenModel(
     fun showTrackDialog() {
         updateSuccessState { it.copy(dialog = Dialog.TrackSheet) }
     }
+
+    // AY -->
+    /** The anime to track: seasons are their own rows titled "Season N", but the track is the series'. */
+    suspend fun getTrackableAnime(): Anime? {
+        val anime = successState?.anime ?: return null
+        val parentId = anime.parentId ?: return anime
+        return getAnime.await(parentId) ?: anime
+    }
+    // <-- AY
 
     fun showImagesDialog() {
         updateSuccessState { it.copy(dialog = Dialog.FullImages) }

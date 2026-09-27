@@ -13,11 +13,13 @@ import kotlinx.coroutines.awaitAll
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.withNonCancellableContext
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.track.anime.interactor.GetAnimeTracks
 import tachiyomi.domain.track.anime.interactor.InsertAnimeTrack
 
 class TrackEpisode(
     private val getTracks: GetAnimeTracks,
+    private val getAnime: GetAnime,
     private val trackerManager: TrackerManager,
     private val insertTrack: InsertAnimeTrack,
     private val delayedTrackingStore: DelayedAnimeTrackingStore,
@@ -25,7 +27,11 @@ class TrackEpisode(
 
     suspend fun await(context: Context, animeId: Long, episodeNumber: Double, setupJobOnFailure: Boolean = true) {
         withNonCancellableContext {
-            val tracks = getTracks.await(animeId)
+            // AY -->
+            // A season's track lives on the parent series, not on the season row.
+            val trackAnimeId = getAnime.await(animeId)?.parentId ?: animeId
+            // <-- AY
+            val tracks = getTracks.await(trackAnimeId)
             if (tracks.isEmpty()) return@withNonCancellableContext
 
             tracks.mapNotNull { track ->
