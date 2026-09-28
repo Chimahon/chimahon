@@ -25,6 +25,7 @@ import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.svg.SvgDecoder
 import coil3.request.allowRgb565
 import coil3.request.crossfade
 import coil3.util.DebugLogger
@@ -257,6 +258,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 add(OkHttpNetworkFetcherFactory(callFactoryLazy::value))
                 // Decoder.Factory
                 add(TachiyomiImageDecoder.Factory())
+                add(SvgDecoder.Factory())
                 // Fetcher.Factory
                 add(BufferedSourceFetcher.Factory())
                 add(MangaCoverFetcher.MangaCoverFactory(callFactoryLazy))

@@ -64,6 +64,7 @@ coil-core = { module = "io.coil-kt.coil3:coil" }
 coil-gif = { module = "io.coil-kt.coil3:coil-gif" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp" }
+coil-svg = { module = "io.coil-kt.coil3:coil-svg" }
 
 subsamplingscaleimageview = "com.github.tachiyomiorg:subsampling-scale-image-view:66e0db195d"
 image-decoder = "com.github.yomihon:image-decoder:da05c859ff"
@@ -126,6 +127,8 @@ sqldelight-android-paging = { module = "app.cash.sqldelight:androidx-paging3-ext
 sqldelight-dialects-sql = { module = "app.cash.sqldelight:sqlite-3-38-dialect", version = "2.3.2" }
 
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit4 = "junit:junit:4.13.2"
+junit-vintage-engine = { module = "org.junit.vintage:junit-vintage-engine", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 kotest-assertions = "io.kotest:kotest-assertions-core:6.2.1"
 mockk = "io.mockk:mockk:1.14.11"
@@ -146,6 +149,7 @@ stringSimilarity = { module = "com.aallam.similarity:string-similarity-kotlin", 
 materialKolor = { module = "com.materialkolor:material-kolor", version.ref = "materialKolor" }
 
 [plugins]
+paparazzi = { id = "app.cash.paparazzi", version = "2.0.0-alpha04" }
 google-services = { id = "com.google.gms.google-services", version = "4.5.0" }
 aboutLibraries = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutlib_version" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
@@ -155,7 +159,7 @@ firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.
 [bundles]
 okhttp = ["okhttp-core", "okhttp-logging", "okhttp-brotli", "okhttp-dnsoverhttps", "okhttp-zstd"]
 sqlite = ["sqlite-framework", "sqlite-ktx", "sqlite-android"]
-coil = ["coil-core", "coil-gif", "coil-compose", "coil-network-okhttp"]
+coil = ["coil-core", "coil-gif", "coil-compose", "coil-network-okhttp", "coil-svg"]
 shizuku = ["shizuku-api", "shizuku-provider"]
 sqldelight = ["sqldelight-android-driver", "sqldelight-coroutines", "sqldelight-android-paging"]
 voyager = ["voyager-navigator", "voyager-screenmodel", "voyager-tab-navigator", "voyager-transitions"]
