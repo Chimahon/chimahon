@@ -10,6 +10,7 @@ plugins {
     kotlin("plugin.parcelize")
     kotlin("plugin.serialization")
     alias(libs.plugins.aboutLibraries)
+    alias(libs.plugins.paparazzi)
     id("com.github.ben-manes.versions")
 }
 
@@ -369,6 +370,10 @@ dependencies {
     // Tests
     testImplementation(libs.bundles.test)
     testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation("org.json:json:20240303")
+    // Paparazzi screenshot tests run on JUnit4 alongside the JUnit5 suite
+    testImplementation(libs.junit4)
+    testRuntimeOnly(libs.junit.vintage.engine)
 
     // For detecting memory leaks; see https://square.github.io/leakcanary/
     // debugImplementation(libs.leakcanary.android)
