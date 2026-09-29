@@ -59,6 +59,7 @@ internal fun prepareDictionaryWebViewShell(
         addJavascriptInterface(state.readyBridge, "DictionaryReadyBridge")
         addJavascriptInterface(state.payloadBridge, "PayloadBridge")
         addJavascriptInterface(state.ankiJsBridge, "AnkiJsBridge")
+        addJavascriptInterface(state.clipboardBridge, "DictionaryClipboardBridge")
 
 
         webViewClient = object : WebViewClient() {
@@ -129,6 +130,7 @@ internal class DictionaryWebViewState(
     val readyBridge: DictionaryReadyBridge = DictionaryReadyBridge(webViewProvider) { this }
     val payloadBridge: PayloadBridge = PayloadBridge()
     val ankiJsBridge: AnkiJsBridge = AnkiJsBridge(webViewProvider)
+    val clipboardBridge: DictionaryClipboardBridge = DictionaryClipboardBridge(context)
     var pageReady: Boolean = false
     var fontSize: Int = 16
     @Volatile var contentReadyGeneration: Long = 0

@@ -31,6 +31,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +52,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -141,6 +147,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLookupPopup
+import eu.kanade.tachiyomi.ui.reader.viewer.copyOcrPopupFullText
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerConfig
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerPageHolder
@@ -150,6 +157,7 @@ import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonPageHolder
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.isNightMode
+import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
@@ -1008,6 +1016,13 @@ class ReaderActivity : BaseActivity() {
             val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
             val highlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.32f).toArgb()
             val textPaddingPx = with(density) { 14.dp.toPx().toInt() }
+            var copied by remember(state.text) { mutableStateOf(false) }
+            LaunchedEffect(copied) {
+                if (copied) {
+                    delay(1_000)
+                    copied = false
+                }
+            }
 
             Surface(
                 modifier = Modifier
@@ -1019,34 +1034,61 @@ class ReaderActivity : BaseActivity() {
                 contentColor = MaterialTheme.colorScheme.onSurface,
                 shadowElevation = 8.dp,
             ) {
-                AndroidView(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = panelMaxHeight),
-                    factory = { context ->
-                        TextView(context).apply {
-                            setTextIsSelectable(true)
-                            textSize = 18f
-                            setLineSpacing(0f, 1.12f)
-                            setPadding(textPaddingPx, textPaddingPx, textPaddingPx, textPaddingPx)
-                            setBackgroundColor(Color.TRANSPARENT)
-                            isFocusable = true
-                            isFocusableInTouchMode = true
-                        }
-                    },
-                    update = { textView ->
-                        if (textView.text.toString() != state.text) {
-                            textView.text = state.text
-                        }
-                        textView.setTextColor(textColor)
-                        textView.highlightColor = highlightColor
-                        textView.post {
-                            if (!textView.hasFocus()) {
-                                textView.requestFocus()
+                Column {
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = panelMaxHeight - 48.dp),
+                        factory = { context ->
+                            TextView(context).apply {
+                                setTextIsSelectable(true)
+                                textSize = 18f
+                                setLineSpacing(0f, 1.12f)
+                                setPadding(textPaddingPx, textPaddingPx, textPaddingPx, textPaddingPx)
+                                setBackgroundColor(Color.TRANSPARENT)
+                                isFocusable = true
+                                isFocusableInTouchMode = true
                             }
+                        },
+                        update = { textView ->
+                            if (textView.text.toString() != state.text) {
+                                textView.text = state.text
+                            }
+                            textView.setTextColor(textColor)
+                            textView.highlightColor = highlightColor
+                            textView.post {
+                                if (!textView.hasFocus()) {
+                                    textView.requestFocus()
+                                }
+                            }
+                        },
+                    )
+                    TextButton(
+                        modifier = Modifier.align(Alignment.End),
+                        onClick = {
+                            copyOcrPopupFullText(state.text) { label, content ->
+                                this@ReaderActivity.copyToClipboard(label, content)
+                            }
+                            copied = true
+                        },
+                    ) {
+                        AnimatedContent(
+                            targetState = copied,
+                            label = "OCR text copy feedback",
+                        ) { wasCopied ->
+                            Icon(
+                                imageVector = if (wasCopied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                contentDescription = null,
+                            )
                         }
-                    },
-                )
+                        Text(
+                            text = stringResource(
+                                if (copied) MR.strings.copied_to_clipboard_plain else MR.strings.action_copy_to_clipboard,
+                            ),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
             }
         }
     }
