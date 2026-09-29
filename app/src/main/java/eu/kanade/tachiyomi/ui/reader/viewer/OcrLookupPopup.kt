@@ -67,6 +67,7 @@ import chimahon.util.ImageEncoder
 import eu.kanade.tachiyomi.ui.dictionary.buildKanjiEntryJson
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryEntryWebView
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.GlossTab
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.resolveDictionaryTheme
@@ -164,7 +165,7 @@ fun OcrLookupPopup(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dictionaryPrefs = remember { Injekt.get<DictionaryPreferences>() }
-    val useComposeRenderer by dictionaryPrefs.renderer().collectAsState()
+    val rendererMode by dictionaryPrefs.renderer().collectAsState()
     var isLoading by remember {
         mutableStateOf(initialLookupDeferred?.isCompleted != true)
     }
@@ -1239,141 +1240,109 @@ fun OcrLookupPopup(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    when (useComposeRenderer) {
-                        DictionaryPreferences.RENDERER_COMPOSE -> {
-                            DictionaryEntryCompose(
-                                results = results,
-                                styles = styles,
-                                mediaDataUris = mediaDataUris,
-                                placeholder = if (isLoading || currentFrame == null) "" else "No results found",
-                                fontSize = popupFontSizePref,
-                                showFrequencyHarmonic = showFreqHarmonic,
-                                showFrequencyAverage = showFreqAverage,
-                                groupTerms = groupTerms,
-                                showPitchDiagram = showPitchDiagram,
-                                showPitchNumber = showPitchNumber,
-                                showPitchText = showPitchText,
-                                activeProfile = activeProfile,
-                                existingExpressions = existingExpressions,
-                                entryJsons = entryJsons,
-                                customCss = customCss,
-                                eInkMode = eInkMode,
-                                wordAudioEnabled = wordAudioEnabled,
-                                wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
-                                groupPitches = groupPitches,
-                                onAnkiLookup = onAnkiLookup,
-                                onRecursiveLookup = onRecursiveLookup,
-                                onTabSelect = onTabSelect,
-                                onBack = onBack,
-                                isLoading = isLoading,
-                                onContentReadyChange = { ready ->
-                                    if (ready) {
-                                        contentReady = true
-                                        lastRenderedLookupGeneration = lookupGeneration
-                                    } else {
-                                        if (lookupGeneration != lastRenderedLookupGeneration) {
-                                            contentReady = false
-                                        }
-                                    }
-                                    onContentReadyChange?.invoke(ready)
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        DictionaryPreferences.RENDERER_PLAIN_TEXT -> {
-                            DictionaryEntryCompose(
-                                results = results,
-                                styles = styles,
-                                mediaDataUris = mediaDataUris,
-                                placeholder = if (isLoading || currentFrame == null) "" else "No results found",
-                                fontSize = popupFontSizePref,
-                                showFrequencyHarmonic = showFreqHarmonic,
-                                showFrequencyAverage = showFreqAverage,
-                                groupTerms = groupTerms,
-                                showPitchDiagram = showPitchDiagram,
-                                showPitchNumber = showPitchNumber,
-                                showPitchText = showPitchText,
-                                activeProfile = activeProfile,
-                                existingExpressions = existingExpressions,
-                                entryJsons = entryJsons,
-                                customCss = customCss,
-                                eInkMode = eInkMode,
-                                wordAudioEnabled = wordAudioEnabled,
-                                wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
-                                groupPitches = groupPitches,
-                                onAnkiLookup = onAnkiLookup,
-                                onRecursiveLookup = onRecursiveLookup,
-                                onTabSelect = onTabSelect,
-                                onBack = onBack,
-                                isLoading = isLoading,
-                                usePlainTextBody = true,
-                                onContentReadyChange = { ready ->
-                                    if (ready) {
-                                        contentReady = true
-                                        lastRenderedLookupGeneration = lookupGeneration
-                                    } else {
-                                        if (lookupGeneration != lastRenderedLookupGeneration) {
-                                            contentReady = false
-                                        }
-                                    }
-                                    onContentReadyChange?.invoke(ready)
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        else -> {
-                            DictionaryEntryWebView(
-                        results = results,
-                        styles = styles,
-                        mediaDataUris = mediaDataUris,
-                        placeholder = if (isLoading || currentFrame == null) "" else "No results found",
-                        headerText = lookupString.take(20) + if (lookupString.length > 20) "…" else "",
-                        fontSize = popupFontSizePref,
-                        showFrequencyHarmonic = showFreqHarmonic,
-                        showFrequencyAverage = showFreqAverage,
-                        groupTerms = groupTerms,
-                        showPitchDiagram = showPitchDiagram,
-                        showPitchNumber = showPitchNumber,
-                        showPitchText = showPitchText,
-                        activeProfile = activeProfile,
-                        existingExpressions = existingExpressions,
-                        tabs = lookupStackState.buildTabs(),
-                        recursiveNavMode = recursiveNavMode,
-                        renderRecursiveChrome = false,
-                        customCss = customCss,
-                        wordAudioEnabled = wordAudioEnabled,
-                        // Suppress autoplay when the popup is hidden (warm shell still in
-                        // composition). Without this the WebView fires audio on a new lookup
-                        // result even while the popup is invisible to the user.
-                        wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
-                        groupPitches = groupPitches,
-                        requestFocusOnMount = true,
-                        entryJsons = entryJsons,
-                        webViewProvider = { webView },
-                        onAnkiLookup = onAnkiLookup,
-                        onRecursiveLookup = onRecursiveLookup,
-                        onTabSelect = onTabSelect,
-                        onBack = onBack,
-                        hideOnContentInvalidated = true,
-                        isLoading = isLoading,
-                        onContentReadyChange = { ready ->
-                            if (ready) {
-                                contentReady = true
-                                lastRenderedLookupGeneration = lookupGeneration
-                            } else {
-                                // Hide stale content only when a new top-level lookup
-                                // has started. Same-generation invalidations (e.g. Anki
-                                // status patches) keep the current content visible.
-                                if (lookupGeneration != lastRenderedLookupGeneration) {
+                    val plainText = rendererMode == DictionaryPreferences.RENDERER_PLAIN_TEXT
+                    if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE || plainText) {
+                        DictionaryEntryCompose(
+                            results = results,
+                            styles = styles,
+                            mediaDataUris = mediaDataUris,
+                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                            fontSize = popupFontSizePref,
+                            showFrequencyHarmonic = showFreqHarmonic,
+                            showFrequencyAverage = showFreqAverage,
+                            groupTerms = groupTerms,
+                            showPitchDiagram = showPitchDiagram,
+                            showPitchNumber = showPitchNumber,
+                            showPitchText = showPitchText,
+                            activeProfile = activeProfile,
+                            existingExpressions = existingExpressions,
+                            entryJsons = entryJsons,
+                            customCss = customCss,
+                            eInkMode = eInkMode,
+                            recursiveNavMode = recursiveNavMode,
+                            tabs = lookupStackState.buildTabs().map { GlossTab(it.label, it.active) },
+                            wordAudioEnabled = wordAudioEnabled,
+                            wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
+                            groupPitches = groupPitches,
+                            onAnkiLookup = onAnkiLookup,
+                            onRecursiveLookup = onRecursiveLookup,
+                            onTabSelect = { idx ->
+                                if (idx in lookupStackState.stack.indices) {
+                                    lookupStackState = lookupStackState.copy(activeIndex = idx)
+                                }
+                            },
+                            onBack = {
+                                if (lookupStackState.activeIndex > 0) {
+                                    lookupStackState = lookupStackState.copy(
+                                        activeIndex = lookupStackState.activeIndex - 1,
+                                    )
+                                }
+                            },
+                            isLoading = isLoading,
+                            usePlainTextBody = plainText,
+                            onContentReadyChange = { ready ->
+                                if (ready) {
+                                    contentReady = true
+                                    lastRenderedLookupGeneration = lookupGeneration
+                                } else if (lookupGeneration != lastRenderedLookupGeneration) {
                                     contentReady = false
                                 }
-                            }
-                            onContentReadyChange?.invoke(ready)
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    }
-                    }
+                                onContentReadyChange?.invoke(ready)
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        DictionaryEntryWebView(
+                            results = results,
+                            styles = styles,
+                            mediaDataUris = mediaDataUris,
+                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                            headerText = lookupString.take(20) + if (lookupString.length > 20) "…" else "",
+                            fontSize = popupFontSizePref,
+                            showFrequencyHarmonic = showFreqHarmonic,
+                            showFrequencyAverage = showFreqAverage,
+                            groupTerms = groupTerms,
+                            showPitchDiagram = showPitchDiagram,
+                            showPitchNumber = showPitchNumber,
+                            showPitchText = showPitchText,
+                            activeProfile = activeProfile,
+                            existingExpressions = existingExpressions,
+                            tabs = lookupStackState.buildTabs(),
+                            recursiveNavMode = recursiveNavMode,
+                            renderRecursiveChrome = false,
+                            customCss = customCss,
+                            wordAudioEnabled = wordAudioEnabled,
+                            // Suppress autoplay when the popup is hidden (warm shell still in
+                            // composition). Without this the WebView fires audio on a new lookup
+                            // result even while the popup is invisible to the user.
+                            wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
+                            groupPitches = groupPitches,
+                            requestFocusOnMount = true,
+                            entryJsons = entryJsons,
+                            webViewProvider = { webView },
+                            onAnkiLookup = onAnkiLookup,
+                            onRecursiveLookup = onRecursiveLookup,
+                            onTabSelect = onTabSelect,
+                            onBack = onBack,
+                            hideOnContentInvalidated = true,
+                            isLoading = isLoading,
+                            onContentReadyChange = { ready ->
+                                if (ready) {
+                                    contentReady = true
+                                    lastRenderedLookupGeneration = lookupGeneration
+                                } else {
+                                    // Hide stale content only when a new top-level lookup
+                                    // has started. Same-generation invalidations (e.g. Anki
+                                    // status patches) keep the current content visible.
+                                    if (lookupGeneration != lastRenderedLookupGeneration) {
+                                        contentReady = false
+                                    }
+                                }
+                                onContentReadyChange?.invoke(ready)
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        }
 
                 if (errorMessage != null) {
                     Text(

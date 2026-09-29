@@ -118,7 +118,7 @@ class DictionaryPreferences(
 
     fun customCss() = preferenceStore.getString("pref_dictionary_custom_css", "")
 
-    /** "webview" (default) or "compose" — native Compose renderer for the reader popup. */
+    /** One of [RENDERER_WEBVIEW] (default), [RENDERER_COMPOSE], or [RENDERER_PLAIN_TEXT]. */
     fun renderer() = preferenceStore.getString("pref_dictionary_renderer", RENDERER_WEBVIEW)
 
     // -------------------------------------------------------------------------

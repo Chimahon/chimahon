@@ -37,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
@@ -53,6 +54,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
@@ -160,6 +162,9 @@ private fun parseKanjiEntryJson(json: String): KanjiCard? {
     }.getOrNull()
 }
 
+/** One entry in the recursive-lookup tab strip. */
+data class GlossTab(val label: String, val active: Boolean)
+
 /**
  * Native Compose dictionary renderer for the reader popup — a drop-in for
  * [eu.kanade.tachiyomi.ui.dictionary.DictionaryEntryWebView]. Renders the same
@@ -171,7 +176,6 @@ fun DictionaryEntryCompose(
     styles: List<DictionaryStyle>,
     mediaDataUris: Map<String, String>,
     placeholder: String,
-    headerText: String = "",
     fontSize: Int = 16,
     showFrequencyHarmonic: Boolean = false,
     showFrequencyAverage: Boolean = false,
@@ -181,23 +185,26 @@ fun DictionaryEntryCompose(
     showPitchDiagram: Boolean = true,
     showPitchNumber: Boolean = true,
     showPitchText: Boolean = true,
+    /**
+     * How recursive lookups are presented: `tabs` (a tab strip), `stack` (a back chip), or `popup`
+     * (the host opens a child popup, so this renderer draws no chrome). Mirrors the
+     * `recursiveLookupMode` preference.
+     */
     recursiveNavMode: String = "tabs",
-    renderRecursiveChrome: Boolean = true,
     wordAudioEnabled: Boolean = true,
     wordAudioAutoplayOverride: Boolean? = null,
     customCss: String = "",
     groupPitches: Boolean = false,
     entryJsons: List<String>? = null,
     eInkMode: Boolean = false,
+    /** Recursive-lookup stack. Tapping the active tab pops it; tapping another switches to it. */
+    tabs: List<GlossTab> = emptyList(),
     modifier: Modifier = Modifier,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = null,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)? = null,
     onTabSelect: ((Int) -> Unit)? = null,
     onBack: (() -> Unit)? = null,
     onContentReadyChange: ((Boolean) -> Unit)? = null,
-    hideOnContentInvalidated: Boolean = true,
-    forceDefaultTheme: Boolean = false,
-    requestFocusOnMount: Boolean = false,
     isLoading: Boolean = false,
     usePlainTextBody: Boolean = false,
 ) {
@@ -266,78 +273,98 @@ fun DictionaryEntryCompose(
     }
     val effectivePlan = plan ?: RenderPlan.Empty
 
-    Box(modifier = modifier.background(bgColor)) {
-        when {
-            isLoading || effectivePlan == RenderPlan.Empty -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = accent)
-                }
-            }
-            effectivePlan.kanjiCards.isNotEmpty() -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-                ) {
-                    itemsIndexed(effectivePlan.kanjiCards, key = { i, kanji -> "kanji-${kanji.character}-$i" }, contentType = { _, _ -> "kanji" }) { i, kanji ->
-                        KanjiEntryCard(
-                            kanji = kanji,
-                            fontSize = fontSize,
-                            accent = accent,
-                            secondary = secondary,
-                            border = border,
-                            onBg = onBg,
-                            eInkMode = eInkMode,
-                            onRecursiveLookup = onRecursiveLookup,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-            effectivePlan.cards.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (placeholder.isBlank()) {
+    // `popup` is handled by the host, which opens a child popup instead of pushing a frame here.
+    val showTabStrip = recursiveNavMode == "tabs" && tabs.size > 1
+    val showBackChip = recursiveNavMode == "stack" && tabs.size > 1
+
+    Column(modifier = modifier.background(bgColor)) {
+        if (showTabStrip || showBackChip) {
+            RecursiveNavBar(
+                tabs = tabs,
+                showTabs = showTabStrip,
+                onBg = onBg,
+                secondary = secondary,
+                border = border,
+                hoverBg = hoverBg,
+                accent = accent,
+                fontSize = fontSize,
+                onTabSelect = onTabSelect,
+                onBack = onBack,
+            )
+        }
+        Box(Modifier.fillMaxSize()) {
+            when {
+                isLoading || effectivePlan == RenderPlan.Empty -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = accent)
-                    } else {
-                        Text(placeholder, color = onBg.copy(alpha = 0.7f), fontSize = (fontSize - 2).sp)
                     }
                 }
-            }
-            else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
-                ) {
-                    itemsIndexed(effectivePlan.cards, key = { i, card -> "$i-${card.expression}\u0000${card.reading}" }, contentType = { _, _ -> "term" }) { i, card ->
-                        TermCardView(
-                            card = card,
-                            index = i,
-                            fontSize = fontSize,
-                            accent = accent,
-                            secondary = secondary,
-                            border = border,
-                            hoverBg = hoverBg,
-                            onBg = onBg,
-                            eInkMode = eInkMode,
-                            parsedCssMap = effectivePlan.parsedCssMap,
-                            showFrequencyHarmonic = showFrequencyHarmonic,
-                            showFrequencyAverage = showFrequencyAverage,
-                            showPitchDiagram = showPitchDiagram,
-                            showPitchNumber = showPitchNumber,
-                            showPitchText = showPitchText,
-                            groupPitches = groupPitches,
-                            activeProfile = activeProfile,
-                            mediaDataUris = mediaDataUris,
-                            existingExpressions = existingExpressions,
-                            onAnkiLookup = onAnkiLookup,
-                            onRecursiveLookup = onRecursiveLookup,
-                            wordAudioEnabled = wordAudioEnabled,
-                            autoplay = wordAudioAutoplayOverride == true,
-                            modifier = Modifier.fillMaxWidth(),
-                            usePlainTextBody = usePlainTextBody,
-                        )
+                effectivePlan.kanjiCards.isNotEmpty() -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                    ) {
+                        itemsIndexed(effectivePlan.kanjiCards, key = { i, kanji -> "kanji-${kanji.character}-$i" }, contentType = { _, _ -> "kanji" }) { i, kanji ->
+                            KanjiEntryCard(
+                                kanji = kanji,
+                                fontSize = fontSize,
+                                accent = accent,
+                                secondary = secondary,
+                                border = border,
+                                onBg = onBg,
+                                eInkMode = eInkMode,
+                                onRecursiveLookup = onRecursiveLookup,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
                 }
-            }
+                effectivePlan.cards.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        if (placeholder.isBlank()) {
+                            CircularProgressIndicator(color = accent)
+                        } else {
+                            Text(placeholder, color = onBg.copy(alpha = 0.7f), fontSize = (fontSize - 2).sp)
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                    ) {
+                        itemsIndexed(effectivePlan.cards, key = { i, card -> "$i-${card.expression}\u0000${card.reading}" }, contentType = { _, _ -> "term" }) { i, card ->
+                            TermCardView(
+                                card = card,
+                                index = i,
+                                fontSize = fontSize,
+                                accent = accent,
+                                secondary = secondary,
+                                border = border,
+                                hoverBg = hoverBg,
+                                onBg = onBg,
+                                eInkMode = eInkMode,
+                                parsedCssMap = effectivePlan.parsedCssMap,
+                                showFrequencyHarmonic = showFrequencyHarmonic,
+                                showFrequencyAverage = showFrequencyAverage,
+                                showPitchDiagram = showPitchDiagram,
+                                showPitchNumber = showPitchNumber,
+                                showPitchText = showPitchText,
+                                groupPitches = groupPitches,
+                                activeProfile = activeProfile,
+                                mediaDataUris = mediaDataUris,
+                                existingExpressions = existingExpressions,
+                                onAnkiLookup = onAnkiLookup,
+                                onRecursiveLookup = onRecursiveLookup,
+                                wordAudioEnabled = wordAudioEnabled,
+                                autoplay = wordAudioAutoplayOverride == true,
+                                modifier = Modifier.fillMaxWidth(),
+                                usePlainTextBody = usePlainTextBody,
+                            )
+                        }
+                    }
+                }
+        }
         }
     }
 }
@@ -1293,4 +1320,67 @@ private fun KanjiSectionHeader(
         letterSpacing = (baseFontSize * 0.05f).sp,
         modifier = modifier,
     )
+}
+
+/**
+ * Recursive-lookup chrome. In `tabs` mode it shows one chip per open frame; in `stack` mode a single
+ * back chip. Tapping the active tab pops the stack, matching the WebView renderer.
+ */
+@Composable
+private fun RecursiveNavBar(
+    tabs: List<GlossTab>,
+    showTabs: Boolean,
+    onBg: Color,
+    secondary: Color,
+    border: Color,
+    hoverBg: Color,
+    accent: Color,
+    fontSize: Int,
+    onTabSelect: ((Int) -> Unit)?,
+    onBack: (() -> Unit)?,
+) {
+    val activeIndex = tabs.indexOfFirst { it.active }.takeIf { it >= 0 } ?: 0
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(hoverBg)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (showTabs) {
+                tabs.forEachIndexed { index, tab ->
+                    val selected = index == activeIndex
+                    Text(
+                        text = tab.label,
+                        color = if (selected) accent else secondary,
+                        fontSize = (fontSize - 3).sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) onBg.copy(alpha = 0.10f) else Color.Transparent)
+                            .clickable { if (selected) onBack?.invoke() else onTabSelect?.invoke(index) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+            } else {
+                val previous = tabs.getOrNull(activeIndex - 1) ?: tabs.first()
+                Text(
+                    text = "← " + previous.label,
+                    color = accent,
+                    fontSize = (fontSize - 3).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onBack?.invoke() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        }
+        HorizontalDivider(color = border)
+    }
 }

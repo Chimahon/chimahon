@@ -50,6 +50,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import chimahon.DictionaryStyle
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.GlossTab
 import chimahon.HoshiDicts
 import chimahon.LookupResult
 import chimahon.anki.AnkiCardCreator
@@ -230,7 +231,7 @@ data object DictionaryTab : Tab {
         var isLoading by remember { mutableStateOf(false) }
         var errorMessage by remember { mutableStateOf<String?>(null) }
         var hasSearched by remember { mutableStateOf(false) }
-        var shouldMountWebView by remember { mutableStateOf(false) }
+        var shouldMountResults by remember { mutableStateOf(false) }
         var searchJob by remember { mutableStateOf<Job?>(null) }
         var retainedWebView by remember { mutableStateOf<WebView?>(null) }
         val focusManager = LocalFocusManager.current
@@ -271,6 +272,7 @@ data object DictionaryTab : Tab {
         val groupTerms by dictionaryPreferences.groupTerms().collectAsState()
         val compactGlossary by dictionaryPreferences.compactGlossary().collectAsState()
         val recursiveNavMode by dictionaryPreferences.recursiveLookupMode().collectAsState()
+    val eInkMode by dictionaryPreferences.eInkMode().collectAsState()
         val popupFontSizePref by dictionaryPreferences.fontSize().collectAsState()
         val customCss by dictionaryPreferences.customCss().collectAsState()
         val wordAudioEnabled by dictionaryPreferences.wordAudioEnabled().collectAsState()
@@ -294,7 +296,7 @@ data object DictionaryTab : Tab {
         /** Push a lookup onto the stack; cancels any in-flight search first. */
         fun stackLookup(rawQuery: String, type: String? = null) {
             searchJob?.cancel()
-            shouldMountWebView = true
+            shouldMountResults = true
             searchJob = scope.launch {
                 isLoading = true
                 errorMessage = null
@@ -733,14 +735,19 @@ data object DictionaryTab : Tab {
                 results.isEmpty() && hasSearched && entryJsons == null -> Text(stringResource(MR.strings.no_results_found))
             }
 
-            if (shouldMountWebView) {
+            if (shouldMountResults) {
                 val renderer by dictionaryPreferences.renderer().collectAsState()
-                when (renderer) {
-                    DictionaryPreferences.RENDERER_COMPOSE -> DictionaryEntryCompose(
+                val plainText = renderer == DictionaryPreferences.RENDERER_PLAIN_TEXT
+                if (renderer == DictionaryPreferences.RENDERER_COMPOSE || plainText) {
+                    DictionaryEntryCompose(
                         results = results,
                         styles = styles,
                         mediaDataUris = mediaDataUris,
-                        placeholder = if (hasSearched) stringResource(MR.strings.no_results_found) else "Search to view dictionary entries",
+                        placeholder = if (hasSearched) {
+                            stringResource(MR.strings.no_results_found)
+                        } else {
+                            stringResource(MR.strings.dictionary_search_placeholder)
+                        },
                         showFrequencyHarmonic = showFreqHarmonic,
                         showFrequencyAverage = showFreqAverage,
                         groupTerms = groupTerms,
@@ -751,6 +758,9 @@ data object DictionaryTab : Tab {
                         existingExpressions = existingExpressions,
                         entryJsons = entryJsons,
                         customCss = customCss,
+                        eInkMode = eInkMode,
+                        recursiveNavMode = recursiveNavMode,
+                        tabs = buildTabs().map { GlossTab(it.label, it.active) },
                         wordAudioEnabled = wordAudioEnabled,
                         groupPitches = groupPitches,
                         onAnkiLookup = onAnkiLookup,
@@ -758,13 +768,19 @@ data object DictionaryTab : Tab {
                         onTabSelect = { idx -> if (idx in lookupStack.indices) activeTabIndex = idx },
                         onBack = { if (activeTabIndex > 0) activeTabIndex-- },
                         isLoading = isLoading,
+                        usePlainTextBody = plainText,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )
-                    DictionaryPreferences.RENDERER_PLAIN_TEXT -> DictionaryEntryCompose(
+                } else {
+                    DictionaryEntryWebView(
                         results = results,
                         styles = styles,
                         mediaDataUris = mediaDataUris,
-                        placeholder = if (hasSearched) stringResource(MR.strings.no_results_found) else "Search to view dictionary entries",
+                        placeholder = if (hasSearched) {
+                            stringResource(MR.strings.no_results_found)
+                        } else {
+                            stringResource(MR.strings.dictionary_search_placeholder)
+                        },
                         showFrequencyHarmonic = showFreqHarmonic,
                         showFrequencyAverage = showFreqAverage,
                         groupTerms = groupTerms,
@@ -773,58 +789,29 @@ data object DictionaryTab : Tab {
                         showPitchText = showPitchText,
                         activeProfile = activeProfile,
                         existingExpressions = existingExpressions,
-                        entryJsons = entryJsons,
+                        tabs = buildTabs(),
+                        recursiveNavMode = recursiveNavMode,
+                        fontSize = popupFontSizePref,
                         customCss = customCss,
                         wordAudioEnabled = wordAudioEnabled,
-                        groupPitches = groupPitches,
+                        entryJsons = entryJsons,
+                        webViewProvider = { context ->
+                            retainedWebView ?: WebView(context).also { retainedWebView = it }
+                        },
                         onAnkiLookup = onAnkiLookup,
                         onRecursiveLookup = { word, _, _, _, _, type -> stackLookup(word, type) },
-                        onTabSelect = { idx -> if (idx in lookupStack.indices) activeTabIndex = idx },
-                        onBack = { if (activeTabIndex > 0) activeTabIndex-- },
-                        isLoading = isLoading,
-                        usePlainTextBody = true,
-                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        onTabSelect = { idx ->
+                            if (idx in lookupStack.indices) activeTabIndex = idx
+                        },
+                        onBack = {
+                            if (activeTabIndex > 0) activeTabIndex--
+                        },
+                        groupPitches = groupPitches,
+                        forceDefaultTheme = false,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                     )
-                    else -> DictionaryEntryWebView(
-                    results = results,
-                    styles = styles,
-                    mediaDataUris = mediaDataUris,
-                    placeholder = if (hasSearched) {
-                        stringResource(MR.strings.no_results_found)
-                    } else {
-                        "Search to view dictionary entries"
-                    },
-                    showFrequencyHarmonic = showFreqHarmonic,
-                    showFrequencyAverage = showFreqAverage,
-                    groupTerms = groupTerms,
-                    showPitchDiagram = showPitchDiagram,
-                    showPitchNumber = showPitchNumber,
-                    showPitchText = showPitchText,
-                    activeProfile = activeProfile,
-                    existingExpressions = existingExpressions,
-                    tabs = buildTabs(),
-                    recursiveNavMode = recursiveNavMode,
-                    fontSize = popupFontSizePref,
-                    customCss = customCss,
-                    wordAudioEnabled = wordAudioEnabled,
-                    entryJsons = entryJsons,
-                    webViewProvider = { context ->
-                        retainedWebView ?: WebView(context).also { retainedWebView = it }
-                    },
-                    onAnkiLookup = onAnkiLookup,
-                    onRecursiveLookup = { word, _, _, _, _, type -> stackLookup(word, type) },
-                    onTabSelect = { idx ->
-                        if (idx in lookupStack.indices) activeTabIndex = idx
-                    },
-                    onBack = {
-                        if (activeTabIndex > 0) activeTabIndex--
-                    },
-                    groupPitches = groupPitches,
-                    forceDefaultTheme = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                )
                 }
             } else {
                 Column(

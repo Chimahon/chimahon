@@ -1039,6 +1039,7 @@
     <!-- missing prompt after Compose rewrite #7901 -->
     <string name="no_more_results">No more results</string>
     <string name="no_results_found">No results found</string>
+    <string name="dictionary_search_placeholder">Search to view dictionary entries</string>
     <string name="local_source">Local source</string>
     <string name="local_anime_source">Local anime</string>
     <string name="local_anime_source_help_guide">Local anime source guide</string>

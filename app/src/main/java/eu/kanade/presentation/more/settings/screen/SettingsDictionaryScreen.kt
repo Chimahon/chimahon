@@ -678,7 +678,7 @@ object SettingsDictionaryScreen : SearchableSettings {
                         DictionaryPreferences.RENDERER_PLAIN_TEXT to "Plain Text",
                     ).associate { it.first to it.second }.toPersistentMap(),
                     title = "Renderer",
-                    subtitle = "Native Compose renderer is faster but a reduced CSS/style subset is applied",
+                    subtitle = "Compose renders entries with native text layout instead of a WebView",
                 ),
             )
             add(
