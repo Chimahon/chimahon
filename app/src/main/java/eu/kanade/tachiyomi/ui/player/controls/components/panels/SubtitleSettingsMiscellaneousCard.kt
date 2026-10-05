@@ -73,7 +73,12 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
                 mutableStateOf(MPVLib.getPropertyDouble("sub-scale").toFloat())
             }
             var subPos by remember {
-                mutableStateOf(MPVLib.getPropertyInt("sub-pos"))
+                mutableStateOf(
+                    preferences.subtitlePos().get().coerceIn(
+                        SubtitlePreferences.POSITION_MIN,
+                        SubtitlePreferences.POSITION_MAX,
+                    ),
+                )
             }
             SliderItem(
                 label = stringResource(MR.strings.player_sheets_sub_scale),
@@ -97,11 +102,16 @@ fun SubtitlesMiscellaneousCard(modifier: Modifier = Modifier) {
                 value = subPos,
                 valueText = subPos.toString(),
                 onChange = {
-                    subPos = it
-                    preferences.subtitlePos().set(it)
-                    MPVLib.setPropertyInt("sub-pos", it)
+                    val position = it.coerceIn(
+                        SubtitlePreferences.POSITION_MIN,
+                        SubtitlePreferences.POSITION_MAX,
+                    )
+                    subPos = position
+                    preferences.subtitlePos().set(position)
+                    MPVLib.setPropertyInt("sub-pos", position)
                 },
-                max = 150,
+                max = SubtitlePreferences.POSITION_MAX,
+                min = SubtitlePreferences.POSITION_MIN,
                 icon = {
                     Icon(
                         Icons.Default.AlignVerticalCenter,

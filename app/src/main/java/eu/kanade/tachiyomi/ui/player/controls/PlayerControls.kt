@@ -35,9 +35,11 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
@@ -72,6 +74,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -850,6 +853,24 @@ fun PlayerControls(
     }
 }
 
+private fun subtitleLayerTopOffset(
+    containerHeight: Dp,
+    subtitleHeight: Dp,
+    subtitlePosition: Int,
+): Dp {
+    val movableHeight = (containerHeight - subtitleHeight).coerceAtLeast(0.dp)
+    if (subtitlePosition > SubtitlePreferences.POSITION_DEFAULT) {
+        return movableHeight +
+            containerHeight * ((subtitlePosition - SubtitlePreferences.POSITION_DEFAULT) / 100f)
+    }
+    return movableHeight * (
+        subtitlePosition.coerceIn(
+            SubtitlePreferences.POSITION_MIN,
+            SubtitlePreferences.POSITION_DEFAULT,
+        ) / SubtitlePreferences.POSITION_DEFAULT.toFloat()
+        )
+}
+
 @Composable
 private fun PlayerSubtitleTextLayer(
     text: String,
@@ -859,7 +880,6 @@ private fun PlayerSubtitleTextLayer(
     onLookup: (SubtitleLookupSelection) -> Unit = {},
     modifier: Modifier = Modifier,
     topAligned: Boolean = false,
-    bottomPadding: Dp? = null,
     widthFraction: Float = 0.92f,
     maxWidth: Dp = 980.dp,
     fontSizeFactor: Float = 0.52f,
@@ -895,12 +915,12 @@ private fun PlayerSubtitleTextLayer(
     var textLayout by remember(subtitleText) { mutableStateOf<TextLayoutResult?>(null) }
     var textLayerOrigin by remember(subtitleText) { mutableStateOf(Offset.Zero) }
     val fontSizeSp = (subtitleFontSize * subtitleScale * fontSizeFactor).coerceIn(minFontSize, maxFontSize)
-    // Map the position preference the same way mpv's sub-pos behaves: 100 sits flush at the
-    // bottom, lower values lift the text, higher values push it down into the lower black bars.
-    val resolvedBottomPadding = bottomPadding ?: when {
-        subtitlePos >= 100 -> -((subtitlePos - 100) * 0.9f).dp
-        else -> ((100 - subtitlePos) * 2.2f).dp
-    }
+    val subtitlePosition = subtitlePos.coerceIn(
+        SubtitlePreferences.POSITION_MIN,
+        SubtitlePreferences.POSITION_MAX,
+    )
+    // Mirror mpv's sub-pos anchor. MPV inverts the stored value for libass, so 0 is top and 100
+    // is the default bottom. Values above 100 continue the downward travel and may clip.
     val outlineWidth = borderSize.coerceAtLeast(1) * 1.8f
     val lookupHighlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
     val boxBackgroundColor = Color(backgroundColor).let {
@@ -923,21 +943,26 @@ private fun PlayerSubtitleTextLayer(
         alpha = minOf(Color(borderColor).alpha, Color(textColor).alpha),
     )
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp)
-            .then(
-                if (topAligned) {
-                    Modifier.padding(top = 24.dp)
-                } else {
-                    Modifier.padding(bottom = resolvedBottomPadding)
-                },
-            ),
-        contentAlignment = if (topAligned) Alignment.TopCenter else Alignment.BottomCenter,
+            .padding(horizontal = 24.dp),
+        contentAlignment = Alignment.TopStart,
     ) {
+        val subtitleHeight = with(LocalDensity.current) {
+            (textLayout?.size?.height ?: 0).toDp()
+        }
+        val placementModifier = if (topAligned) {
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 24.dp)
+        } else {
+            Modifier
+                .align(Alignment.TopStart)
+                .offset(y = subtitleLayerTopOffset(maxHeight, subtitleHeight, subtitlePosition))
+        }
         Box(
-            modifier = Modifier
+            modifier = placementModifier
                 .fillMaxWidth(widthFraction)
                 .widthIn(max = maxWidth)
                 .onGloballyPositioned { coordinates ->
