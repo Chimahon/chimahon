@@ -41,8 +41,8 @@ class JellyfinInterceptor : Interceptor {
         return chain.proceed(authRequest)
     }
 
-    private fun getId(suffix: Int): Long {
-        val key = "jellyfin" + (if (suffix == 1) "" else " ($suffix)") + "/all/$JELLYFIN_VERSION_ID"
+    private fun getId(name: String, versionId: Int): Long {
+        val key = "$name/all/$versionId"
         val bytes = MessageDigest.getInstance("MD5").digest(key.toByteArray())
         return (0..7).map { bytes[it].toLong() and 0xff shl 8 * (7 - it) }
             .reduce(Long::or) and Long.MAX_VALUE
@@ -50,16 +50,33 @@ class JellyfinInterceptor : Interceptor {
 
     private fun getApiKey(userId: String): String? {
         for (i in 1..MAX_JELLYFIN_SOURCES) {
-            val sourceId = getId(i)
-            val preferences = (sourceManager.get(sourceId) as ConfigurableAnimeSource).sourcePreferences()
-            val sourceUserId = preferences.getString("user_id", "")
-
-            if (sourceUserId.isNullOrEmpty()) {
-                continue // Source not configured
+            // The first Jellyfin source is named "Jellyfin", later ones are "Jellyfin (n)", and the
+            // id is the md5 of the lowercased name, so both spellings have to be probed. The
+            // extension has also shipped under several versionIds, so probe each of those too
+            // instead of hardcoding one and silently resolving nothing when it changes.
+            val names = if (i == 1) {
+                listOf(JELLYFIN_SOURCE_NAME, "$JELLYFIN_SOURCE_NAME ($i)")
+            } else {
+                listOf("$JELLYFIN_SOURCE_NAME ($i)")
             }
 
-            if (sourceUserId == userId) {
-                return preferences.getString("api_key", "")
+            for (name in names) {
+                for (versionId in JELLYFIN_VERSION_IDS) {
+                    val preferences = (sourceManager.get(getId(name, versionId)) as? ConfigurableAnimeSource)
+                        ?.sourcePreferences()
+                        ?: continue
+
+                    val sourceUserId = preferences.getString("user_id", "")
+                    if (sourceUserId.isNullOrEmpty()) {
+                        continue // Source not configured
+                    }
+
+                    if (sourceUserId == userId) {
+                        // Returning null here keeps a blank key out of the apiKeys cache, otherwise
+                        // it would be cached and replayed as an empty api_key on every later call.
+                        return preferences.getString("api_key", "")?.takeIf { it.isNotBlank() }
+                    }
+                }
             }
         }
 
@@ -67,7 +84,8 @@ class JellyfinInterceptor : Interceptor {
     }
 
     companion object {
-        private const val JELLYFIN_VERSION_ID = 1
+        private const val JELLYFIN_SOURCE_NAME = "jellyfin"
+        private val JELLYFIN_VERSION_IDS = listOf(1, 2, 3)
         private const val MAX_JELLYFIN_SOURCES = 10
     }
 }
