@@ -56,8 +56,6 @@ fun LibraryToolbar(
     editCategoriesTitle: String? = null,
     updateCategoryTitle: String? = null,
     updateLibraryTitle: String? = null,
-    onClickNovelDefaultCategory: (() -> Unit)? = null,
-    novelDefaultCategoryTitle: String? = null,
     onClickBrowseSources: (() -> Unit)? = null,
     browseSourcesTitle: String? = null,
 ) = when {
@@ -117,8 +115,6 @@ private fun LibraryRegularToolbar(
     editCategoriesTitle: String? = null,
     updateCategoryTitle: String? = null,
     updateLibraryTitle: String? = null,
-    onClickNovelDefaultCategory: (() -> Unit)? = null,
-    novelDefaultCategoryTitle: String? = null,
     onClickBrowseSources: (() -> Unit)? = null,
     browseSourcesTitle: String? = null,
 ) {
@@ -207,14 +203,6 @@ private fun LibraryRegularToolbar(
                             AppBar.OverflowAction(
                                 title = editCategoriesTitle ?: stringResource(MR.strings.action_edit_categories),
                                 onClick = onClickEditCategories,
-                            ),
-                        )
-                    }
-                    if (onClickNovelDefaultCategory != null) {
-                        add(
-                            AppBar.OverflowAction(
-                                title = novelDefaultCategoryTitle ?: stringResource(MR.strings.default_category),
-                                onClick = onClickNovelDefaultCategory,
                             ),
                         )
                     }

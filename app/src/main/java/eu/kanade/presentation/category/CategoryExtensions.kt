@@ -32,3 +32,10 @@ fun tachiyomi.domain.category.model.AnimeCategory.visualName(context: Context): 
         isSystemCategory -> context.stringResource(MR.strings.label_default)
         else -> name
     }
+
+val tachiyomi.domain.novel.model.NovelCategory.visualName: String
+    @Composable
+    get() = when {
+        isSystemCategory -> stringResource(MR.strings.label_default)
+        else -> name
+    }

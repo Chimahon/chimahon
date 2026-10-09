@@ -475,7 +475,6 @@ class NovelLibraryScreenModel(
         data object SortFilter : Dialog
         data object Settings : Dialog
         data class EditBook(val book: BookMetadata) : Dialog
-        data object SetDefaultCategory : Dialog
     }
 
     @Immutable
@@ -661,24 +660,6 @@ class NovelLibraryScreenModel(
     fun showNumberOfItems() = libraryPreferences.categoryNumberOfItems()
 
     fun showHiddenCategories() = libraryPreferences.showHiddenCategories()
-
-    fun showNovelDefaultCategoryDialog() {
-        mutableState.update { it.copy(dialog = Dialog.SetDefaultCategory) }
-    }
-
-    fun setNovelDefaultCategory(categoryId: String) {
-        libraryPreferences.defaultCategory().set(categoryId)
-        closeDialog()
-    }
-
-    fun getNovelDefaultCategory() = libraryPreferences.defaultCategory()
-
-    fun getDefaultCategoryDisplayName(): String {
-        val defaultId = libraryPreferences.defaultCategory().get()
-        if (defaultId.isEmpty()) return "None"
-        val cat = mutableState.value.categories.find { it.id == defaultId }
-        return cat?.name ?: "None"
-    }
 
     fun getRandomBookForCurrentCategory(): BookMetadata? {
         val s = mutableState.value

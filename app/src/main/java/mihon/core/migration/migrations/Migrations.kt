@@ -59,5 +59,6 @@ val migrations: List<Migration>
         MoveJimakuApiKeyToPrivateMigration(),
         MigrateNovelPluginRegistryMigration(),
         MigrateNovelBookJsonMigration(),
+        MigrateNovelDefaultCategoryMigration(),
         // KMK <--
     )

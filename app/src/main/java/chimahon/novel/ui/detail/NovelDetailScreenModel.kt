@@ -33,6 +33,7 @@ import tachiyomi.domain.novel.model.NovelChapterUpdate
 import tachiyomi.core.common.util.lang.compareToWithCollator
 import tachiyomi.domain.novel.model.NovelUpdate
 import tachiyomi.domain.novel.model.toSNNovel
+import tachiyomi.domain.library.service.NovelLibraryPreferences
 import tachiyomi.domain.novel.repository.NovelCategoryRepository
 import tachiyomi.domain.novel.repository.NovelChapterRepository
 import tachiyomi.domain.novel.repository.NovelRepository
@@ -111,6 +112,7 @@ class NovelDetailScreenModel(
     private val setNovelCategoriesInteractor: chimahon.novel.interactor.SetNovelCategories = Injekt.get(),
     private val novelChapterRepository: NovelChapterRepository = Injekt.get(),
     private val novelCategoryRepository: NovelCategoryRepository = Injekt.get(),
+    private val novelLibraryPreferences: NovelLibraryPreferences = Injekt.get(),
     private val downloadManager: NovelDownloadManager = Injekt.get(),
     private val app: Application = Injekt.get(),
 ) : StateScreenModel<NovelDetailState>(
@@ -367,6 +369,7 @@ class NovelDetailScreenModel(
 
         val dbNovel = syncNovelToDatabase(details, sourceChapters, favorite = true)
         val dbChapters = syncSourceChapters(dbNovel.id, sourceChapters)
+        applyDefaultCategory(dbNovel.id)
 
         cachedDbNovel = dbNovel
         mutableState.value = mutableState.value.copy(
@@ -376,6 +379,21 @@ class NovelDetailScreenModel(
             isFavorite = true,
         )
         subscribeToDbChapters(dbNovel.id)
+    }
+
+/**
+     * Assigns the configured default category when a novel enters the library, matching the
+     * manga and anime behaviour. Membership in the system category is the absence of a join row,
+     * so only a real category id needs writing.
+     */
+    private suspend fun applyDefaultCategory(novelId: Long) {
+        val defaultCategoryId = novelLibraryPreferences.defaultCategory().get()
+        if (defaultCategoryId <= 0L) return
+        runCatching {
+            if (novelCategoryRepository.getByNovelId(novelId).none { it.id == defaultCategoryId.toLong() }) {
+                setNovelCategoriesInteractor.await(novelId, listOf(defaultCategoryId.toLong()))
+            }
+        }
     }
 
     private suspend fun removeFromLibrary() {

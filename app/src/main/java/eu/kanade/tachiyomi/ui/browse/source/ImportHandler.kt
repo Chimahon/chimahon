@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import tachiyomi.domain.category.repository.CategoryRepository
 import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.domain.library.service.NovelLibraryPreferences
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.manga.repository.MangaRepository
@@ -102,6 +103,7 @@ object ImportHandler {
 
     suspend fun importNovels(context: Context, uris: List<Uri>) = withContext(Dispatchers.IO) {
         val novelCategoryRepository: tachiyomi.domain.novel.repository.NovelCategoryRepository = Injekt.get()
+        val defaultCategoryId = Injekt.get<NovelLibraryPreferences>().defaultCategory().get()
 
         uris.forEach { uri ->
             val result = BookImporter.importEpub(
@@ -111,15 +113,17 @@ object ImportHandler {
             )
             val bookMetadata = result.metadata ?: return@forEach
 
-            // Default category (system 0L); merges with any existing
-            // memberships on reimport.
+            // The configured default category, same as the manga import path. Membership in
+            // the system category is the absence of a join row, so there is nothing to write
+            // when nothing is configured.
             runCatching {
                 val novelId = Injekt.get<RegisterLocalNovelHome>().register(bookMetadata.id)
                     ?: return@runCatching
+                if (defaultCategoryId <= 0L) return@runCatching
                 val current = novelCategoryRepository.getByNovelId(novelId).map { it.id }.toSet()
-                if (0L !in current) {
+                if (defaultCategoryId.toLong() !in current) {
                     Injekt.get<chimahon.novel.interactor.SetNovelCategories>()
-                        .await(novelId, (current + 0L).toList())
+                        .await(novelId, current.toList() + defaultCategoryId.toLong())
                 }
             }
         }

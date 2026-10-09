@@ -97,8 +97,6 @@ class AnimeLibraryPreferences(
 
     // region Category
 
-    fun defaultCategory() = preferenceStore.getInt("default_anime_category", -1)
-
     fun lastUsedCategory() = preferenceStore.getInt(
         Preference.appStateKey("last_used_anime_category"),
         0,

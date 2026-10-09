@@ -11,6 +11,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tachiyomi.domain.library.service.NovelLibraryPreferences
 import tachiyomi.domain.novel.model.NovelCategory as DbNovelCategory
 import tachiyomi.domain.novel.repository.NovelCategoryRepository
 import tachiyomi.domain.novel.repository.NovelRepository
@@ -26,6 +27,7 @@ import uy.kohesive.injekt.api.get
 class NovelCategoryScreenModel(
     private val novelCategoryRepository: NovelCategoryRepository = Injekt.get(),
     private val novelRepository: NovelRepository = Injekt.get(),
+    private val novelLibraryPreferences: NovelLibraryPreferences = Injekt.get(),
 ) : StateScreenModel<NovelCategoryScreenState>(NovelCategoryScreenState.Loading) {
 
     private val _events: Channel<NovelCategoryEvent> = Channel()
@@ -89,6 +91,11 @@ class NovelCategoryScreenModel(
                     novelCategoryRepository.setNovelCategories(novel.id, remaining)
                 }
                 novelCategoryRepository.delete(dbId)
+            }
+            // Drop the deleted category from the default so it cannot point at a
+            // missing row, matching DeleteCategory for manga and DeleteAnimeCategory.
+            if (novelLibraryPreferences.defaultCategory().get().toLong() == dbId) {
+                novelLibraryPreferences.defaultCategory().delete()
             }
             loadCategories()
         }

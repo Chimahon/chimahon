@@ -52,6 +52,7 @@ import tachiyomi.domain.library.service.LibraryPreferences.Companion.NOVEL_OUTSI
 
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MARK_DUPLICATE_CHAPTER_READ_EXISTING
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.MARK_DUPLICATE_CHAPTER_READ_NEW
+import tachiyomi.domain.library.service.NovelLibraryPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.kmk.KMR
 import tachiyomi.i18n.sy.SYMR
@@ -80,7 +81,14 @@ object SettingsLibraryScreen : SearchableSettings {
         val allNovelCategories by novelCategoryRepository.subscribe().collectAsState(initial = emptyList())
 
         return listOf(
-            getCategoriesGroup(LocalNavigator.currentOrThrow, allCategories, allAnimeCategories, libraryPreferences),
+            getCategoriesGroup(
+                navigator = LocalNavigator.currentOrThrow,
+                allCategories = allCategories,
+                allAnimeCategories = allAnimeCategories,
+                allNovelCategories = allNovelCategories,
+                libraryPreferences = libraryPreferences,
+                novelLibraryPreferences = remember { Injekt.get<NovelLibraryPreferences>() },
+            ),
             getGlobalUpdateGroup(allCategories, allAnimeCategories, allNovelCategories, libraryPreferences),
             getSeasonBehaviorGroup(libraryPreferences),
             getBehaviorGroup(libraryPreferences),
@@ -95,7 +103,9 @@ object SettingsLibraryScreen : SearchableSettings {
         navigator: Navigator,
         allCategories: List<Category>,
         allAnimeCategories: List<AnimeCategory>,
+        allNovelCategories: List<tachiyomi.domain.novel.model.NovelCategory>,
         libraryPreferences: LibraryPreferences,
+        novelLibraryPreferences: NovelLibraryPreferences,
     ): Preference.PreferenceGroup {
         val scope = rememberCoroutineScope()
         val userCategoriesCount = allCategories.filterNot(Category::isSystemCategory).size
@@ -107,14 +117,15 @@ object SettingsLibraryScreen : SearchableSettings {
             allCategories.fastMap { it.visualName }
 
         // KMK -->
-        val animeIds = listOf(
-            libraryPreferences.defaultAnimeCategory().defaultValue(),
-            AnimeCategory.UNCATEGORIZED_ID.toInt(),
-        ) + allAnimeCategories.filterNot { it.isSystemCategory }.fastMap { it.id.toInt() }
-        val animeLabels = listOf(
-            stringResource(MR.strings.default_category_summary),
-            stringResource(MR.strings.label_default),
-        ) + allAnimeCategories.filterNot { it.isSystemCategory }.fastMap { it.name }
+        val animeIds = listOf(libraryPreferences.defaultAnimeCategory().defaultValue()) +
+            allAnimeCategories.fastMap { it.id.toInt() }
+        val animeLabels = listOf(stringResource(MR.strings.default_category_summary)) +
+            allAnimeCategories.fastMap { it.visualName }
+
+        val novelIds = listOf(novelLibraryPreferences.defaultCategory().defaultValue()) +
+            allNovelCategories.fastMap { it.id.toInt() }
+        val novelLabels = listOf(stringResource(MR.strings.default_category_summary)) +
+            allNovelCategories.fastMap { it.visualName }
         // KMK <--
 
         return Preference.PreferenceGroup(
@@ -139,6 +150,11 @@ object SettingsLibraryScreen : SearchableSettings {
                     preference = libraryPreferences.defaultAnimeCategory(),
                     entries = animeIds.zip(animeLabels).toMap().toImmutableMap(),
                     title = stringResource(MR.strings.default_anime_category),
+                ),
+                Preference.PreferenceItem.ListPreference(
+                    preference = novelLibraryPreferences.defaultCategory(),
+                    entries = novelIds.zip(novelLabels).toMap().toImmutableMap(),
+                    title = stringResource(MR.strings.default_novel_category),
                 ),
                 // KMK <--
                 Preference.PreferenceItem.SwitchPreference(

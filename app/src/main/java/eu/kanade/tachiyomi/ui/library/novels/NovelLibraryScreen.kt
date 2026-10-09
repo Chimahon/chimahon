@@ -49,7 +49,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -310,8 +309,6 @@ fun Screen.NovelLibraryScreen(
                 onClickEditCategories = { navigator.push(CategoryScreen(CategoryScreen.Tab.NOVELS)) },
                 editCategoriesTitle = stringResource(MR.strings.action_edit_novel_categories),
                 updateCategoryTitle = stringResource(SYMR.strings.label_sync),
-                onClickNovelDefaultCategory = screenModel::showNovelDefaultCategoryDialog,
-                novelDefaultCategoryTitle = stringResource(MR.strings.default_category) + ": " + screenModel.getDefaultCategoryDisplayName(),
             )
         },
         bottomBar = {
@@ -774,57 +771,6 @@ fun Screen.NovelLibraryScreen(
                     }
                 }
             }
-        }
-
-        is NovelLibraryScreenModel.Dialog.SetDefaultCategory -> {
-            val currentDefault = remember { screenModel.getNovelDefaultCategory().get() }
-            AlertDialog(
-                onDismissRequest = onDismissRequest,
-                title = { Text(stringResource(MR.strings.default_category)) },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { screenModel.setNovelDefaultCategory("") }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = currentDefault.isEmpty(),
-                                onClick = { screenModel.setNovelDefaultCategory("") },
-                            )
-                            Text(
-                                text = stringResource(MR.strings.default_category_summary),
-                                modifier = Modifier.padding(start = 12.dp),
-                            )
-                        }
-                        state.categories.forEach { cat ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { screenModel.setNovelDefaultCategory(cat.id) }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(
-                                    selected = currentDefault == cat.id,
-                                    onClick = { screenModel.setNovelDefaultCategory(cat.id) },
-                                )
-                                Text(
-                                    text = if (cat.isSystemCategory) stringResource(MR.strings.label_default) else cat.name,
-                                    modifier = Modifier.padding(start = 12.dp),
-                                )
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = onDismissRequest) {
-                        Text(stringResource(MR.strings.action_close))
-                    }
-                },
-            )
         }
 
         null -> {}

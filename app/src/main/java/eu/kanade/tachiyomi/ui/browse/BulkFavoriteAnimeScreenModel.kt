@@ -35,7 +35,7 @@ import tachiyomi.domain.category.model.AnimeCategory
 import tachiyomi.domain.entries.anime.interactor.GetDuplicateLibraryAnime
 import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.domain.episode.interactor.SetAnimeDefaultEpisodeFlags
-import tachiyomi.domain.library.service.AnimeLibraryPreferences
+import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.season.interactor.SetAnimeDefaultSeasonFlags
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import uy.kohesive.injekt.Injekt
@@ -44,7 +44,7 @@ import uy.kohesive.injekt.api.get
 class BulkFavoriteAnimeScreenModel(
     initialState: State = State(),
     private val sourceManager: AnimeSourceManager = Injekt.get(),
-    private val libraryPreferences: AnimeLibraryPreferences = Injekt.get(),
+    private val libraryPreferences: LibraryPreferences = Injekt.get(),
     private val getDuplicateLibraryAnime: GetDuplicateLibraryAnime = Injekt.get(),
     private val getCategories: GetAnimeCategories = Injekt.get(),
     private val setAnimeCategories: SetAnimeCategories = Injekt.get(),
@@ -149,7 +149,7 @@ class BulkFavoriteAnimeScreenModel(
                 return@launch
             }
             val categories = getCategories()
-            val defaultCategoryId = libraryPreferences.defaultCategory().get()
+            val defaultCategoryId = libraryPreferences.defaultAnimeCategory().get()
             val defaultCategory = categories.find { it.id == defaultCategoryId.toLong() }
 
             when {
@@ -315,7 +315,7 @@ class BulkFavoriteAnimeScreenModel(
     internal fun addFavorite(anime: Anime) {
         screenModelScope.launch {
             val categories = getCategories()
-            val defaultCategoryId = libraryPreferences.defaultCategory().get()
+            val defaultCategoryId = libraryPreferences.defaultAnimeCategory().get()
             val defaultCategory = categories.find { it.id == defaultCategoryId.toLong() }
 
             when {
