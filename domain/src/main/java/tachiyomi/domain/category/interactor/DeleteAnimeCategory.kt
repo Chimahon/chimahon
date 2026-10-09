@@ -36,6 +36,8 @@ class DeleteAnimeCategory(
         }
 
         val categoryPreferences = listOf(
+            libraryPreferences.animeUpdateCategories(),
+            libraryPreferences.animeUpdateCategoriesExclude(),
             downloadPreferences.removeExcludeAnimeCategories(),
         )
         val categoryIdString = categoryId.toString()
