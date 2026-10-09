@@ -58,6 +58,18 @@ class NovelRepositoryImpl(
         return handler.awaitList { novelsQueries.getAllNovels(NovelMapper::mapNovel) }
     }
 
+    override suspend fun getReadNovelsNotInLibraryView(): List<Novel> {
+        return handler.awaitList {
+            novelLibraryViewQueries.readNovelNonLibraryView(NovelMapper::mapLibraryNovel)
+        }
+    }
+
+    override suspend fun getLibraryNovels(): List<Novel> {
+        return handler.awaitList {
+            novelLibraryViewQueries.libraryNovel(NovelMapper::mapLibraryNovel)
+        }
+    }
+
     override suspend fun insert(novel: Novel): Long {
         return handler.await(inTransaction = true) {
             novelsQueries.insert(

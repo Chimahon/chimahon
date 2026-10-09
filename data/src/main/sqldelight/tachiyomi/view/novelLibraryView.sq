@@ -1,0 +1,58 @@
+-- Mirror of libraryView for novels, so the novel side reads through a view
+-- instead of deriving counts per call site. The view selects novels.* plus the
+-- same derived columns libraryView produces.
+--
+-- Simpler than libraryView by design: novels have no excluded_scanlators and no
+-- merged entries, so no ex_scanlator filter and no UNION branch. reading_stats
+-- is deliberately not folded in here - it is a separate per-day table keyed on
+-- novel_id and date_key, so it cannot be aggregated per novel the way chapters
+-- and history can.
+CREATE VIEW novel_libraryView AS
+SELECT
+    N.*,
+    coalesce(C.total, 0) AS totalCount,
+    coalesce(C.readCount, 0) AS readCount,
+    coalesce(C.latestUpload, 0) AS latestUpload,
+    coalesce(C.fetchedAt, 0) AS chapterFetchedAt,
+    coalesce(C.lastRead, 0) AS lastRead,
+    coalesce(C.bookmarkCount, 0) AS bookmarkCount,
+    coalesce(C.bookmarkedReadCount, 0) AS bookmarkedReadCount,
+    coalesce(NC.categories, '') AS categories
+FROM novels N
+LEFT JOIN (
+    SELECT
+        novel_chapters.novel_id,
+        count(*) AS total,
+        sum(novel_chapters.read) AS readCount,
+        coalesce(max(novel_chapters.date_upload), 0) AS latestUpload,
+        coalesce(max(novel_chapters.date_fetch), 0) AS fetchedAt,
+        coalesce(max(novel_history.last_read), 0) AS lastRead,
+        sum(novel_chapters.bookmark) AS bookmarkCount,
+        sum(
+            CASE
+                WHEN novel_chapters.bookmark = 1 AND novel_chapters.read = 1 THEN 1
+                ELSE 0
+            END
+        ) AS bookmarkedReadCount
+    FROM novel_chapters
+    LEFT JOIN novel_history
+    ON novel_chapters._id = novel_history.novel_chapter_id
+    GROUP BY novel_chapters.novel_id
+) AS C
+ON N._id = C.novel_id
+LEFT JOIN (
+    SELECT novel_id, group_concat(category_id) AS categories
+    FROM novels_categories
+    GROUP BY novel_id
+) AS NC
+ON NC.novel_id = N._id;
+
+libraryNovel:
+SELECT *
+FROM novel_libraryView
+WHERE novel_libraryView.favorite = 1;
+
+readNovelNonLibraryView:
+SELECT *
+FROM novel_libraryView
+WHERE novel_libraryView.favorite = 0 AND novel_libraryView.readCount != 0;

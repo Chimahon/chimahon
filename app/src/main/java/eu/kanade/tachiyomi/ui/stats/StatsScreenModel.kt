@@ -6,6 +6,8 @@ import androidx.compose.ui.util.fastFilter
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import chimahon.novel.data.Statistics
+import chimahon.novel.interactor.GetLibraryNovels
+import chimahon.novel.interactor.GetReadNovelNotInLibraryView
 import chimahon.anki.AnkiProfile
 import eu.kanade.core.util.fastCountNot
 import eu.kanade.presentation.more.stats.StatsDateScale
@@ -64,6 +66,8 @@ class StatsScreenModel(
     private val sourceManager: SourceManager = Injekt.get(),
     private val novelRepository: tachiyomi.domain.novel.repository.NovelRepository = Injekt.get(),
     private val novelReadingStatsRepository: tachiyomi.domain.novel.repository.NovelReadingStatsRepository = Injekt.get(),
+    private val getLibraryNovels: GetLibraryNovels = Injekt.get(),
+    private val getReadNovelNotInLibraryView: GetReadNovelNotInLibraryView = Injekt.get(),
 ) : StateScreenModel<StatsScreenState>(StatsScreenState.Loading) {
 
     private val loggedInTrackers by lazy { trackerManager.loggedInTrackers() }
@@ -213,7 +217,19 @@ class StatsScreenModel(
                     emptyList()
                 }
             } else if (statsType == StatsType.All || statsType == StatsType.Novels) {
-                runCatching { novelRepository.getAll() }.getOrNull().orEmpty()
+                // Through novel_libraryView, mirroring the manga branch above:
+                // the library, plus read-but-removed entries only for "all read".
+                // Reading the whole novels table listed every row that library
+                // deletion left behind, since removing a novel only clears
+                // favorite.
+                runCatching {
+                    val libraryNovels = getLibraryNovels.await()
+                    if (allRead) {
+                        libraryNovels + getReadNovelNotInLibraryView.await()
+                    } else {
+                        libraryNovels
+                    }
+                }.getOrNull().orEmpty()
             } else {
                 emptyList()
             }

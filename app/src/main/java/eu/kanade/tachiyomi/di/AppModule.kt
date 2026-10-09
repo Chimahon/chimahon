@@ -327,6 +327,8 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { chimahon.novel.interactor.SetNovelCategories() }
         addSingletonFactory { chimahon.novel.interactor.ToggleNovelSourcePin() }
         addSingletonFactory { chimahon.novel.interactor.FetchNovelInterval() }
+        addSingletonFactory { chimahon.novel.interactor.GetLibraryNovels() }
+        addSingletonFactory { chimahon.novel.interactor.GetReadNovelNotInLibraryView() }
         addSingletonFactory { eu.kanade.tachiyomi.data.backup.create.creators.NovelExtensionRepoBackupCreator() }
         addSingletonFactory { eu.kanade.tachiyomi.data.backup.restore.restorers.NovelExtensionRepoRestorer() }
         addSingletonFactory<WordAudioPreferences> { get<DictionaryPreferences>() }

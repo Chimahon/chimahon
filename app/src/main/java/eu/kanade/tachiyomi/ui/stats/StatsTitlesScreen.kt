@@ -9,6 +9,8 @@ import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import chimahon.novel.interactor.GetLibraryNovels
+import chimahon.novel.interactor.GetReadNovelNotInLibraryView
 import com.canopus.chimareader.data.MangaStatsStorage
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.more.stats.StatsTitlesContent
@@ -87,6 +89,8 @@ class StatsTitlesScreenModel(
     private val context: Application = Injekt.get(),
     private val novelRepository: tachiyomi.domain.novel.repository.NovelRepository = Injekt.get(),
     private val novelReadingStatsRepository: tachiyomi.domain.novel.repository.NovelReadingStatsRepository = Injekt.get(),
+    private val getLibraryNovels: GetLibraryNovels = Injekt.get(),
+    private val getReadNovelNotInLibraryView: GetReadNovelNotInLibraryView = Injekt.get(),
 ) : StateScreenModel<StatsTitlesState>(StatsTitlesState.Loading) {
 
     private var rawTitles = emptyList<StatsTitleItem>()
@@ -169,9 +173,20 @@ class StatsTitlesScreenModel(
                 emptyList()
             }
 
-            // 2. Get filtered Novels (DB rows)
+                        // 2. Get filtered Novels, through novel_libraryView. Mirrors the manga
+            // branch above: the library, plus read-but-removed entries only for
+            // the "all read" view. Listing the whole novels table here surfaced
+            // every row that library deletion left behind, since removing a
+            // novel only clears favorite.
             val novelList = if (statsType == StatsType.All || statsType == StatsType.Novels) {
-                runCatching { novelRepository.getAll() }.getOrNull().orEmpty()
+                runCatching {
+                    val libraryNovels = getLibraryNovels.await()
+                    if (allRead) {
+                        libraryNovels + getReadNovelNotInLibraryView.await()
+                    } else {
+                        libraryNovels
+                    }
+                }.getOrNull().orEmpty()
                     .filter { novel ->
                         val key = novel.localFolder ?: novel.id.toString()
                         val profileId = resolver.resolve(novelId = key).id

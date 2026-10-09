@@ -397,8 +397,18 @@ class NovelDetailScreenModel(
     }
 
     private suspend fun removeFromLibrary() {
-        val existing = novelRepository.getNovelByUrlAndSourceId(novel.url, source.id) ?: return
-        updateNovel.awaitUpdateFavorite(existing.id, false)
+        // Identity has to come from the row in hand, not from the source.
+        // novel.url is whatever the browse listing reported on this visit,
+        // while the row was written from source.getNovelDetails(), and scraper
+        // plugins routinely return a different url each time (session tokens in
+        // the query, redirect resolution). That mismatch made the lookup miss
+        // and the delete a silent no-op, so the next add inserted a second row
+        // for the same book instead of reviving the first.
+        val rowId = cachedDbNovel?.id
+            ?: novelRepository.getNovelByUrlAndSourceId(novel.url, source.id)?.id
+            ?: return
+        updateNovel.awaitUpdateFavorite(rowId, false)
+        val existing = novelRepository.getNovelById(rowId)
         cachedDbNovel = existing.copy(favorite = false, dateAdded = 0L)
         mutableState.value = mutableState.value.copy(
             dbNovel = cachedDbNovel,
