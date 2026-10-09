@@ -13,5 +13,7 @@ interface PanelDetectionRepository {
         direction: ReadingDirection,
     ): PanelDetectionResult
 
+    suspend fun invalidateModels()
+
     fun cleanup()
 }

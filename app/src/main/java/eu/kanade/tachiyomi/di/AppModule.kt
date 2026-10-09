@@ -41,6 +41,7 @@ import eu.kanade.tachiyomi.data.ocr.ModelDownloader
 import eu.kanade.tachiyomi.data.panel.PanelModelDownloader
 import eu.kanade.tachiyomi.data.ocr.OcrManager
 import eu.kanade.tachiyomi.data.ocr.OcrStore
+import eu.kanade.tachiyomi.data.model.ModelVersionResolver
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.sync.service.GoogleDriveService
 import eu.kanade.tachiyomi.data.track.TrackerManager
@@ -334,11 +335,12 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { LensClient() }
         addSingletonFactory { LocalOcrBridge(app) }
         addSingletonFactory { PaddleOcrBridge(app) }
-        addSingletonFactory { ModelDownloader(app, get<NetworkHelper>().client) }
+        addSingletonFactory { ModelVersionResolver(get<NetworkHelper>().client) }
+        addSingletonFactory { ModelDownloader(app, get<NetworkHelper>().client, get(), get()) }
         addSingletonFactory { OcrStore(app) }
         addSingletonFactory { OcrCacheManager(app, get()) }
         addSingletonFactory { OcrManager(app, get(), get()) }
-        addSingletonFactory { PanelModelDownloader(app, get<NetworkHelper>().client) }
+        addSingletonFactory { PanelModelDownloader(app, get<NetworkHelper>().client, get()) }
 
         addSingletonFactory<BackupRestoreStatus> { BackupRestoreStatus() }
         addSingletonFactory<SyncStatus> { SyncStatus() }

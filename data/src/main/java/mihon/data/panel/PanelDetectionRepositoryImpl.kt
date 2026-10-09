@@ -43,23 +43,21 @@ class PanelDetectionRepositoryImpl(
     private var engine: YoloPanelDetectionEngine? = null
     private val engineMutex = Mutex()
 
-    private suspend fun getEngine(): YoloPanelDetectionEngine? {
-        return engineMutex.withLock {
-            engine?.let { return it }
-            val modelFile = panelModelFile()
-            if (modelFile == null || !modelFile.isFile) {
-                logcat(LogPriority.DEBUG) {
-                    "Panel detector engine not initialized: model not downloaded"
-                }
-                return null
+    private fun getEngine(): YoloPanelDetectionEngine? {
+        engine?.let { return it }
+        val modelFile = panelModelFile()
+        if (modelFile == null || !modelFile.isFile) {
+            logcat(LogPriority.DEBUG) {
+                "Panel detector engine not initialized: model not downloaded"
             }
-            if (!loadNatives()) {
-                logcat(LogPriority.WARN) { "Panel detector engine not initialized: native library load failed" }
-                return null
-            }
-            YoloPanelDetectionEngine(modelFile, environment).also {
-                engine = it
-            }
+            return null
+        }
+        if (!loadNatives()) {
+            logcat(LogPriority.WARN) { "Panel detector engine not initialized: native library load failed" }
+            return null
+        }
+        return YoloPanelDetectionEngine(modelFile, environment).also {
+            engine = it
         }
     }
 
@@ -112,8 +110,8 @@ class PanelDetectionRepositoryImpl(
         originalWidth: Int,
         originalHeight: Int,
         direction: ReadingDirection,
-    ): PanelDetectionResult {
-        return try {
+    ): PanelDetectionResult = engineMutex.withLock {
+        try {
             val engine = getEngine()
             if (engine == null) {
                 logcat(LogPriority.DEBUG) {
@@ -135,6 +133,10 @@ class PanelDetectionRepositoryImpl(
             logcat(LogPriority.WARN, e) { "Panel detection failed for $cacheKey" }
             PanelDetectionResult.EMPTY
         }
+    }
+
+    override suspend fun invalidateModels() {
+        engineMutex.withLock { cleanup() }
     }
 
     override fun cleanup() {

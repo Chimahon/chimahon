@@ -5,17 +5,22 @@ import chimahon.ocr.EngineLine
 import chimahon.ocr.OcrEngine
 import chimahon.ocr.OcrLanguage
 import eu.kanade.tachiyomi.BuildConfig
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 
 class PaddleOcrBridge(private val context: Context) {
 
     private var engine: OcrEngine? = null
+    private val engineMutex = Mutex()
 
     val isAvailable: Boolean get() = BuildConfig.HAS_LOCAL_OCR
+    @Volatile
     var isInitialized: Boolean = false
         private set
 
+    @Synchronized
     fun init(): Boolean {
         if (!isAvailable) return false
         if (isInitialized) return true
@@ -43,11 +48,14 @@ class PaddleOcrBridge(private val context: Context) {
         return isInitialized
     }
 
-    suspend fun recognize(bytes: ByteArray, language: OcrLanguage): List<EngineLine> {
-        if (!isInitialized) return emptyList()
-        return engine?.recognize(bytes, language) ?: emptyList()
+    suspend fun recognize(bytes: ByteArray, language: OcrLanguage): List<EngineLine> = engineMutex.withLock {
+        if (!isInitialized && !init()) return@withLock emptyList()
+        engine?.recognize(bytes, language) ?: emptyList()
     }
 
+    suspend fun invalidateModels() = engineMutex.withLock { destroy() }
+
+    @Synchronized
     fun destroy() {
         if (engine != null) {
             try {

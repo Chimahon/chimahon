@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.library.LibraryUpdateJob
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateJob
 import eu.kanade.tachiyomi.data.sync.SyncDataJob
+import eu.kanade.tachiyomi.data.model.ModelUpdateJob
 import eu.kanade.tachiyomi.data.updater.AppUpdateDownloadJob
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
@@ -101,6 +102,10 @@ class NotificationReceiver : BroadcastReceiver() {
             ACTION_CANCEL_LIBRARY_UPDATE -> cancelLibraryUpdate(context)
             ACTION_CANCEL_ANIME_LIBRARY_UPDATE -> cancelAnimeLibraryUpdate(context)
             // Start downloading app update
+            ACTION_START_MODEL_UPDATE -> {
+                ModelUpdateJob.startUpdate(context)
+                context.cancelNotification(Notifications.ID_MODEL_UPDATE)
+            }
             ACTION_START_APP_UPDATE -> startDownloadAppUpdate(context, intent)
             // Cancel downloading app update
             ACTION_CANCEL_APP_UPDATE_DOWNLOAD -> cancelDownloadAppUpdate(context)
@@ -364,6 +369,7 @@ class NotificationReceiver : BroadcastReceiver() {
         private const val ACTION_CANCEL_LIBRARY_UPDATE = "$ID.$NAME.CANCEL_LIBRARY_UPDATE"
         private const val ACTION_CANCEL_ANIME_LIBRARY_UPDATE = "$ID.$NAME.CANCEL_ANIME_LIBRARY_UPDATE"
 
+        private const val ACTION_START_MODEL_UPDATE = "$ID.$NAME.START_MODEL_UPDATE"
         private const val ACTION_START_APP_UPDATE = "$ID.$NAME.ACTION_START_APP_UPDATE"
         private const val ACTION_CANCEL_APP_UPDATE_DOWNLOAD = "$ID.$NAME.CANCEL_APP_UPDATE_DOWNLOAD"
 
@@ -791,6 +797,13 @@ class NotificationReceiver : BroadcastReceiver() {
          * @param context context of application
          * @return [PendingIntent]
          */
+        internal fun updateModelsPendingBroadcast(context: Context): PendingIntent = PendingIntent.getBroadcast(
+            context,
+            Notifications.ID_MODEL_UPDATE,
+            Intent(context, NotificationReceiver::class.java).setAction(ACTION_START_MODEL_UPDATE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         internal fun downloadAppUpdatePendingBroadcast(
             context: Context,
             url: String,
