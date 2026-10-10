@@ -522,7 +522,7 @@ class ExternalIntents {
                 ),
             )
             if (trackPreferences.autoUpdateTrack().get() && seen) {
-                updateTrackEpisodeSeen(currEp.episodeNumber.toDouble(), anime)
+                updateTrackEpisodeSeen(currEp.episodeNumber.toDouble(), anime, currEp.url)
             }
             if (seen) {
                 deleteEpisodeIfNeeded(currentEpisode, anime)
@@ -578,7 +578,7 @@ class ExternalIntents {
      * @param episodeNumber the episode number to be updated.
      * @param anime the anime of the episode.
      */
-    private suspend fun updateTrackEpisodeSeen(episodeNumber: Double, anime: Anime) {
+    private suspend fun updateTrackEpisodeSeen(episodeNumber: Double, anime: Anime, episodeUrl: String) {
         if (!trackPreferences.autoUpdateTrack().get()) return
 
         val context = Injekt.get<Application>()
@@ -588,7 +588,7 @@ class ExternalIntents {
         // before writing and queues a delayed update when the request fails, instead of
         // silently dropping the update like the previous inline implementation.
         withIOContext {
-            trackEpisode.await(context, anime.id, episodeNumber)
+            trackEpisode.await(context, anime.id, episodeNumber, episodeUrl = episodeUrl)
         }
         // KMK <--
     }

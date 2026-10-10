@@ -3300,7 +3300,7 @@ class PlayerViewModel @JvmOverloads constructor(
         val context = Injekt.get<Application>()
 
         viewModelScope.launchNonCancellable {
-            trackEpisode.await(context, anime.id, episode.episode_number.toDouble())
+            trackEpisode.await(context, anime.id, episode.episode_number.toDouble(), episodeUrl = episode.url)
         }
     }
 

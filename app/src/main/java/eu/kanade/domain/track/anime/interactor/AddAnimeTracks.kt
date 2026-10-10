@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.data.database.models.anime.AnimeTrack
 import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.EnhancedAnimeTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
+import eu.kanade.tachiyomi.data.track.jellyfin.Jellyfin
 import eu.kanade.tachiyomi.util.lang.convertEpochMillisZone
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -43,6 +44,11 @@ class AddAnimeTracks(
             var track = item.toDomainTrack(idRequired = false) ?: return@withIOContext
 
             insertTrack.await(track)
+
+            if (tracker is Jellyfin) {
+                syncEpisodeProgressWithTrack.await(animeId, track, tracker)
+                return@withIOContext
+            }
 
             // Update episode progress if newer episodes marked seen locally
             if (hasSeenEpisodes) {
@@ -102,7 +108,7 @@ class AddAnimeTracks(
                             when (anime.fetchType) {
                                 FetchType.Seasons -> {
                                     val seasons = Injekt.get<GetAnimeSeasonsByParentId>().await(anime.id)
-                                        .filter { it.anime.fetchType == FetchType.Episodes }
+                                        .filter { service is Jellyfin || it.anime.fetchType == FetchType.Episodes }
                                     seasons.chunked(5).forEach { ss ->
                                         supervisorScope {
                                             ss.map { s ->

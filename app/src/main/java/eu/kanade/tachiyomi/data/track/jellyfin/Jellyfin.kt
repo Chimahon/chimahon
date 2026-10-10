@@ -1,6 +1,9 @@
 package eu.kanade.tachiyomi.data.track.jellyfin
 
+import android.app.Application
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.domain.track.anime.model.toDomainTrack
+import eu.kanade.domain.track.store.DelayedAnimeTrackingStore
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.data.database.models.Track
@@ -10,11 +13,22 @@ import eu.kanade.tachiyomi.data.track.BaseTracker
 import eu.kanade.tachiyomi.data.track.EnhancedAnimeTracker
 import eu.kanade.tachiyomi.data.track.model.AnimeTrackSearch
 import eu.kanade.tachiyomi.data.track.model.TrackSearch
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import logcat.LogPriority
 import okhttp3.Dns
+import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.lang.withUIContext
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.anime.model.Anime
+import tachiyomi.domain.episode.interactor.GetEpisodesByAnimeId
+import tachiyomi.domain.episode.interactor.UpdateEpisode
+import tachiyomi.domain.episode.model.toEpisodeUpdate
+import tachiyomi.domain.track.anime.interactor.InsertAnimeTrack
 import tachiyomi.i18n.MR
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import tachiyomi.domain.track.anime.model.AnimeTrack as DomainTrack
 import tachiyomi.domain.track.model.Track as DomainMangaTrack
 
@@ -69,7 +83,43 @@ class Jellyfin(id: Long) : BaseTracker(id, "Jellyfin"), EnhancedAnimeTracker, An
     override fun displayScore(track: DomainTrack): String = ""
 
     override suspend fun update(track: AnimeTrack, didWatchEpisode: Boolean): AnimeTrack {
-        return api.updateProgress(track)
+        // Status/date updates must not turn a scalar counter into a destructive range edit.
+        val remoteTrack = api.updateProgress(track, didWatchEpisode = true)
+        track.copyPersonalFrom(remoteTrack)
+        track.total_episodes = remoteTrack.total_episodes
+        return track
+    }
+
+    override suspend fun setRemoteLastEpisodeSeen(track: AnimeTrack, episodeNumber: Int): Unit = withIOContext {
+        try {
+            track.last_episode_seen = episodeNumber.toDouble()
+            val remoteTrack = api.updateProgress(track)
+            track.copyPersonalFrom(remoteTrack)
+            track.total_episodes = remoteTrack.total_episodes
+            // An explicit range edit must also update local flags or the next merge would undo it.
+            val playedIds = api.syncPlayedEpisodes(track.tracking_url, emptyList())
+            val updates = Injekt.get<GetEpisodesByAnimeId>().await(track.anime_id).mapNotNull { episode ->
+                val played = JellyfinItemUrl(episode.url).itemId in playedIds
+                if (episode.seen == played) null else episode.copy(seen = played).toEpisodeUpdate()
+            }
+            if (updates.isNotEmpty()) Injekt.get<UpdateEpisode>().awaitAll(updates)
+            Injekt.get<InsertAnimeTrack>().await(track.toDomainTrack(idRequired = false)!!)
+            val delayedUpdates = Injekt.get<DelayedAnimeTrackingStore>()
+            delayedUpdates.getItems().filter { it.jellyfinAnimeId == track.anime_id }.forEach {
+                delayedUpdates.remove(it.trackId, it.episodeUrl, it.jellyfinAnimeId)
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to update Jellyfin episode progress" }
+            withUIContext { Injekt.get<Application>().toast(e.message) }
+        }
+    }
+
+    override suspend fun setRemoteAnimeStatus(track: AnimeTrack, status: Long) {
+        when (status) {
+            UNSEEN -> setRemoteLastEpisodeSeen(track, 0)
+            COMPLETED -> setRemoteLastEpisodeSeen(track, track.total_episodes.toInt())
+            else -> super<AnimeTracker>.setRemoteAnimeStatus(track, status)
+        }
     }
 
     override suspend fun bind(track: AnimeTrack, hasSeenEpisodes: Boolean): AnimeTrack {
@@ -122,6 +172,7 @@ class Jellyfin(id: Long) : BaseTracker(id, "Jellyfin"), EnhancedAnimeTracker, An
         return AnimeTrackSearch.create(id).apply {
             title = anime.title
             tracking_url = anime.url
+            status = UNSEEN
         }
     }
 

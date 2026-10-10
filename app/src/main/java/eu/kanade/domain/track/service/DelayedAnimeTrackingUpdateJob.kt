@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
 import eu.kanade.domain.track.interactor.TrackEpisode
 import eu.kanade.domain.track.store.DelayedAnimeTrackingStore
+import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.util.system.workManager
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.withIOContext
@@ -34,22 +35,38 @@ class DelayedAnimeTrackingUpdateJob(private val context: Context, workerParams: 
         withIOContext {
             delayedTrackingStore.getItems()
                 .mapNotNull {
-                    val track = getTracks.awaitOne(it.trackId)
-                    if (track == null) {
-                        delayedTrackingStore.remove(it.trackId)
+                    val track = if (it.jellyfinAnimeId != null) {
+                        getTracks.await(it.jellyfinAnimeId).find { track -> track.trackerId == TrackerManager.JELLYFIN }
+                    } else {
+                        getTracks.awaitOne(it.trackId)
                     }
-                    track?.copy(lastEpisodeSeen = it.lastEpisodeSeen.toDouble())
+                    if (track == null) {
+                        delayedTrackingStore.remove(it.trackId, it.episodeUrl, it.jellyfinAnimeId)
+                    }
+                    track?.let { track -> it to track }
                 }
-                .forEach { animeTrack ->
+                .forEach { (pending, animeTrack) ->
+                    if (animeTrack.trackerId == TrackerManager.JELLYFIN && pending.jellyfinAnimeId == null) {
+                        // Migrate an older queue entry before a refresh replaces its track row ID.
+                        delayedTrackingStore.add(
+                            pending.trackId,
+                            pending.lastEpisodeSeen.toDouble(),
+                            pending.episodeUrl,
+                            animeTrack.animeId,
+                        )
+                        delayedTrackingStore.remove(pending.trackId, pending.episodeUrl)
+                    }
                     logcat(LogPriority.DEBUG) {
                         "Updating delayed anime track item: ${animeTrack.animeId}, " +
-                            "last episode seen: ${animeTrack.lastEpisodeSeen}"
+                            "last episode seen: ${pending.lastEpisodeSeen}"
                     }
                     trackEpisode.await(
                         context,
                         animeTrack.animeId,
-                        animeTrack.lastEpisodeSeen,
+                        pending.lastEpisodeSeen.toDouble(),
                         setupJobOnFailure = false,
+                        episodeUrl = pending.episodeUrl,
+                        trackerId = if (animeTrack.trackerId == TrackerManager.JELLYFIN) TrackerManager.JELLYFIN else null,
                     )
                 }
         }

@@ -1,8 +1,11 @@
 package eu.kanade.domain.track.interactor
 
 import eu.kanade.domain.track.anime.model.toDbTrack
+import eu.kanade.domain.track.anime.model.toDomainTrack
 import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.EnhancedAnimeTracker
+import eu.kanade.tachiyomi.data.track.jellyfin.Jellyfin
+import eu.kanade.tachiyomi.data.track.jellyfin.JellyfinItemUrl
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.episode.interactor.GetEpisodesByAnimeId
@@ -42,6 +45,21 @@ class SyncEpisodeProgressWithTrack(
         remoteTrack: AnimeTrack,
         service: AnimeTracker,
     ): Int? {
+        if (service is Jellyfin) {
+            // A scalar counter cannot represent gaps or special episodes on Jellyfin.
+            val episodes = getEpisodesByAnimeId.await(animeId)
+            val playedIds = service.api.syncPlayedEpisodes(
+                remoteTrack.remoteUrl,
+                episodes.filter { it.seen }.map { it.url },
+            )
+            val updates = episodes.filter {
+                !it.seen && JellyfinItemUrl(it.url).itemId in playedIds
+            }.map { it.copy(seen = true).toEpisodeUpdate() }
+            if (updates.isNotEmpty()) updateEpisode.awaitAll(updates)
+            insertTrack.await(service.refresh(remoteTrack.toDbTrack()).toDomainTrack()!!)
+            // The existing toast describes a continuous counter, which cannot describe gaps.
+            return null
+        }
         // KMK <--
         // Sort by source order first because the database order is not reliable, then drop
         // unrecognised numbers so a 0/negative special can't halt the continuity check below.

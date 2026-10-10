@@ -38,6 +38,7 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.domain.track.anime.interactor.AddAnimeTracks
 import eu.kanade.domain.track.anime.interactor.RefreshAnimeTracks
 import eu.kanade.domain.track.anime.model.toDbTrack
 import eu.kanade.domain.ui.UiPreferences
@@ -47,11 +48,13 @@ import eu.kanade.presentation.track.TrackStatusSelector
 import eu.kanade.presentation.track.anime.AnimeTrackInfoDialogHome
 import eu.kanade.presentation.track.anime.AnimeTrackerSearch
 import eu.kanade.presentation.util.Screen
+import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.DeletableAnimeTracker
 import eu.kanade.tachiyomi.data.track.EnhancedAnimeTracker
 import eu.kanade.tachiyomi.data.track.Tracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
+import eu.kanade.tachiyomi.data.track.jellyfin.Jellyfin
 import eu.kanade.tachiyomi.data.track.model.AnimeTrackSearch
 import eu.kanade.tachiyomi.util.lang.convertEpochMillisZone
 import eu.kanade.tachiyomi.util.system.copyToClipboard
@@ -230,8 +233,16 @@ data class AnimeTrackInfoDialogHomeScreen(
             screenModelScope.launchNonCancellable {
                 val anime = Injekt.get<GetAnime>().await(animeId) ?: return@launchNonCancellable
                 try {
-                    val matchResult = item.tracker.match(anime) ?: throw Exception()
-                    (item.tracker as AnimeTracker).register(matchResult, animeId)
+                    if (item.tracker is Jellyfin &&
+                        anime.fetchType == FetchType.Seasons
+                    ) {
+                        val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId)
+                        Injekt.get<AddAnimeTracks>()
+                            .bindEnhancedTrackers(anime, source)
+                    } else {
+                        val matchResult = item.tracker.match(anime) ?: throw Exception()
+                        (item.tracker as AnimeTracker).register(matchResult, animeId)
+                    }
                 } catch (e: Exception) {
                     withUIContext { Injekt.get<Application>().toast(MR.strings.error_no_match) }
                 }
