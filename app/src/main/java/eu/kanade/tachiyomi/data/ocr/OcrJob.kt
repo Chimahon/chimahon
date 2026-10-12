@@ -10,25 +10,27 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
-import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.launch
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.util.concurrent.atomic.AtomicInteger
 
+@OptIn(FlowPreview::class)
 class OcrJob(context: Context, workerParams: WorkerParameters) : CoroutineWorker(context, workerParams) {
 
     private val ocrManager: OcrManager = Injekt.get()
+    private val notifier = OcrNotifier(applicationContext)
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
-        val notification = applicationContext.notificationBuilder(Notifications.CHANNEL_DOWNLOADER_PROGRESS) {
-            setContentTitle(applicationContext.getString(R.string.ocr_running))
-            setSmallIcon(android.R.drawable.stat_sys_download_done)
-        }.build()
+        val notification = notifier.progress(ocrManager.queueState.value)
         return ForegroundInfo(
             Notifications.ID_OCR_PROGRESS,
             notification,
@@ -40,31 +42,55 @@ class OcrJob(context: Context, workerParams: WorkerParameters) : CoroutineWorker
         )
     }
 
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = coroutineScope {
         // Show foreground notification immediately to keep worker alive
         setForegroundSafely()
+        notifier.dismissStatus()
+        val completed = AtomicInteger()
+        val updates = launch {
+            ocrManager.queueState.sample(500).collect { setForegroundSafely() }
+        }
 
-        return try {
-            ocrManager.runPendingQueue(stopRequested = { isStopped })
+        try {
+            ocrManager.runPendingQueue(
+                stopRequested = { isStopped || ocrManager.isPaused.value },
+                onChapterCompleted = { completed.incrementAndGet() },
+            )
+            if (ocrManager.isPaused.value) {
+                notifier.showPaused(ocrManager.queueState.value)
+            } else if (!isStopped) {
+                if (ocrManager.hasRunnableTasks()) {
+                    start(applicationContext, append = true)
+                } else {
+                    notifier.showResult(ocrManager.queueState.value, completed.get())
+                }
+            }
             Result.success()
         } catch (e: CancellationException) {
             logcat(LogPriority.WARN, e) { "OcrJob cancelled while processing OCR queue" }
             throw e
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "OcrJob failed" }
+            notifier.showResult(ocrManager.queueState.value, completed.get())
             Result.failure()
+        } finally {
+            updates.cancel()
         }
     }
 
     companion object {
         private const val TAG = "OcrJob"
 
-        fun start(context: Context) {
+        fun start(context: Context, append: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<OcrJob>()
                 .addTag(TAG)
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(TAG, ExistingWorkPolicy.KEEP, request)
+                .enqueueUniqueWork(
+                    TAG,
+                    if (append) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
+                    request,
+                )
         }
 
         fun stop(context: Context) {

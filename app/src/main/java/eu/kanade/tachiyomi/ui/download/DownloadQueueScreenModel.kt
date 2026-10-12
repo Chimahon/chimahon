@@ -226,6 +226,8 @@ class DownloadQueueScreenModel(
         .map { queue -> queue.any { it.status.isActionable() } }
         .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val isOcrPaused = ocrManager.isPaused
+
     fun getDownloadStatusFlow() = downloadManager.statusFlow()
     fun getDownloadProgressFlow() = downloadManager.progressFlow()
     fun getAnimeStatusFlow() = animeDownloadManager.statusFlow()
@@ -273,6 +275,18 @@ class DownloadQueueScreenModel(
     }
 
     // Chimahon: OCR methods
+    fun pauseOcr() {
+        screenModelScope.launch { ocrManager.pauseQueue() }
+    }
+
+    fun resumeOcr() = ocrManager.resumeQueue()
+
+    fun cancelAllOcr() {
+        screenModelScope.launch { ocrManager.cancelAll() }
+    }
+
+    fun retryFailedOcr() = ocrManager.retryAllErrors()
+
     fun cancelOcr(chapterId: Long) {
         screenModelScope.launch {
             ocrManager.cancelChapter(chapterId)

@@ -4,6 +4,7 @@ import android.content.Context
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
+import eu.kanade.tachiyomi.util.system.cancelNotification
 import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -14,6 +15,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import uy.kohesive.injekt.Injekt
@@ -29,6 +31,44 @@ import tachiyomi.core.common.preference.Preference
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OcrManagerTest {
+    @Test
+    fun testFailedTaskIsNotAutomaticallyRequeued() = runTest {
+        val store = mockk<OcrStore>(relaxed = true)
+        val mangas = mockk<MangaRepository>(relaxed = true)
+        val chapters = mockk<ChapterRepository>(relaxed = true)
+        val sources = mockk<SourceManager>(relaxed = true)
+        val task = OcrTask(1, 101, 0, false)
+        val tasks = mutableMapOf(101L to task)
+        every { store.getAll() } answers { tasks.values.toList() }
+        every { store.get(any()) } answers { tasks[firstArg<Long>()] }
+        every { store.update(any(), any()) } answers {
+            val id = firstArg<Long>()
+            val transform = secondArg<(OcrTask) -> OcrTask>()
+            tasks[id]?.let(transform)?.also { tasks[id] = it }
+        }
+        every { parallelOcrLimitPref.get() } returns 1
+        coEvery { mangas.getMangaById(any()) } returns mockk<Manga>(relaxed = true)
+        coEvery { chapters.getChapterById(any()) } returns mockk<Chapter>(relaxed = true)
+        val manager = spyk(
+            OcrManager(
+                mockk(relaxed = true),
+                null,
+                null,
+                mangas,
+                chapters,
+                sources,
+                store,
+                StandardTestDispatcher(testScheduler),
+            ),
+        )
+        coEvery { manager.processTask(any(), any(), any(), any()) } returns OcrTaskResult.ERROR
+
+        manager.runPendingQueue { false }
+
+        assertEquals(OcrQueueStatus.ERROR, tasks[101L]?.status)
+        coVerify(exactly = 1) { manager.processTask(any(), any(), any(), any()) }
+    }
+
     companion object {
         private val dictionaryPreferences = mockk<DictionaryPreferences>(relaxed = true)
         private val parallelOcrLimitPref = mockk<Preference<Int>>(relaxed = true)
@@ -37,6 +77,8 @@ class OcrManagerTest {
         @JvmStatic
         @BeforeAll
         fun setup() {
+            mockkStatic("eu.kanade.tachiyomi.util.system.NotificationExtensionsKt")
+            every { any<Context>().cancelNotification(any()) } just Runs
             if (!logcat.LogcatLogger.isInstalled) {
                 logcat.LogcatLogger.install()
                 logcat.LogcatLogger.loggers += object : logcat.LogcatLogger {
@@ -53,6 +95,12 @@ class OcrManagerTest {
             Injekt.addSingletonFactory<LensClient> { mockk(relaxed = true) }
             Injekt.addSingletonFactory<DownloadManager> { mockk(relaxed = true) }
             Injekt.addSingletonFactory<DownloadProvider> { mockk(relaxed = true) }
+        }
+
+        @JvmStatic
+        @AfterAll
+        fun teardown() {
+            unmockkStatic("eu.kanade.tachiyomi.util.system.NotificationExtensionsKt")
         }
     }
 

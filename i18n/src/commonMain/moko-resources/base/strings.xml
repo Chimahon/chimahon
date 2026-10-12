@@ -438,6 +438,14 @@
     <string name="ocr_ready">OCR ready</string>
     <string name="ocr_not_ready">OCR not ready</string>
     <string name="ocr_running">OCR running…</string>
+    <string name="ocr_paused">OCR paused</string>
+    <string name="ocr_retry_failed">Retry failed</string>
+    <string name="ocr_notification_status_channel">OCR results</string>
+    <string name="ocr_notification_page">Page %1$d of %2$d</string>
+    <string name="ocr_notification_queue">%1$d processing · %2$d queued · %3$d waiting for download · %4$d failed</string>
+    <string name="ocr_notification_result">%1$d completed · %2$d failed · %3$d waiting for download</string>
+    <string name="ocr_notification_complete">OCR complete</string>
+    <string name="ocr_notification_failed">OCR needs attention</string>
     <string name="action_download_and_ocr">Download &amp; OCR</string>
     <string name="action_run_ocr">Run OCR</string>
     <string name="action_delete_ocr">Delete OCR data</string>

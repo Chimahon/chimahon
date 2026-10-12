@@ -18,6 +18,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.core.archive.archiveReader
 import tachiyomi.core.common.util.system.ImageUtil
@@ -55,33 +58,16 @@ class OcrManager(
 
     private val downloadManager: DownloadManager by lazy { Injekt.get() }
 
-    private suspend fun <T> retryWithBackoff(
-        times: Int = 3,
-        initialDelayMs: Long = 1000,
-        maxDelayMs: Long = 10000,
-        factor: Double = 2.0,
-        block: suspend () -> T,
-    ): T {
-        var currentDelay = initialDelayMs
-        repeat(times - 1) {
-            try {
-                return block()
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                logcat(LogPriority.WARN) { "Retry failed, retrying in ${currentDelay}ms: ${e.message}" }
-            }
-            delay(currentDelay)
-            currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelayMs)
-        }
-        return block()
-    }
     private val downloadProvider: DownloadProvider by lazy { Injekt.get() }
 
     private val _queueState = MutableStateFlow<List<OcrQueueItem>>(emptyList())
     val queueState: StateFlow<List<OcrQueueItem>> = _queueState.asStateFlow()
+    private val _isPaused = MutableStateFlow(ocrStore.isPaused())
+    val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val stateMutex = Mutex()
+    private val queueMutex = Mutex()
     private val runningJobs = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Job>()
     private val triggerChannel = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
@@ -90,7 +76,9 @@ class OcrManager(
             ocrStore.normalizeForRestore()
             promoteDownloadedWaitingTasks()
             refreshQueueState()
-            if (ocrStore.hasRunnableTasks()) {
+            if (_isPaused.value) {
+                OcrNotifier(context).showPaused(_queueState.value)
+            } else if (ocrStore.hasRunnableTasks()) {
                 OcrJob.start(context)
             }
         }
@@ -106,6 +94,8 @@ class OcrManager(
     }
 
     fun isChapterQueued(chapterId: Long): Boolean = ocrStore.get(chapterId) != null
+
+    internal fun hasRunnableTasks(): Boolean = ocrStore.hasRunnableTasks()
 
     fun queueChapters(manga: Manga, chapters: List<Chapter>, waitForDownload: Boolean = true) {
         if (chapters.isEmpty()) return
@@ -141,64 +131,80 @@ class OcrManager(
 
         if (changed || ocrStore.hasRunnableTasks()) {
             triggerChannel.trySend(Unit)
-            OcrJob.start(context)
+            if (!_isPaused.value) OcrJob.start(context)
         }
     }
 
     fun markChapterReadyForOcr(manga: Manga, chapter: Chapter): Boolean {
-        val current = ocrStore.get(chapter.id) ?: return false
-        if (current.status != OcrQueueStatus.WAITING_DOWNLOAD) return false
-
-        ocrStore.save(
-            current.copy(
-                mangaId = manga.id,
-                waitForDownload = false,
-                status = OcrQueueStatus.PENDING,
-                currentPage = 0,
-                totalPages = 0,
-            ),
-        )
+        var changed = false
+        ocrStore.update(chapter.id) { current ->
+            if (current.status != OcrQueueStatus.WAITING_DOWNLOAD) {
+                current
+            } else {
+                changed = true
+                current.copy(
+                    mangaId = manga.id,
+                    waitForDownload = false,
+                    status = OcrQueueStatus.PENDING,
+                    currentPage = 0,
+                    totalPages = 0,
+                )
+            }
+        }
+        if (!changed) return false
 
         scope.launch {
             refreshQueueState()
         }
         triggerChannel.trySend(Unit)
-        OcrJob.start(context)
+        if (!_isPaused.value) OcrJob.start(context)
         return true
     }
 
     fun markChapterDownloadFailed(chapterId: Long): Boolean {
-        val current = ocrStore.get(chapterId) ?: return false
-        if (current.status != OcrQueueStatus.WAITING_DOWNLOAD) return false
-
-        ocrStore.save(
-            current.copy(
-                waitForDownload = false,
-                status = OcrQueueStatus.ERROR,
-                currentPage = 0,
-                totalPages = 0,
-            ),
-        )
+        var changed = false
+        ocrStore.update(chapterId) { current ->
+            if (current.status != OcrQueueStatus.WAITING_DOWNLOAD) {
+                current
+            } else {
+                changed = true
+                current.copy(
+                    waitForDownload = false,
+                    status = OcrQueueStatus.ERROR,
+                    currentPage = 0,
+                    totalPages = 0,
+                )
+            }
+        }
+        if (!changed) return false
 
         scope.launch {
             refreshQueueState()
+            if (_isPaused.value) {
+                OcrNotifier(context).showPaused(_queueState.value)
+            } else if (_queueState.value.none { it.status.isRunnable() }) {
+                OcrNotifier(context).showResult(_queueState.value, completed = 0)
+            }
         }
         return true
     }
 
     fun retryChapter(chapterId: Long): Boolean {
-        val task = ocrStore.get(chapterId) ?: return false
-        if (task.status != OcrQueueStatus.ERROR) return false
-        ocrStore.save(
-            task.copy(
-                status = OcrQueueStatus.PENDING,
-            ),
-        )
+        var changed = false
+        ocrStore.update(chapterId) { current ->
+            if (current.status != OcrQueueStatus.ERROR) {
+                current
+            } else {
+                changed = true
+                current.copy(status = OcrQueueStatus.PENDING)
+            }
+        }
+        if (!changed) return false
         scope.launch {
             refreshQueueState()
         }
         triggerChannel.trySend(Unit)
-        OcrJob.start(context)
+        if (!_isPaused.value) OcrJob.start(context)
         return true
     }
 
@@ -206,17 +212,47 @@ class OcrManager(
         val errorTasks = ocrStore.getAll().filter { it.status == OcrQueueStatus.ERROR }
         if (errorTasks.isEmpty()) return
         errorTasks.forEach { task ->
-            ocrStore.save(
-                task.copy(
-                    status = OcrQueueStatus.PENDING,
-                ),
-            )
+            ocrStore.update(task.chapterId) { current ->
+                if (current.status == OcrQueueStatus.ERROR) current.copy(status = OcrQueueStatus.PENDING) else current
+            }
         }
         scope.launch {
             refreshQueueState()
         }
         triggerChannel.trySend(Unit)
-        OcrJob.start(context)
+        resumeQueue()
+    }
+
+    suspend fun pauseQueue() {
+        ocrStore.setPaused(true)
+        _isPaused.value = true
+        val jobs = runningJobs.values.toList()
+        jobs.forEach { it.cancel() }
+        triggerChannel.trySend(Unit)
+        OcrJob.stop(context)
+        refreshQueueState()
+        OcrNotifier(context).showPaused(_queueState.value)
+    }
+
+    fun resumeQueue() {
+        ocrStore.setPaused(false)
+        _isPaused.value = false
+        OcrNotifier(context).dismissStatus()
+        triggerChannel.trySend(Unit)
+        // Queue behind a worker that may still be finishing a pause/cancel request.
+        OcrJob.start(context, append = true)
+    }
+
+    suspend fun cancelAll() {
+        ocrStore.removeAll(ocrStore.getAll().map { it.chapterId })
+        val jobs = runningJobs.values.toList()
+        jobs.forEach { it.cancel() }
+        OcrJob.stop(context)
+        triggerChannel.trySend(Unit)
+        ocrStore.setPaused(false)
+        _isPaused.value = false
+        refreshQueueState()
+        OcrNotifier(context).dismissStatus()
     }
 
     suspend fun cancelChapter(chapterId: Long) {
@@ -226,6 +262,12 @@ class OcrManager(
             _queueState.update { current ->
                 current.filterNot { it.chapter.id == chapterId }
             }
+        }
+        if (_queueState.value.isEmpty()) {
+            OcrNotifier(context).dismissStatus()
+        } else if (_isPaused.value) {
+            OcrNotifier(context).dismissStatus()
+            OcrNotifier(context).showPaused(_queueState.value)
         }
     }
 
@@ -288,7 +330,18 @@ class OcrManager(
         }
     }
 
-    suspend fun runPendingQueue(stopRequested: () -> Boolean) = kotlinx.coroutines.supervisorScope {
+    suspend fun runPendingQueue(
+        onChapterCompleted: () -> Unit = {},
+        stopRequested: () -> Boolean,
+    ) = queueMutex.withLock {
+        runQueue(stopRequested, onChapterCompleted)
+    }
+
+    private suspend fun runQueue(
+        stopRequested: () -> Boolean,
+        onChapterCompleted: () -> Unit,
+    ) = kotlinx.coroutines.supervisorScope {
+        refreshQueueState()
         val dictPrefs = Injekt.get<eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences>()
         
         val prefJob = launch {
@@ -298,8 +351,8 @@ class OcrManager(
         }
 
         try {
-            while (!stopRequested()) {
-                val parallelLimit = dictPrefs.parallelOcrLimit().get()
+            while (!stopRequested() && !_isPaused.value) {
+                val parallelLimit = dictPrefs.parallelOcrLimit().get().coerceAtLeast(1)
                 
                 val runnableTasks = ocrStore.getAll().filter { it.status.isRunnable() }
                 val nextTask = runnableTasks.firstOrNull { !runningJobs.containsKey(it.chapterId) }
@@ -323,6 +376,8 @@ class OcrManager(
 
                 val manga = mangaRepository.getMangaById(nextTask.mangaId)
                 val chapter = chapterRepository.getChapterById(nextTask.chapterId)
+                if (stopRequested() || _isPaused.value) break
+                if (ocrStore.get(nextTask.chapterId) == null) continue
 
                 if (manga == null || chapter == null) {
                     ocrStore.remove(nextTask.chapterId)
@@ -334,12 +389,16 @@ class OcrManager(
                     try {
                         val result = processTask(nextTask, manga, chapter, stopRequested)
                         when (result) {
-                            OcrTaskResult.SUCCESS,
-                            OcrTaskResult.CANCELLED,
-                            -> {
+                            OcrTaskResult.SUCCESS -> {
+                                onChapterCompleted()
                                 ocrStore.remove(nextTask.chapterId)
                             }
-                            OcrTaskResult.ERROR -> Unit
+                            OcrTaskResult.CANCELLED -> {
+                                ocrStore.remove(nextTask.chapterId)
+                            }
+                            OcrTaskResult.ERROR -> updateStoredTask(nextTask.chapterId) {
+                                it.copy(status = OcrQueueStatus.ERROR)
+                            }
                             OcrTaskResult.STOPPED -> {
                                 if (ocrStore.get(nextTask.chapterId) != null) {
                                     updateStoredTask(nextTask.chapterId) { current ->
@@ -362,17 +421,23 @@ class OcrManager(
                         } catch (_: Exception) {}
                     } finally {
                         runningJobs.remove(nextTask.chapterId)
-                        refreshQueueState()
+                        withContext(NonCancellable) { refreshQueueState() }
                         triggerChannel.trySend(Unit)
                     }
                 }
                 runningJobs[nextTask.chapterId] = job
+                job.invokeOnCompletion {
+                    // A cancelled lazy job may never enter the body's finally block.
+                    runningJobs.remove(nextTask.chapterId, job)
+                    triggerChannel.trySend(Unit)
+                }
                 job.start()
             }
         } finally {
             prefJob.cancel()
-            runningJobs.values.forEach { it.cancel() }
-            runningJobs.clear()
+            val jobs = runningJobs.values.toList()
+            jobs.forEach { it.cancel() }
+            withContext(NonCancellable) { jobs.joinAll() }
         }
     }
 
@@ -391,14 +456,18 @@ class OcrManager(
                 )
 
                 if (isDownloaded) {
-                    ocrStore.save(
-                        task.copy(
-                            waitForDownload = false,
-                            status = OcrQueueStatus.PENDING,
-                            currentPage = 0,
-                            totalPages = 0,
-                        ),
-                    )
+                    ocrStore.update(task.chapterId) { current ->
+                        if (current.status == OcrQueueStatus.WAITING_DOWNLOAD) {
+                            current.copy(
+                                waitForDownload = false,
+                                status = OcrQueueStatus.PENDING,
+                                currentPage = 0,
+                                totalPages = 0,
+                            )
+                        } else {
+                            current
+                        }
+                    }
                 }
             }
     }
@@ -667,6 +736,8 @@ class OcrManager(
                             },
                             language = ocrLang.bcp47,
                         )
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         logcat(LogPriority.WARN, e) { "OcrManager: failed to cache OCR for page $pageIndex" }
                         failedPages++
@@ -744,6 +815,8 @@ class OcrManager(
                                 },
                                 language = ocrLang.bcp47,
                             )
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             logcat(LogPriority.WARN, e) { "OcrManager: retry failed for page $pageIndex" }
                         }
@@ -942,14 +1015,16 @@ suspend fun <T> retryWithBackoff(
     factor: Double = 2.0,
     block: suspend () -> T,
 ): T {
+    require(times > 0)
     var currentDelay = initialDelayMs
     repeat(times - 1) {
         try {
             return block()
         } catch (e: Exception) {
-            // Retry failed, will retry shortly
+            if (e is CancellationException) throw e
+            logcat.logcat("OcrManager", LogPriority.WARN) { "Retry failed, retrying in ${currentDelay}ms: ${e.message}" }
         }
-        kotlinx.coroutines.delay(currentDelay)
+        delay(currentDelay)
         currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelayMs)
     }
     return block()

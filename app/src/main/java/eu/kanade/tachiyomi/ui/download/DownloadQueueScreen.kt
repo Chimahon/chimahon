@@ -70,6 +70,7 @@ import eu.kanade.presentation.theme.colorscheme.AndroidViewColorScheme
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.ocr.OcrQueueItem
 import eu.kanade.tachiyomi.data.ocr.OcrQueueStatus
+import eu.kanade.tachiyomi.data.ocr.isActionable
 import eu.kanade.tachiyomi.databinding.DownloadListBinding
 import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.core.common.util.lang.launchUI
@@ -98,6 +99,7 @@ object DownloadQueueScreen : Screen() {
         }
         val downloadList by screenModel.state.collectAsState()
         val ocrQueue by screenModel.ocrQueueState.collectAsState()
+        val isOcrPaused by screenModel.isOcrPaused.collectAsState()
         val downloadCount = downloadList.sumOf { item ->
             when (item) {
                 is DownloadHeaderItem -> item.subItems.size
@@ -361,6 +363,10 @@ object DownloadQueueScreen : Screen() {
                     val maxOcrHeight = LocalConfiguration.current.screenHeightDp.dp / 2
                     OcrQueueSection(
                         ocrQueue = ocrQueue,
+                        isPaused = isOcrPaused,
+                        onPauseResumeClick = { if (isOcrPaused) screenModel.resumeOcr() else screenModel.pauseOcr() },
+                        onCancelAllClick = screenModel::cancelAllOcr,
+                        onRetryFailedClick = screenModel::retryFailedOcr,
                         onCancelClick = { screenModel.cancelOcr(it) },
                         onRetryClick = { screenModel.retryOcr(it) },
                         modifier = Modifier
@@ -468,6 +474,10 @@ object DownloadQueueScreen : Screen() {
 @Composable
 private fun OcrQueueSection(
     ocrQueue: List<OcrQueueItem>,
+    isPaused: Boolean,
+    onPauseResumeClick: () -> Unit,
+    onCancelAllClick: () -> Unit,
+    onRetryFailedClick: () -> Unit,
     onCancelClick: (Long) -> Unit,
     onRetryClick: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -480,7 +490,8 @@ private fun OcrQueueSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = stringResource(MR.strings.ocr_processing),
+                text = stringResource(if (isPaused) MR.strings.ocr_paused else MR.strings.ocr_processing),
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )
@@ -490,6 +501,24 @@ private fun OcrQueueSection(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                 fontSize = 12.sp,
             )
+            if (ocrQueue.any { it.status.isActionable() }) {
+                IconButton(onClick = onPauseResumeClick) {
+                    Icon(
+                        imageVector = if (isPaused) Icons.Filled.PlayArrow else Icons.Outlined.Pause,
+                        contentDescription = stringResource(
+                            if (isPaused) MR.strings.action_resume else MR.strings.action_pause,
+                        ),
+                    )
+                }
+            }
+            if (ocrQueue.any { it.status == OcrQueueStatus.ERROR }) {
+                IconButton(onClick = onRetryFailedClick) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = stringResource(MR.strings.ocr_retry_failed))
+                }
+            }
+            IconButton(onClick = onCancelAllClick) {
+                Icon(Icons.Outlined.Close, contentDescription = stringResource(MR.strings.action_cancel_all))
+            }
         }
 
         Column(

@@ -17,7 +17,7 @@ class OcrStore(
 
     fun getAll(): List<OcrTask> {
         return preferences.all
-            .filterKeys { it != COUNTER_KEY }
+            .filterKeys { it != COUNTER_KEY && it != PAUSED_KEY }
             .mapNotNull { (_, value) -> (value as? String)?.let(::deserialize) }
             .sortedBy { it.order }
     }
@@ -31,6 +31,7 @@ class OcrStore(
         return getAll().any { it.status.isRunnable() }
     }
 
+    @Synchronized
     fun enqueue(requests: List<OcrEnqueueRequest>): Boolean {
         if (requests.isEmpty()) return false
 
@@ -76,12 +77,14 @@ class OcrStore(
         return true
     }
 
+    @Synchronized
     fun save(task: OcrTask) {
         preferences.edit(commit = true) {
             putString(task.chapterId.toString(), serialize(task))
         }
     }
 
+    @Synchronized
     fun update(chapterId: Long, transform: (OcrTask) -> OcrTask): OcrTask? {
         val current = get(chapterId) ?: return null
         val updated = transform(current)
@@ -89,12 +92,14 @@ class OcrStore(
         return updated
     }
 
+    @Synchronized
     fun remove(chapterId: Long) {
         preferences.edit(commit = true) {
             remove(chapterId.toString())
         }
     }
 
+    @Synchronized
     fun removeAll(chapterIds: Collection<Long>) {
         if (chapterIds.isEmpty()) return
         preferences.edit(commit = true) {
@@ -102,6 +107,14 @@ class OcrStore(
         }
     }
 
+    fun isPaused(): Boolean = preferences.getBoolean(PAUSED_KEY, false)
+
+    @Synchronized
+    fun setPaused(paused: Boolean) {
+        preferences.edit(commit = true) { putBoolean(PAUSED_KEY, paused) }
+    }
+
+    @Synchronized
     fun normalizeForRestore(): Boolean {
         val tasks = getAll()
         if (tasks.isEmpty()) return false
@@ -126,9 +139,11 @@ class OcrStore(
         if (!changed) return false
 
         val counter = preferences.getInt(COUNTER_KEY, 0)
+        val paused = isPaused()
         preferences.edit(commit = true) {
             clear()
             putInt(COUNTER_KEY, counter)
+            putBoolean(PAUSED_KEY, paused)
             normalized.forEach { putString(it.chapterId.toString(), serialize(it)) }
         }
         return true
@@ -149,6 +164,7 @@ class OcrStore(
     companion object {
         private const val PREFS_NAME = "active_ocr"
         private const val COUNTER_KEY = "__counter"
+        private const val PAUSED_KEY = "__paused"
     }
 }
 
