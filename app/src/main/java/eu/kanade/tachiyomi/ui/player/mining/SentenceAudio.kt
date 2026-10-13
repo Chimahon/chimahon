@@ -249,7 +249,8 @@ internal object SentenceAudioInputResolver {
         return scheme in transientSchemes || value.startsWith("magnet:", ignoreCase = true) || value.substringBefore('?').endsWith(".torrent", ignoreCase = true)
     }
 
-    private val allowedHttpHeaders = setOf("user-agent", "accept", "accept-encoding", "accept-language", "cache-control", "cookie", "origin", "pragma", "referer")
+    // Media servers (Jellyfin/Emby) authenticate streams with these headers; mpv already sends them to the same URL.
+    private val allowedHttpHeaders = setOf("user-agent", "accept", "accept-encoding", "accept-language", "cache-control", "cookie", "origin", "pragma", "referer", "authorization", "x-emby-authorization", "x-emby-token", "x-mediabrowser-token")
     private val rejectedValidationQueryNames = setOf("access_token", "api_key", "auth", "authorization", "credential", "credentials", "key", "policy", "token")
     private val signedMediaQueryNames = setOf("signature", "signed", "sig", "lsig")
     private val sensitiveLogQueryNames = setOf("access_token", "api_key", "auth", "authorization", "credential", "credentials", "key", "policy", "signature", "signed", "sig", "lsig", "token")
