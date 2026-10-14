@@ -713,7 +713,10 @@ class PlayerActivity : BaseActivity() {
         )
 
         val mpvConfFile = File("$configDir/mpv.conf")
-        advancedPlayerPreferences.mpvConf().get().let { mpvConfFile.writeText(it) }
+        advancedPlayerPreferences.mpvConf().get().let {
+            // User options follow the defaults so explicit subtitle settings still take priority.
+            mpvConfFile.writeText("sub-auto=fuzzy\nsub-file-paths=ass:srt:sub:subs:subtitles\n$it")
+        }
         val mpvInputFile = File("$configDir/input.conf")
         advancedPlayerPreferences.mpvInput().get().let { mpvInputFile.writeText(it) }
 
