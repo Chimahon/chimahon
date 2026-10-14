@@ -16,7 +16,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,8 +45,6 @@ import eu.kanade.presentation.more.settings.screen.debug.DebugInfoScreen
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
 import eu.kanade.tachiyomi.data.download.DownloadCache
-import eu.kanade.tachiyomi.data.ocr.ModelDownloader
-import eu.kanade.tachiyomi.data.panel.PanelModelDownloader
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.library.MetadataUpdateJob
 import eu.kanade.tachiyomi.data.library.anime.AnimeMetadataUpdateJob
@@ -92,8 +89,6 @@ import logcat.LogPriority
 import okhttp3.Headers
 import tachiyomi.core.common.i18n.pluralStringResource
 import tachiyomi.core.common.i18n.stringResource
-import tachiyomi.core.common.preference.Preference as CommonPreference
-import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
@@ -118,11 +113,6 @@ import java.io.File
 object SettingsAdvancedScreen : SearchableSettings {
     @Suppress("unused")
     private fun readResolve(): Any = SettingsAdvancedScreen
-
-    /** Selection keys for the downloaded-models group. */
-    private const val MODEL_LENS = "ocr_lens"
-    private const val MODEL_PADDLE = "ocr_paddle"
-    private const val MODEL_PANEL = "panel"
 
     @ReadOnlyComposable
     @Composable
@@ -196,27 +186,6 @@ object SettingsAdvancedScreen : SearchableSettings {
                     true
                 },
             ),
-            kotlin.run {
-                val importLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocument()
-                ) { uri ->
-                    if (uri != null) {
-                        scope.launch {
-                            val result = Injekt.get<ModelDownloader>().importFromUri(uri)
-                            context.toast(
-                                if (result.isSuccess) "OCR models imported"
-                                else "Import failed: ${result.exceptionOrNull()?.message}"
-                            )
-                        }
-                    }
-                }
-                Preference.PreferenceItem.TextPreference(
-                    title = "Import OCR Models",
-                    subtitle = "Import models.zip from device storage",
-                    onClick = { importLauncher.launch(arrayOf("application/zip")) },
-                )
-            },
-            getDownloadedModelsGroup(),
             // KMK <--
             getBackgroundActivityGroup(),
             getDataGroup(),
@@ -325,76 +294,6 @@ object SettingsAdvancedScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_clear_novel_database),
                     subtitle = stringResource(MR.strings.pref_clear_novel_database_summary),
                     onClick = { navigator.push(ClearNovelDatabaseScreen()) },
-                ),
-            ),
-        )
-    }
-
-    /**
-     * Management for the models fetched at runtime rather than shipped in the
-     * APK. Any selected bundle can be deleted independently. Updates are offered
-     * through a notification after an automatic background check.
-     */
-    @Composable
-    private fun getDownloadedModelsGroup(): Preference.PreferenceGroup {
-        val context = LocalContext.current
-        val preferenceStore = remember { Injekt.get<PreferenceStore>() }
-        val modelDownloader = remember { Injekt.get<ModelDownloader>() }
-        val panelModelDownloader = remember { Injekt.get<PanelModelDownloader>() }
-
-        val selectedPref = remember {
-            preferenceStore.getStringSet(CommonPreference.appStateKey("model_selection"), emptySet())
-        }
-        val selection = selectedPref.get()
-
-        // Not observable state: isDownloaded is a plain file check, so deleting a
-        // model would not otherwise redraw these rows. refresh is a
-        // recomposition key only -- its value is deliberately unused.
-        val refresh = remember { mutableIntStateOf(0) }
-        @Suppress("UNUSED_EXPRESSION")
-        refresh.intValue
-
-        return Preference.PreferenceGroup(
-            title = stringResource(MR.strings.pref_downloaded_models),
-            preferenceItems = persistentListOf(
-                Preference.PreferenceItem.MultiSelectListPreference(
-                    preference = selectedPref,
-                    entries = persistentMapOf(
-                        MODEL_LENS to stringResource(MR.strings.model_ocr_lens),
-                        MODEL_PADDLE to stringResource(MR.strings.model_ocr_paddle),
-                        MODEL_PANEL to stringResource(MR.strings.model_panel_detection),
-                    ),
-                    title = stringResource(MR.strings.model_selection),
-                    subtitle = null,
-                ),
-                Preference.PreferenceItem.TextPreference(
-                    title = stringResource(MR.strings.model_delete_selected),
-                    subtitle = stringResource(
-                        MR.strings.model_delete_selected_summary,
-                        selection.size,
-                    ),
-                    enabled = selection.isNotEmpty(),
-                    onClick = {
-                        var failed = false
-                        selection.forEach { key ->
-                            val ok = when (key) {
-                                MODEL_LENS -> modelDownloader.deleteLensModels()
-                                MODEL_PADDLE -> modelDownloader.deletePaddleModels()
-                                MODEL_PANEL -> panelModelDownloader.deleteModel()
-                                else -> true
-                            }
-                            failed = failed || !ok
-                        }
-                        selectedPref.set(emptySet())
-                        refresh.intValue++
-                        context.toast(
-                            if (failed) {
-                                context.stringResource(MR.strings.cache_delete_error)
-                            } else {
-                                context.stringResource(MR.strings.model_deleted)
-                            },
-                        )
-                    },
                 ),
             ),
         )
