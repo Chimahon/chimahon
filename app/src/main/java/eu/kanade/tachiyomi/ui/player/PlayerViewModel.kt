@@ -373,7 +373,7 @@ class PlayerViewModel @JvmOverloads constructor(
         cachePath = cachePath,
         getVideo = { currentVideo.value },
         getSource = { currentSource.value },
-        getTimeSeconds = { activity.player.timePos?.toDouble() ?: pos.value.toDouble() },
+        getTimeSeconds = { activity.player.timePosSeconds ?: pos.value.toDouble() },
         getOcrPaddingSeconds = { dictionaryPreferences.videoOcrSentenceAudioPaddingSeconds().get().toDouble() },
         readMpvSnapshot = {
             SentenceAudioMpvSnapshotReader(object : SentenceAudioMpvPropertyReader {

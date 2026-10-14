@@ -118,6 +118,9 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         get() = getPropertyInt("time-pos")
         set(position) = MPVLib.setPropertyInt("time-pos", position!!)
 
+    val timePosSeconds: Double?
+        get() = getPropertyDouble("time-pos")
+
     var paused: Boolean?
         get() = getPropertyBoolean("pause")
         set(paused) = MPVLib.setPropertyBoolean("pause", paused!!)
