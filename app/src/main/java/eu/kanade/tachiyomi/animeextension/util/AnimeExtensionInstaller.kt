@@ -16,14 +16,19 @@ import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.util.storage.getUriCompat
 import eu.kanade.tachiyomi.util.system.isPackageInstalled
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -32,6 +37,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 /**
  * The installer which installs, updates and uninstalls anime extensions.
@@ -48,6 +54,7 @@ internal class AnimeExtensionInstaller(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val activeSteps = ConcurrentHashMap<Long, MutableStateFlow<InstallStep>>()
+    private val legacyInstallMutex = Mutex()
     private val extensionInstaller = Injekt.get<BasePreferences>().extensionInstaller()
 
     private val httpClient: OkHttpClient = Injekt.get<NetworkHelper>().client
@@ -61,16 +68,22 @@ internal class AnimeExtensionInstaller(
      * @param url The url of the apk.
      * @param extension The extension to install.
      */
+    @Synchronized
     fun downloadAndInstall(url: String, extension: AnimeExtension): Flow<InstallStep> {
         val pkgName = extension.pkgName + ":${extension.signatureHash}"
         val downloadId = pkgName.toDownloadId()
+        activeSteps[downloadId]?.takeIf {
+            activeJobs[pkgName]?.isCancelled == false && !it.value.isCompleted()
+        }?.let {
+            return it.asStateFlow()
+        }
         cancelInstall(pkgName)
 
         val step = MutableStateFlow(InstallStep.Pending)
         activeSteps[downloadId] = step
 
         val job = scope.launch {
-            val tmpFile = File(context.cacheDir, "anime_extension_$pkgName.apk")
+            val tmpFile = File(context.cacheDir, "anime_extension_${downloadId}_${UUID.randomUUID()}.apk")
             try {
                 step.value = InstallStep.Downloading
                 val request = Request.Builder().url(url).build()
@@ -86,11 +99,23 @@ internal class AnimeExtensionInstaller(
                         }
                     }
 
-                step.value = InstallStep.Installing
-                installApk(downloadId, tmpFile)
+                ensureActive()
+                if (extensionInstaller.get() == BasePreferences.ExtensionInstaller.LEGACY) {
+                    // Finish one system dialog before launching the next from the foreground.
+                    step.value = InstallStep.Pending
+                    legacyInstallMutex.withLock {
+                        ensureActive()
+                        step.value = InstallStep.Installing
+                        installApk(downloadId, tmpFile)
+                        step.first { it.isCompleted() }
+                    }
+                } else {
+                    step.value = InstallStep.Installing
+                    installApk(downloadId, tmpFile)
+                }
             } catch (e: Exception) {
-                if (e is InterruptedException) {
-                    // Canceled
+                if (e is CancellationException || e is InterruptedException) {
+                    step.value = InstallStep.Idle
                 } else {
                     logcat(LogPriority.ERROR, e)
                     step.value = InstallStep.Error
@@ -103,8 +128,8 @@ internal class AnimeExtensionInstaller(
 
         return step.asStateFlow()
             .onCompletion {
-                activeJobs.remove(pkgName)
-                activeSteps.remove(downloadId)
+                activeJobs.remove(pkgName, job)
+                activeSteps.remove(downloadId, step)
                 job.cancel()
             }
     }

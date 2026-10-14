@@ -3,12 +3,10 @@ package eu.kanade.tachiyomi.extension.util
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
-import eu.kanade.tachiyomi.extension.ExtensionManager
+import eu.kanade.tachiyomi.extension.installer.Installer
 import eu.kanade.tachiyomi.extension.model.InstallStep
 import eu.kanade.tachiyomi.util.system.hasMiuiPackageInstaller
 import eu.kanade.tachiyomi.util.system.toast
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -42,6 +40,8 @@ class ExtensionInstallActivity : Activity() {
             // Either install package can't be found (probably bots) or there's a security exception
             // with the download manager. Nothing we can workaround.
             toast(error.message)
+            checkInstallationResult(RESULT_FIRST_USER)
+            finish()
         }
     }
 
@@ -71,13 +71,12 @@ class ExtensionInstallActivity : Activity() {
 
     private fun checkInstallationResult(resultCode: Int) {
         val downloadId = intent.extras!!.getLong(ExtensionInstaller.EXTRA_DOWNLOAD_ID)
-        val extensionManager = Injekt.get<ExtensionManager>()
         val newStep = when (resultCode) {
             RESULT_OK -> InstallStep.Installed
             RESULT_CANCELED -> InstallStep.Idle
             else -> InstallStep.Error
         }
-        extensionManager.updateInstallStep(downloadId, newStep)
+        Installer.updateInstallStep(downloadId, newStep)
     }
 }
 

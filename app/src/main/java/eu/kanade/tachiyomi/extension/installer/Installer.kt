@@ -8,9 +8,11 @@ import android.content.IntentFilter
 import android.net.Uri
 import androidx.annotation.CallSuper
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import eu.kanade.tachiyomi.animeextension.AnimeExtensionManager
 import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.extension.model.InstallStep
-import uy.kohesive.injekt.injectLazy
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.util.Collections
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
@@ -20,8 +22,6 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
  */
 @OptIn(ExperimentalAtomicApi::class)
 abstract class Installer(private val service: Service) {
-
-    private val extensionManager: ExtensionManager by injectLazy()
 
     private var waitingInstall = AtomicReference<Entry?>(null)
     // KMK -->
@@ -62,7 +62,7 @@ abstract class Installer(private val service: Service) {
      */
     @CallSuper
     open fun processEntry(entry: Entry) {
-        extensionManager.setInstalling(entry.downloadId)
+        updateInstallStep(entry.downloadId, InstallStep.Installing)
     }
 
     /**
@@ -85,7 +85,7 @@ abstract class Installer(private val service: Service) {
     fun continueQueue(resultStep: InstallStep) {
         val completedEntry = waitingInstall.exchange(null)
         if (completedEntry != null) {
-            extensionManager.updateInstallStep(completedEntry.downloadId, resultStep)
+            updateInstallStep(completedEntry.downloadId, resultStep)
             checkQueue()
         }
     }
@@ -119,7 +119,7 @@ abstract class Installer(private val service: Service) {
     @CallSuper
     open fun onDestroy() {
         LocalBroadcastManager.getInstance(service).unregisterReceiver(cancelReceiver)
-        queue.forEach { extensionManager.updateInstallStep(it.downloadId, InstallStep.Error) }
+        queue.forEach { updateInstallStep(it.downloadId, InstallStep.Error) }
         queue.clear()
         waitingInstall.store(null)
     }
@@ -145,7 +145,7 @@ abstract class Installer(private val service: Service) {
                 this.waitingInstall.store(null)
                 checkQueue()
             }
-            extensionManager.updateInstallStep(downloadId, InstallStep.Idle)
+            updateInstallStep(downloadId, InstallStep.Idle)
         }
     }
 
@@ -163,6 +163,12 @@ abstract class Installer(private val service: Service) {
     }
 
     companion object {
+        // Each manager ignores IDs without an active download in its own installer.
+        fun updateInstallStep(downloadId: Long, step: InstallStep) {
+            Injekt.get<ExtensionManager>().updateInstallStep(downloadId, step)
+            Injekt.get<AnimeExtensionManager>().updateInstallStep(downloadId, step)
+        }
+
         private const val ACTION_CANCEL_QUEUE = "Installer.action.CANCEL_QUEUE"
         private const val EXTRA_DOWNLOAD_ID = "Installer.extra.DOWNLOAD_ID"
 
