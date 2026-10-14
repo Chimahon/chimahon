@@ -1031,6 +1031,11 @@ class ReaderViewModel(
     fun onChapterEdge(direction: NovelTurnDirection): Boolean {
         val target = if (direction == NovelTurnDirection.NEXT) index + 1 else index - 1
         if (target !in 0 until chapterCount) {
+            // The final chapter has no destination to confirm, but paging past
+            // its end still completes it even if the last page reports < 100%.
+            if (direction == NovelTurnDirection.NEXT && index in 0 until chapterCount) {
+                saveBookmark(1.0)
+            }
             if (!isLocalBook) chapterTransition = NovelChapterTransition(index, null, direction)
             return false
         }
@@ -1055,9 +1060,10 @@ class ReaderViewModel(
     }
 
     fun nextChapter(): Boolean {
-        if (index >= chapterCount - 1) return false
+        if (index !in 0 until chapterCount) return false
         // Paging past the last page genuinely finishes the chapter.
         saveBookmark(1.0)
+        if (index >= chapterCount - 1) return false
         loadChapter(index + 1, 0.0)
         return true
     }
@@ -1391,8 +1397,9 @@ class ReaderViewModel(
         // Manga per-page `updateChapter`: mirror position + read flag into the
         // chapter row (repos absent standalone → sidecar only).
         if (novelRepos != null && hasMoved) {
+            val chapterIndex = index
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching { persistChapterRow(index, progress, characterCount) }
+                runCatching { persistChapterRow(chapterIndex, progress, characterCount) }
                     .onFailure { Log.w("NovelReader", "persist failed", it) }
             }
         }
