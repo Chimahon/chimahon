@@ -6,6 +6,8 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.plugin.NovelPluginManager
 import chimahon.novel.plugin.SimpleLNReaderSource
+import chimahon.novel.plugin.isNovelLanguageEnabled
+import chimahon.novel.plugin.normalizeNovelLanguage
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.util.system.LocaleHelper
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchIO
+import tachiyomi.domain.novel.model.Novel
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -39,7 +42,7 @@ class NovelSourcesScreenModel(
 
                 sources
                     .filter { it.id.toString() !in disabledSources }
-                    .filter { it.lang == "all" || it.lang in enabledLanguages || "all" in enabledLanguages || enabledLanguages.isEmpty() }
+                    .filter { it.id == Novel.LOCAL_SOURCE_ID || isNovelLanguageEnabled(it.lang, enabledLanguages) }
                     .map { source ->
                         NovelSourceUiModel(
                             source = source,
@@ -50,7 +53,7 @@ class NovelSourcesScreenModel(
                     .sortedWith(
                         compareBy(String.CASE_INSENSITIVE_ORDER) { it.source.name },
                     )
-                    .groupBy { if (it.isPinned) PINNED_KEY else it.source.lang }
+                    .groupBy { if (it.isPinned) PINNED_KEY else normalizeNovelLanguage(it.source.lang) }
                     .toSortedMap { first, second ->
                         when {
                             first == PINNED_KEY && second != PINNED_KEY -> -1

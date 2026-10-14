@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.browse.novelextension
 import android.app.Application
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import chimahon.novel.plugin.isNovelLanguageEnabled
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.components.SEARCH_DEBOUNCE_MILLIS
@@ -114,7 +115,7 @@ class NovelExtensionsScreenModel(
                             (_installedApk + jsInstalled).none { it.pkgName == extension.pkgName } &&
                                 _untrustedApk.none { it.pkgName == extension.pkgName } &&
                                 (showNsfwSources || !extension.isNsfw) &&
-                                (extension.lang == "all" || extension.lang in enabledLanguages || "all" in enabledLanguages || enabledLanguages.isEmpty())
+                                isNovelLanguageEnabled(extension.lang, enabledLanguages)
                         }
                         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
 

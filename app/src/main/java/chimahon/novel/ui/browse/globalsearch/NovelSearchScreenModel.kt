@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import chimahon.novel.manager.NovelSourceManager
+import chimahon.novel.plugin.isNovelLanguageEnabled
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.util.ioCoroutineScope
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
@@ -22,6 +23,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.toggle
+import tachiyomi.domain.novel.model.Novel
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.Executors
@@ -35,8 +37,6 @@ abstract class NovelSearchScreenModel(
     private val coroutineDispatcher = Executors.newFixedThreadPool(5).asCoroutineDispatcher()
     private var searchJob: Job? = null
 
-    private val enabledLanguages = preferences.enabledNovelLanguages().get()
-    private val disabledSources = preferences.disabledNovelSources().get()
     protected val pinnedSources = preferences.pinnedNovelSources().get()
 
     private var lastQuery: String? = null
@@ -59,8 +59,11 @@ abstract class NovelSearchScreenModel(
     }
 
     open fun getEnabledSources(): List<NovelsPageSource> {
+        val enabledLanguages = preferences.enabledNovelLanguages().get()
+        val disabledSources = preferences.disabledNovelSources().get()
         return novelSourceManager.getCatalogueSources()
-            .filter { it.lang in enabledLanguages && "${it.id}" !in disabledSources }
+            .filter { it.id == Novel.LOCAL_SOURCE_ID || isNovelLanguageEnabled(it.lang, enabledLanguages) }
+            .filter { "${it.id}" !in disabledSources }
             .sortedWith(
                 compareBy(
                     { "${it.id}" !in pinnedSources },
