@@ -34,6 +34,7 @@ internal data class SentenceAudioInputSpec(
     val headers: List<Pair<String, String>>,
     val audioStreamIndex: Int? = null,
     val origin: SentenceAudioInputOrigin,
+    val forceMpegTs: Boolean = false,
 )
 
 internal data class SentenceAudioInputSnapshot(
@@ -77,6 +78,10 @@ private fun stableLocalFile(value: String): Boolean {
 }
 
 internal object SentenceAudioInputResolver {
+    private fun supportsStreamArguments(snapshot: SentenceAudioInputSnapshot): Boolean =
+        snapshot.ffmpegVideoArgs.isEmpty() && snapshot.ffmpegStreamArgs.size <= 1 &&
+            snapshot.ffmpegStreamArgs.all { (name, value) -> name == "force_mpegts" && (value == "0" || value == "1") }
+
     fun resolve(snapshot: SentenceAudioInputSnapshot): SentenceAudioInputSpec? =
         when (val resolution = resolveForCapture(snapshot)) {
             is SentenceAudioInputResolution.Available -> resolution.input
@@ -91,6 +96,23 @@ internal object SentenceAudioInputResolver {
             return SentenceAudioInputResolution.Unavailable(AnkiSentenceAudioFailure.TRACK_MAPPING_UNAVAILABLE)
         }
         return resolveOriginalVideo(snapshot)
+    }
+
+    fun validationSummary(snapshot: SentenceAudioInputSnapshot): String {
+        val reason = when {
+            !snapshot.selectedAudioIsExternal && snapshot.selectedAudioId != null &&
+                snapshot.selectedAudioFfmpegIndex == null && snapshot.audioTrackCount != 1 -> "audio_track_mapping_unavailable"
+            snapshot.selectedAudioIsExternal && snapshot.seekable != true && !snapshot.torrentPlayback -> "not_seekable"
+            !supportsStreamArguments(snapshot) -> "custom_ffmpeg_options"
+            snapshot.seekable != true && !snapshot.torrentPlayback -> "not_seekable"
+            snapshot.selectedAudioIsExternal -> "external_audio_input_rejected"
+            snapshot.originalVideoValue.isBlank() && snapshot.playableValue.isNullOrBlank() -> "missing_video_input"
+            else -> "video_url_or_headers_rejected"
+        }
+        // Describe validation without exposing stream URLs, query tokens, or HTTP header values.
+        return "reason=$reason seekable=${snapshot.seekable} torrent=${snapshot.torrentPlayback} " +
+            "stream_options=${snapshot.ffmpegStreamArgs.size} video_options=${snapshot.ffmpegVideoArgs.size} " +
+            "audio_tracks=${snapshot.audioTrackCount} external_audio=${snapshot.selectedAudioIsExternal}"
     }
 
     fun resolvePlayableFallback(
@@ -111,7 +133,7 @@ internal object SentenceAudioInputResolver {
     }
 
     private fun resolveOriginalVideo(snapshot: SentenceAudioInputSnapshot): SentenceAudioInputResolution {
-        if (snapshot.ffmpegStreamArgs.isNotEmpty() || snapshot.ffmpegVideoArgs.isNotEmpty()) {
+        if (!supportsStreamArguments(snapshot)) {
             return SentenceAudioInputResolution.Unavailable(AnkiSentenceAudioFailure.SOURCE_UNAVAILABLE)
         }
         if (snapshot.torrentPlayback) {
@@ -146,7 +168,7 @@ internal object SentenceAudioInputResolver {
         if (snapshot.seekable != true && !snapshot.torrentPlayback) {
             return SentenceAudioInputResolution.Unavailable(AnkiSentenceAudioFailure.SOURCE_UNAVAILABLE)
         }
-        if (snapshot.ffmpegStreamArgs.isNotEmpty() || snapshot.ffmpegVideoArgs.isNotEmpty()) {
+        if (!supportsStreamArguments(snapshot)) {
             return SentenceAudioInputResolution.Unavailable(AnkiSentenceAudioFailure.SOURCE_UNAVAILABLE)
         }
         val externalValue = snapshot.selectedExternalAudioValue?.takeIf(String::isNotBlank)
@@ -171,7 +193,12 @@ internal object SentenceAudioInputResolver {
         if (isDash(raw) || isTransient(raw)) return null
         val normalized = normalizeInput(raw) ?: return null
         val headers = when (normalized.second) {
-            SentenceAudioInputKind.REMOTE_HTTP -> validateRemoteInput(normalized.first, snapshot.headers) ?: return null
+            SentenceAudioInputKind.REMOTE_HTTP -> validateRemoteInput(
+                normalized.first,
+                snapshot.headers,
+                allowHlsToken = origin != SentenceAudioInputOrigin.EXTERNAL_AUDIO &&
+                    snapshot.ffmpegStreamArgs.any { it.first == "force_mpegts" && it.second == "1" },
+            ) ?: return null
             SentenceAudioInputKind.LOCAL_FILE, SentenceAudioInputKind.CONTENT_URI -> emptyList()
         }
         val audioStreamIndex = if (origin == SentenceAudioInputOrigin.EXTERNAL_AUDIO || !snapshot.selectedAudioIsExternal) {
@@ -185,14 +212,22 @@ internal object SentenceAudioInputResolver {
             headers = headers,
             audioStreamIndex = audioStreamIndex,
             origin = origin,
+            forceMpegTs = origin != SentenceAudioInputOrigin.EXTERNAL_AUDIO &&
+                snapshot.ffmpegStreamArgs.any { it.first == "force_mpegts" && it.second == "1" },
         )
     }
 
-    private fun validateRemoteInput(value: String, headers: List<Pair<String, String>>): List<Pair<String, String>>? {
+    private fun validateRemoteInput(value: String, headers: List<Pair<String, String>>, allowHlsToken: Boolean): List<Pair<String, String>>? {
         val uri = runCatching { URI(value) }.getOrNull() ?: return null
         val host = uri.host?.lowercase(Locale.ROOT)
         val scheme = uri.scheme?.lowercase(Locale.ROOT)
-        if (!uri.userInfo.isNullOrBlank() || host.isNullOrBlank() || hasRejectedValidationQuery(uri.rawQuery.orEmpty(), host, scheme)) return null
+        if (!uri.userInfo.isNullOrBlank() || host.isNullOrBlank() || hasRejectedValidationQuery(
+                uri.rawQuery.orEmpty(),
+                host,
+                scheme,
+                allowHlsToken = allowHlsToken && scheme == "https" && isHlsLikeInput(value),
+            )
+        ) return null
         return headers.takeIf { it.all(::isAllowedHeader) }
     }
 
@@ -211,11 +246,11 @@ internal object SentenceAudioInputResolver {
             value.none { it == '\u0000' || it == '\r' || it == '\n' || (it.code < 0x20 && it != '\t') }
     }
 
-    private fun hasRejectedValidationQuery(query: String, host: String, scheme: String?): Boolean = query.split('&').any { parameter ->
+    private fun hasRejectedValidationQuery(query: String, host: String, scheme: String?, allowHlsToken: Boolean): Boolean = query.split('&').any { parameter ->
         if (parameter.isBlank()) return@any false
         val name = runCatching { URLDecoder.decode(parameter.substringBefore('='), StandardCharsets.UTF_8.name()).lowercase(Locale.ROOT) }.getOrNull()
             ?: return true
-        name in rejectedValidationQueryNames ||
+        (name in rejectedValidationQueryNames && !(name == "token" && allowHlsToken)) ||
             (name in signedMediaQueryNames && (scheme != "https" || !host.isYouTubeVideoCdn())) ||
             sensitiveQueryPrefixes.any(name::startsWith)
     }
@@ -269,9 +304,10 @@ internal object SentenceAudioFfmpegArguments {
     }.toTypedArray()
     private fun MutableList<String>.addInputOptions(input: SentenceAudioInputSpec, tlsCaFile: String?) {
         if (input.kind == SentenceAudioInputKind.REMOTE_HTTP) { require(!tlsCaFile.isNullOrBlank()); add("-rw_timeout"); add("15000000") }
-        if (isHlsLikeInput(input.value)) {
+        if (isHlsLikeInput(input.value) || input.forceMpegTs) {
             add("-allowed_extensions"); add("ALL"); add("-allowed_segment_extensions"); add("ALL"); add("-extension_picky"); add("0")
         }
+        if (input.forceMpegTs) { add("-force_mpegts"); add("1") }
         if (input.headers.isNotEmpty()) { add("-headers"); add(input.headers.joinToString("") { "${it.first}: ${it.second}\r\n" }) }
     }
     private fun Double.seconds() = String.format(Locale.ROOT, "%.6f", this).trimEnd('0').trimEnd('.')
@@ -482,11 +518,16 @@ internal class SentenceAudioCaptureService(
         val resolved = SentenceAudioInputResolver.resolveForCapture(snapshot)
         val original = when (resolved) {
             is SentenceAudioInputResolution.Available -> resolved.input
-            is SentenceAudioInputResolution.Unavailable -> return unavailable(
-                resolved.failure,
-                null,
-                SentenceAudioDiagnosticStage.REQUEST_VALIDATION,
-            )
+            is SentenceAudioInputResolution.Unavailable -> {
+                logcat(LogPriority.WARN) {
+                    "[sentence-audio] validation_failed=${resolved.failure} ${SentenceAudioInputResolver.validationSummary(snapshot)}"
+                }
+                return unavailable(
+                    resolved.failure,
+                    null,
+                    SentenceAudioDiagnosticStage.REQUEST_VALIDATION,
+                )
+            }
         }
         return withTimeoutOrNull(timeoutMillis) {
             withContext(ioDispatcher) {
