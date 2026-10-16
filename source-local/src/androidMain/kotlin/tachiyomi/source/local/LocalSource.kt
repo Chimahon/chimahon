@@ -21,6 +21,7 @@ import mihon.core.archive.ArchiveReader
 import mihon.core.archive.ZipWriter
 import mihon.core.archive.archiveReader
 import mihon.core.archive.epubReader
+import mihon.core.archive.pdfReader
 import nl.adaptivity.xmlutil.core.AndroidXmlReader
 import nl.adaptivity.xmlutil.serialization.XML
 import tachiyomi.core.common.i18n.stringResource
@@ -295,6 +296,7 @@ class LocalSource(
     }
 
     private fun <T> getComicInfoForChapter(chapter: UniFile, block: (InputStream, ArchiveReader?) -> T): T? {
+        if (!chapter.isDirectory && chapter.extension.equals("pdf", true)) return null
         if (chapter.isDirectory) {
             return chapter.findFile(COMIC_INFO_FILE)?.let { file ->
                 file.openInputStream().use { block(it, /* SY --> */ null /* SY <-- */) }
@@ -365,7 +367,10 @@ class LocalSource(
         val chapters = fileSystem.getFilesInMangaDirectory(manga.url)
             // Only keep supported formats
             .filterNot { it.name.orEmpty().startsWith('.') }
-            .filter { it.isDirectory || Archive.isSupported(it) || it.extension.equals("epub", true) }
+            .filter {
+                it.isDirectory || Archive.isSupported(it) ||
+                    it.extension.equals("epub", true) || it.extension.equals("pdf", true)
+            }
             .map { chapterFile ->
                 SChapter.create().apply {
                     url = "${manga.url}/${chapterFile.name}"
@@ -458,6 +463,11 @@ class LocalSource(
                         val entry = epub.getImagesFromPages().firstOrNull()
 
                         entry?.let { coverManager.update(manga, epub.getInputStream(it)!!) }
+                    }
+                }
+                is Format.Pdf -> {
+                    format.file.pdfReader(context).use { pdf ->
+                        if (pdf.pageCount > 0) pdf.getInputStream(0).use { coverManager.update(manga, it) } else null
                     }
                 }
             }
