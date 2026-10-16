@@ -8,7 +8,6 @@ package eu.kanade.tachiyomi.data.connections.discord
 
 import androidx.annotation.StringRes
 import eu.kanade.tachiyomi.R
-import eu.kanade.tachiyomi.util.system.isPreviewBuildType
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
@@ -20,7 +19,7 @@ const val RICH_PRESENCE_TAG = "discord_rpc"
 internal const val RICH_PRESENCE_APPLICATION_ID = "1424627741256585271"
 
 val DOWNLOAD_BUTTON_LABEL_RES = R.string.discord_download_button
-const val DOWNLOAD_BUTTON_URL = "https://komikku-app.github.io/download/"
+const val DOWNLOAD_BUTTON_URL = "https://github.com/Chimahon/chimahon/releases/latest"
 const val DISCORD_BUTTON_LABEL = "Discord"
 const val DISCORD_BUTTON_URL = "https://discord.gg/Ak2sW9Nvr9"
 
@@ -196,7 +195,7 @@ enum class DiscordScreen(
     @StringRes val details: Int,
     val imageUrl: String,
 ) {
-    APP(R.string.app_name, R.string.discord_status_using, KOMIKKU_IMAGE),
+    APP(R.string.app_name, R.string.discord_status_using, CHIMAHON_IMAGE_URL),
     LIBRARY(R.string.label_library, R.string.discord_status_browsing, LIBRARY_IMAGE_URL),
     UPDATES(R.string.label_recent_updates, R.string.discord_status_scrolling, UPDATES_IMAGE_URL),
     HISTORY(R.string.label_recent_manga, R.string.discord_status_scrolling, HISTORY_IMAGE_URL),
@@ -208,10 +207,7 @@ enum class DiscordScreen(
 }
 
 // Constants for standard Rich Presence image urls
-private const val KOMIKKU_IMAGE_URL = "emojis/1365538288894738532.webp?quality=lossless"
-private const val KOMIKKU_PREVIEW_IMAGE_URL = "emojis/1365538288894738532.webp?quality=lossless"
-
-private val KOMIKKU_IMAGE = if (isPreviewBuildType) KOMIKKU_PREVIEW_IMAGE_URL else KOMIKKU_IMAGE_URL
+private const val CHIMAHON_IMAGE_URL = "https://raw.githubusercontent.com/Chimahon/chimahon/main/app/src/main/res/drawable/chimahon.png"
 private const val LIBRARY_IMAGE_URL = "emojis/1365262809050644591.webp?quality=lossless"
 private const val UPDATES_IMAGE_URL = "emojis/1365261957883625492.webp?quality=lossless"
 private const val HISTORY_IMAGE_URL = "emojis/1365262076787949598.webp?quality=lossless"

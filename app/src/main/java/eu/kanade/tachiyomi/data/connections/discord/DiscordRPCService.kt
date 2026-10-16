@@ -258,6 +258,7 @@ class DiscordRPCService : Service() {
 
         private const val MP_PREFIX = "mp:"
         private const val EXTERNAL_PREFIX = "external/"
+        private var appIconAsset: String? = null
         private val json = Json {
             encodeDefaults = true
             allowStructuredMapKeys = true
@@ -371,6 +372,13 @@ class DiscordRPCService : Service() {
                 null
             }
 
+            val appIcon = appIconAsset ?: getDiscordThumbnail(
+                getRPCExternalAsset(),
+                DiscordScreen.APP.imageUrl,
+                incognito = false,
+            )?.also { appIconAsset = it }
+            val largeImage = if (imageUrl == DiscordScreen.APP.imageUrl) appIcon else imageUrl
+
             rpc?.updateRPC(
                 activity = Activity(
                     name = name,
@@ -379,8 +387,8 @@ class DiscordRPCService : Service() {
                     type = ActivityType.WATCHING.value,
                     timestamps = timestamps,
                     assets = Activity.Assets(
-                        largeImage = "$MP_PREFIX$imageUrl",
-                        smallImage = "$MP_PREFIX${DiscordScreen.APP.imageUrl}",
+                        largeImage = largeImage?.let { "$MP_PREFIX$it" },
+                        smallImage = appIcon?.let { "$MP_PREFIX$it" },
                         largeText = context.getString(
                             R.string.discord_status_description,
                             context.getString(discordScreen.details),

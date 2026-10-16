@@ -495,7 +495,7 @@ object SettingsDataScreen : SearchableSettings {
                 options = exportOptions,
                 onConfirm = { options ->
                     exportOptions = options
-                    saveFileLauncher.launch("komikku_library.csv")
+                    saveFileLauncher.launch("chimahon_library.csv")
                 },
                 onDismissRequest = { showDialog = false },
             )
