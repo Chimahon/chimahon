@@ -82,6 +82,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.download.NovelDownloadManager
 import chimahon.novel.ui.browse.BrowseNovelSourceScreen
 import chimahon.novel.ui.browse.BrowseNovelSourceScreenModel
+import chimahon.novel.ui.browse.NovelWebViewScreen
 import chimahon.novel.data.BookStorage
 import chimahon.novel.ui.reader.NovelReaderActivity
 import eu.kanade.domain.ui.UiPreferences
@@ -107,7 +108,6 @@ import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import eu.kanade.tachiyomi.ui.category.CategoryScreen
-import eu.kanade.tachiyomi.ui.webview.WebViewScreen
 import kotlinx.coroutines.launch
 import tachiyomi.domain.episode.service.missingEpisodesCount
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -518,7 +518,7 @@ data class NovelDetailScreen(
                                                 ?.takeIf { it.isNotBlank() }
                                                 ?.let { url ->
                                                     navigator.push(
-                                                        WebViewScreen(
+                                                        NovelWebViewScreen(
                                                             url = url,
                                                             initialTitle = state.novel.title,
                                                         ),

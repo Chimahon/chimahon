@@ -109,10 +109,9 @@ data class BrowseNovelSourceScreen(
             }
             if (!url.isNullOrBlank()) {
                 navigator.push(
-                    eu.kanade.tachiyomi.ui.webview.WebViewScreen(
+                    NovelWebViewScreen(
                         url = url,
                         initialTitle = source.name,
-                        sourceId = source.id,
                     ),
                 )
             }
