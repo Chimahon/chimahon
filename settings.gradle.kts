@@ -1,4 +1,17 @@
 pluginManagement {
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+            maven("https://storage.googleapis.com/r8-releases/raw") {
+                content { includeModule("com.android.tools", "r8") }
+            }
+        }
+        dependencies {
+            // Kotlin 2.4 requires D8/R8 9.1.29 or newer.
+            classpath("com.android.tools:r8:9.1.29")
+        }
+    }
     resolutionStrategy {
         eachPlugin {
             val regex = "com.android.(library|application)".toRegex()

@@ -23,6 +23,16 @@ android {
         }
     }
 
+    buildTypes {
+        getByName("debug") {
+            externalNativeBuild {
+                cmake {
+                    abiFilters("arm64-v8a")
+                }
+            }
+        }
+    }
+
     testOptions {
         unitTests {
             isReturnDefaultValues = true
