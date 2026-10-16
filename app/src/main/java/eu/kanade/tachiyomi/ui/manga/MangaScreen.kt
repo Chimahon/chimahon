@@ -51,6 +51,7 @@ import eu.kanade.presentation.manga.ChapterSettingsDialog
 import eu.kanade.presentation.manga.DuplicateMangaDialog
 import eu.kanade.presentation.manga.EditCoverAction
 import eu.kanade.presentation.manga.MangaScreen
+import eu.kanade.presentation.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.manga.components.ClearMangaDialog
 import eu.kanade.presentation.manga.components.ClearOcrCacheDialog
 import eu.kanade.presentation.manga.components.DeleteChaptersDialog
@@ -475,6 +476,7 @@ class MangaScreen(
                     successState.source.isLocal() &&
                         successState.processedChapters.any { !it.chapter.isOcrReady }
                 },
+            onOcrChapters = { screenModel.runChapterDownloadActions(it, ChapterDownloadAction.OCR) },
             // KMK <--
         )
 

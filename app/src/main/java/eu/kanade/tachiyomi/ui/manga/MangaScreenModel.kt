@@ -1445,7 +1445,15 @@ class MangaScreenModel(
         logcat {
             "MangaScreenModel: OCR requested chapters=${chaptersToProcess.joinToString { it.id.toString() }}"
         }
-        downloadManager.downloadChaptersWithOcr(state.manga, chaptersToProcess)
+        chaptersToProcess.groupBy { it.mangaId }.forEach { (mangaId, chapters) ->
+            val manga = state.mergedData?.manga?.get(mangaId) ?: state.manga.takeIf { it.id == mangaId }
+                ?: return@forEach
+            if (manga.isLocal()) {
+                ocrManager.queueChapters(manga, chapters, waitForDownload = false)
+            } else {
+                downloadManager.downloadChaptersWithOcr(manga, chapters)
+            }
+        }
     }
 
     private fun deleteOcrForChapters(items: List<ChapterList.Item>) {
