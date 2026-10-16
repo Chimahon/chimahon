@@ -1029,7 +1029,7 @@ object AnkiCardCreator {
             } else {
                 result.term.glossaries.filter { it.dictName.contains(dictionaryFilter, ignoreCase = true) }.toTypedArray()
             }
-            val entries = if (hasFirst) filtered.take(1).toTypedArray() else filtered
+            val entries = if (hasFirst) firstDictionaryGlossaries(filtered) else filtered
             return buildGlossaryPlain(entries, noDictTag = noDictTag)
         }
 
@@ -1239,7 +1239,7 @@ object AnkiCardCreator {
         }
 
         if (filteredGlossaries.isEmpty()) return ""
-        val entries = if (firstOnly) arrayOf(filteredGlossaries[0]) else filteredGlossaries
+        val entries = if (firstOnly) firstDictionaryGlossaries(filteredGlossaries) else filteredGlossaries
         val scopedStyles = buildScopedDictionaryStyles(entries.map { it.dictName }.toSet(), styles)
 
         val sb = StringBuilder()
@@ -1255,13 +1255,23 @@ object AnkiCardCreator {
         }
         sb.append("</ol>")
         sb.append("</div>")
-        if (scopedStyles.isNotEmpty()) {
-            sb.append("<style>")
-            sb.append(scopedStyles)
-            sb.append("</style>")
-        }
+        sb.append("<style>")
+        val lists = ".yomitan-glossary .glossary-list, .yomitan-glossary ul[data-sc-content=\"glossary\"]"
+        sb.append("$lists { display: inline; list-style: none; padding-left: 0; }")
+        val items = ".yomitan-glossary .glossary-list > li, .yomitan-glossary ul[data-sc-content=\"glossary\"] > li"
+        sb.append("$items { display: inline; }")
+        sb.append(".yomitan-glossary .glossary-list > li:not(:first-child)::before, ")
+        sb.append(".yomitan-glossary ul[data-sc-content=\"glossary\"] > li:not(:first-child)::before ")
+        sb.append("{ content: \" | \"; white-space: pre-wrap; color: #777; }")
+        sb.append(scopedStyles)
+        sb.append("</style>")
         return sb.toString()
     }
+
+    // A dictionary can supply several senses for the same term (for example JMnedict names).
+    private fun firstDictionaryGlossaries(entries: Array<GlossaryEntry>): Array<GlossaryEntry> =
+        entries.firstOrNull()?.dictName?.let { dictionary -> entries.filter { it.dictName == dictionary }.toTypedArray() }
+            ?: emptyArray()
 
     private fun buildScopedDictionaryStyles(
         dictionaryNames: Set<String>,
@@ -1627,7 +1637,7 @@ object AnkiCardCreator {
             // Only auto-wrap in UL if we are NOT already in a list-like tag
             val isListParent = parentTag == "ul" || parentTag == "ol" || parentTag == "li" || parentTag == "span" || parentTag == "td" || parentTag == "th"
             if (!isListParent) {
-                return """<ul style="margin: 0.2em 0; padding-left: 1.2em;">""" + (0 until arr.length()).joinToString("") {
+                return """<ul class="glossary-list">""" + (0 until arr.length()).joinToString("") {
                     "<li>${contentValueToHtml(arr.getString(it), dictionary, "li", exportMedia)}</li>"
                 } + "</ul>"
             }
