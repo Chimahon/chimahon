@@ -67,6 +67,7 @@ class NovelExtensionDetailsScreenModel(
         val iconUrl: String = "",
         val sourceId: Long = 0L,
         val isInstalled: Boolean = true,
+        val isBuiltIn: Boolean = false,
     )
 
     private val _state = MutableStateFlow<State?>(null)
@@ -74,7 +75,13 @@ class NovelExtensionDetailsScreenModel(
 
     init {
         screenModelScope.launch {
-            if (pkgName.startsWith("js.")) {
+            if (pkgName == chimahon.novel.opds.OpdsSource.PACKAGE_NAME) {
+                _state.value = State(
+                    name = "OPDS", version = "1.0", lang = "all",
+                    iconUrl = "android.resource://${Injekt.get<android.content.Context>().packageName}/${eu.kanade.tachiyomi.R.drawable.ic_opds}",
+                    sourceId = chimahon.novel.opds.OpdsSource.ID, isBuiltIn = true,
+                )
+            } else if (pkgName.startsWith("js.")) {
                 val id = pkgName.removePrefix("js.")
                 pluginManager.catalog.collectLatest { cat ->
                     val inst = cat.installed.find { it.descriptor.id == id }
@@ -115,6 +122,7 @@ class NovelExtensionDetailsScreenModel(
     }
 
     fun uninstall(onSuccess: () -> Unit) {
+        if (pkgName == chimahon.novel.opds.OpdsSource.PACKAGE_NAME) return
         screenModelScope.launch {
             if (pkgName.startsWith("js.")) {
                 pluginManager.uninstall(pkgName.removePrefix("js."))
@@ -190,7 +198,7 @@ data class NovelExtensionDetailsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
-                                text = "@LNReader",
+                                text = if (ext.isBuiltIn) "@Chimahon" else "@LNReader",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -211,7 +219,14 @@ data class NovelExtensionDetailsScreen(
                                 Text(stringResource(MR.strings.action_open_in_browser))
                             }
                         }
-                        if (ext.isInstalled) {
+                        if (ext.isBuiltIn) {
+                            OutlinedButton(
+                                onClick = { navigator.push(eu.kanade.tachiyomi.ui.browse.novel.NovelSourcePreferencesScreen(ext.sourceId)) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(androidx.compose.ui.res.stringResource(eu.kanade.tachiyomi.R.string.opds_settings))
+                            }
+                        } else if (ext.isInstalled) {
                             Button(
                                 onClick = { screenModel.uninstall { navigator.pop() } },
                                 modifier = Modifier.weight(1f),

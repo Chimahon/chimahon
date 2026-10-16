@@ -62,7 +62,10 @@ abstract class NovelSearchScreenModel(
         val enabledLanguages = preferences.enabledNovelLanguages().get()
         val disabledSources = preferences.disabledNovelSources().get()
         return novelSourceManager.getCatalogueSources()
-            .filter { it.id == Novel.LOCAL_SOURCE_ID || isNovelLanguageEnabled(it.lang, enabledLanguages) }
+            .filter {
+                it.id == Novel.LOCAL_SOURCE_ID || it.id == chimahon.novel.opds.OpdsSource.ID ||
+                    isNovelLanguageEnabled(it.lang, enabledLanguages)
+            }
             .filter { "${it.id}" !in disabledSources }
             .sortedWith(
                 compareBy(

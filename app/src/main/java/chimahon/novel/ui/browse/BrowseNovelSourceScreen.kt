@@ -86,6 +86,10 @@ data class BrowseNovelSourceScreen(
 
     @Composable
     override fun Content() {
+        if (sourceId == chimahon.novel.opds.OpdsSource.ID) {
+            chimahon.novel.opds.OpdsBrowseScreen().Content()
+            return
+        }
         val sourceManager = remember { Injekt.get<chimahon.novel.manager.NovelSourceManager>() }
         val sources by sourceManager.catalogueSources.collectAsState(initial = emptyList())
         val source = remember(sources, sourceId) { sources.find { it.id == sourceId } }
@@ -252,7 +256,7 @@ data class BrowseNovelSourceScreen(
 }
 
 @Composable
-private fun BrowseNovelSourceContent(
+internal fun BrowseNovelSourceContent(
     sourceId: Long,
     novels: List<SNNovel>,
     isLoading: Boolean,

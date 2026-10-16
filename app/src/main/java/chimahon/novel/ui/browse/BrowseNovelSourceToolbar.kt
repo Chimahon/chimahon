@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -38,6 +39,7 @@ fun BrowseNovelSourceToolbar(
     onSearch: (String) -> Unit,
     onWebViewClick: (() -> Unit)? = null,
     scrollBehavior: TopAppBarScrollBehavior? = null,
+    onSettingsClick: (() -> Unit)? = null,
 ) {
     val title = source?.name
     var selectingDisplayMode by remember { mutableStateOf(false) }
@@ -50,6 +52,11 @@ fun BrowseNovelSourceToolbar(
         onSearch = onSearch,
         onClickCloseSearch = { onSearchQueryChange(null) },
         actions = {
+            if (onSettingsClick != null) {
+                IconButton(onClick = onSettingsClick) {
+                    Icon(Icons.Outlined.Settings, contentDescription = androidx.compose.ui.res.stringResource(eu.kanade.tachiyomi.R.string.opds_settings))
+                }
+            }
             if (onWebViewClick != null) {
                 IconButton(onClick = onWebViewClick) {
                     Icon(Icons.Outlined.Public, contentDescription = stringResource(MR.strings.action_open_in_web_view))

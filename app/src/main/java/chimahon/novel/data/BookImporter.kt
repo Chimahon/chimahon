@@ -28,6 +28,7 @@ object BookImporter {
         categoryIds: List<String>? = null,
         targetRoot: File? = null,
         targetRootUni: com.hippo.unifile.UniFile? = null,
+        stableFolderId: String? = null,
     ): ImportResult = withContext(Dispatchers.IO) {
         // Temps are always cache-resident; success paths consume them
         // (rename/delete), so anything left in `finally` is failed-import
@@ -75,6 +76,14 @@ object BookImporter {
             // targets below). Reader layout is applied at render time;
             // imported markup stays untouched.
             normaliseTree(workDir)
+
+            if (stableFolderId != null) {
+                require(stableFolderId.matches(Regex("opds_[0-9a-f]{32}"))) { "Invalid book folder identity" }
+                return@withContext importStableBook(
+                    context, stableFolderId, workFile, workDir, title, author,
+                    extractedBook.language, categoryIds.orEmpty(), targetRoot, targetRootUni,
+                )
+            }
 
             // UniFile-first: one copy path for file and tree schemes alike.
             // Public holds ONLY the .epub (extraction always lives in the
@@ -196,6 +205,79 @@ object BookImporter {
             tempFile?.takeIf { it.exists() }?.delete()
             tempExtractDir?.takeIf { it.exists() }?.deleteRecursively()
         }
+    }
+
+    /** OPDS-only replacement: validate and stage first; never delete the previous book on failure. */
+    private fun importStableBook(
+        context: Context,
+        id: String,
+        epub: File,
+        extracted: File,
+        title: String,
+        author: String,
+        language: String?,
+        categories: List<String>,
+        targetRoot: File?,
+        publicRoot: com.hippo.unifile.UniFile?,
+    ): ImportResult {
+        val transaction = java.util.UUID.randomUUID().toString()
+        if (publicRoot != null) {
+            val directory = publicRoot.findFile(id)?.takeIf { it.isDirectory }
+                ?: publicRoot.createDirectory(id) ?: error("Could not create book folder")
+            val name = "$id.epub"
+            val staged = directory.createFile("$transaction.part") ?: error("Could not stage book")
+            val previous = directory.findFile(name)
+            var backedUp = false
+            var committed = false
+            try {
+                epub.inputStream().use { input ->
+                    staged.openOutputStream()?.use { output -> input.copyTo(output) }
+                        ?: error("Could not write EPUB")
+                }
+                check(staged.length() == epub.length()) { "Incomplete EPUB copy" }
+                if (previous != null) {
+                    check(previous.renameTo("$transaction.backup")) { "Could not preserve previous EPUB" }
+                    backedUp = true
+                }
+                check(staged.renameTo(name)) { "Could not finish EPUB import" }
+                committed = true
+                if (backedUp) previous?.delete()
+                // Source timestamps can have low resolution; force a fresh extraction after replacement.
+                File(chimahon.novel.source.LocalNovelFiles.extractedCacheDir(context, id), ".staged").delete()
+            } catch (error: Throwable) {
+                if (!committed && backedUp) previous?.renameTo(name)
+                throw error
+            } finally {
+                // After rename, the UniFile points to the final EPUB; delete only a remaining staging file.
+                directory.findFile("$transaction.part")?.delete()
+            }
+        } else {
+            val root = targetRoot ?: BookStorage.getBooksDirectory(context).apply { mkdirs() }
+            val destination = File(root, id)
+            val staged = File(root, ".$id.$transaction.part")
+            val backup = File(root, ".$id.$transaction.backup")
+            var backedUp = false
+            var committed = false
+            try {
+                extracted.copyRecursively(staged, overwrite = false)
+                epub.copyTo(File(staged, "$id.epub"))
+                check(BookStorage.hasImportedBookContent(staged)) { "Incomplete extracted EPUB" }
+                if (destination.exists()) {
+                    check(destination.renameTo(backup)) { "Could not preserve previous book" }
+                    backedUp = true
+                }
+                check(staged.renameTo(destination)) { "Could not finish EPUB import" }
+                committed = true
+            } finally {
+                staged.deleteRecursively()
+                if (!committed && backedUp) backup.renameTo(destination)
+                if (committed) backup.deleteRecursively()
+            }
+        }
+        return ImportResult(metadata = BookMetadata(
+            id = id, title = title, author = author, folder = id,
+            hash = id, lang = language, categoryIds = categories,
+        ))
     }
 
     /**

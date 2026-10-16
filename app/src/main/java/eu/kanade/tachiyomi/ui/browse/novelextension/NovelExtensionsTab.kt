@@ -86,7 +86,9 @@ fun novelExtensionsTab(
                 contentPadding = contentPadding,
                 searchQuery = state.searchQuery,
                 onLongClickItem = { extension ->
-                    when (extension) {
+                    if (extension.pkgName == chimahon.novel.opds.OpdsSource.PACKAGE_NAME) {
+                        navigator.push(eu.kanade.tachiyomi.ui.browse.novel.NovelSourcePreferencesScreen(chimahon.novel.opds.OpdsSource.ID))
+                    } else when (extension) {
                         is Extension.Available -> novelExtensionsScreenModel.installExtension(extension)
                         else -> {
                             if (context.isPackageInstalled(extension.pkgName)) {

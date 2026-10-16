@@ -46,7 +46,7 @@ class SimpleLNReaderSource(
     val siteUrl: String,
     private val jsCode: String,
     val codeUrl: String = "",
-) : NovelsPageSource, NovelConfigurableSource, HttpNovelSource {
+) : NovelsPageSource, NovelConfigurableSource, HttpNovelSource, eu.kanade.tachiyomi.sourcenovel.NovelFileSource {
     override val id: Long = pluginId.hashCode().toLong() and Long.MAX_VALUE
     override val name: String = pluginName
     override val lang: String = pluginLang
@@ -562,7 +562,7 @@ class SimpleLNReaderSource(
 
     // ---- File/download sources (PluginBase.getDownloadUrl) ----
 
-    suspend fun hasDownloadSupport(): Boolean {
+    override suspend fun hasDownloadSupport(): Boolean {
         return try {
             withPlugin { instance ->
                 evaluateToString(instance, "typeof plugin.getDownloadUrl === 'function'") == "true"
@@ -575,7 +575,7 @@ class SimpleLNReaderSource(
      * `getDownloadUrl(path, format?)`. Returns null when unsupported,
      * failed, or empty (e.g. file-less metadata entries).
      */
-    suspend fun getDownloadUrl(path: String, format: String? = null): String? {
+    override suspend fun getDownloadUrl(path: String, format: String?): String? {
         return try {
             withPlugin { instance ->
                 val quotedPath = jsonQuote(path)
@@ -660,5 +660,4 @@ class SimpleLNReaderSource(
         }
     }
 }
-
 

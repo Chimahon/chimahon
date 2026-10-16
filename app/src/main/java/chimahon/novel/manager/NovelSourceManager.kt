@@ -28,6 +28,7 @@ class NovelSourceManager(
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     val catalogueSources: Flow<List<NovelsPageSource>> = allSourcesFlow.map { it.values.toList() }
+    private val opdsSource = chimahon.novel.opds.OpdsSource(Injekt.get<android.content.Context>().applicationContext)
 
     init {
         // Stubs for uninstalled extensions, kept warm so detail screens never
@@ -54,7 +55,7 @@ class NovelSourceManager(
                 val localSource = NovelLocalSource(
                     Injekt.get<android.content.Context>().applicationContext,
                 )
-                val sources = listOf(localSource) + installedSources
+                val sources = listOf(localSource, opdsSource) + installedSources
                 allSourcesFlow.value = sources.associateBy { it.id }
 
                 // Record stub info for every loaded source

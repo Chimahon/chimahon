@@ -560,6 +560,19 @@ data class NovelDetailScreen(
                                         download = state.fileDownload,
                                         onDownload = screenModel::downloadBookFile,
                                         onDelete = screenModel::deleteDownloadedBook,
+                                        onOpen = if (source is chimahon.novel.opds.OpdsSource) {
+                                            {
+                                                val folder = (state.fileDownload as? FileDownloadState.Done)?.folder
+                                                if (folder != null) {
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val directory = chimahon.novel.source.LocalNovelFiles.ensureReadableDir(context, folder)
+                                                        if (directory != null) withContext(Dispatchers.Main) {
+                                                            NovelReaderActivity.launch(context, directory)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } else null,
                                     )
                                 }
                             }
@@ -834,6 +847,7 @@ private fun FileDownloadCard(
     download: FileDownloadState,
     onDownload: () -> Unit,
     onDelete: () -> Unit,
+    onOpen: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
@@ -873,6 +887,9 @@ private fun FileDownloadCard(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
             is FileDownloadState.Done -> {
+                if (onOpen != null) {
+                    Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) { Text("Read") }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -888,7 +905,7 @@ private fun FileDownloadCard(
                             text = "Saved to Library",
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        download.folder?.takeIf { it.isNotBlank() }?.let { folder ->
+                        download.folder?.takeIf { it.isNotBlank() && !it.startsWith("opds_") }?.let { folder ->
                             Text(
                                 text = "Folder: $folder",
                                 style = MaterialTheme.typography.bodySmall,

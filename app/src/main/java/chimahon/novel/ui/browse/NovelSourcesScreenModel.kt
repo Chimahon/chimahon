@@ -42,7 +42,10 @@ class NovelSourcesScreenModel(
 
                 sources
                     .filter { it.id.toString() !in disabledSources }
-                    .filter { it.id == Novel.LOCAL_SOURCE_ID || isNovelLanguageEnabled(it.lang, enabledLanguages) }
+                    .filter {
+                        it.id == Novel.LOCAL_SOURCE_ID || it.id == chimahon.novel.opds.OpdsSource.ID ||
+                            isNovelLanguageEnabled(it.lang, enabledLanguages)
+                    }
                     .map { source ->
                         NovelSourceUiModel(
                             source = source,

@@ -1,0 +1,16 @@
+<resources>
+    <string name="opds_catalogs">Catalogs</string>
+    <string name="opds_add_catalog">Add catalog</string>
+    <string name="opds_catalog_name">Catalog name</string>
+    <string name="opds_catalog_url">OPDS feed URL</string>
+    <string name="opds_username">Username (optional)</string>
+    <string name="opds_password">Password (optional)</string>
+    <string name="opds_kavita_setup_help">For Kavita, copy your OPDS URL from Settings → 3rd Party Clients and paste the full URL here. It includes your auth key; leave username and password blank. Other catalogs may require a username and password.</string>
+    <string name="opds_remove_catalog">Remove catalog</string>
+    <string name="opds_remove_catalog_summary">Downloaded books remain available.</string>
+    <string name="opds_invalid_url">Enter a valid HTTP or HTTPS feed URL and a catalog name.</string>
+    <string name="opds_empty">Add an OPDS catalog in source settings to browse your books.</string>
+    <string name="opds_search_unavailable">This catalog does not advertise search.</string>
+    <string name="opds_settings">Source settings</string>
+    <string name="opds_load_more">Load more</string>
+</resources>

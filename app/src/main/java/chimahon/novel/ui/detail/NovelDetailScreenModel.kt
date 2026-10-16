@@ -9,10 +9,10 @@ import androidx.core.content.FileProvider
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import chimahon.novel.data.BookImporter
+import chimahon.novel.data.BookStorage
 import chimahon.novel.download.NovelDownloadManager
 import chimahon.novel.interactor.RegisterLocalNovelHome
 import chimahon.novel.manager.NovelSourceManager
-import chimahon.novel.plugin.SimpleLNReaderSource
 import chimahon.novel.source.LocalNovelFiles
 import eu.kanade.presentation.entries.DownloadAction
 import eu.kanade.tachiyomi.network.NetworkHelper
@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import tachiyomi.core.common.preference.CheckboxState
@@ -150,10 +151,19 @@ class NovelDetailScreenModel(
         loadDetails()
         screenModelScope.launch {
             val downloadCapable =
-                (source as? SimpleLNReaderSource)?.hasDownloadSupport() == true
+                (source as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource)?.hasDownloadSupport() == true
             mutableState.value = mutableState.value.copy(
                 isDownloadSource = downloadCapable,
             )
+            if (source is chimahon.novel.opds.OpdsSource) {
+                val book = runCatching { source.store.book(mutableState.value.novel.url) }.getOrNull()
+                if (book != null && (LocalNovelFiles.hasPublicBookEpub(app, book.folder) ||
+                    BookStorage.hasImportedBookContent(BookStorage.getBookDirectory(app, book.folder)))) {
+                    mutableState.value = mutableState.value.copy(
+                        fileDownload = FileDownloadState.Done(book.title, book.folder, book.folder),
+                    )
+                }
+            }
         }
     }
 
@@ -468,7 +478,7 @@ class NovelDetailScreenModel(
      * through the same [BookImporter] path as manual EPUB imports.
      */
     fun downloadBookFile() {
-        val jsSource = source as? SimpleLNReaderSource ?: return
+        val fileSource = source as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource ?: return
         if (mutableState.value.fileDownload is FileDownloadState.Downloading) return
         // IO: blocking OkHttp execute() must never run on Main
         // (NetworkOnMainThreadException).
@@ -476,27 +486,37 @@ class NovelDetailScreenModel(
             mutableState.value = mutableState.value.copy(
                 fileDownload = FileDownloadState.Downloading,
             )
+            var temporary: java.io.File? = null
             try {
                 val novel = mutableState.value.novel
-                val fileUrl = jsSource.getDownloadUrl(novel.url)
+                val fileUrl = fileSource.getDownloadUrl(novel.url)
                 if (fileUrl.isNullOrBlank()) {
                     mutableState.value = mutableState.value.copy(
                         fileDownload = FileDownloadState.Error("No downloadable file for this book"),
                     )
                     return@launch
                 }
-                val client = Injekt.get<NetworkHelper>().client
-                val request = okhttp3.Request.Builder()
+                val client = fileSource.downloadClient() ?: Injekt.get<NetworkHelper>().client
+                val requestBuilder = okhttp3.Request.Builder()
                     .url(fileUrl)
                     .header("User-Agent", "Mozilla/5.0")
-                    .build()
-                val tmpFile = java.io.File(app.cacheDir, "book_${System.currentTimeMillis()}.epub")
-                client.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful || resp.body.contentLength() <= 0) {
+                fileSource.downloadHeaders(novel.url).forEach { (name, value) -> requestBuilder.header(name, value) }
+                val tmpFile = java.io.File(app.cacheDir, "book_${java.util.UUID.randomUUID()}.epub")
+                temporary = tmpFile
+                chimahon.novel.opds.OpdsNetwork.read(client.newCall(requestBuilder.build())) { resp ->
+                    if (!resp.isSuccessful || resp.body.contentLength() == 0L) {
                         throw IllegalStateException("Download failed (HTTP ${resp.code})")
                     }
                     resp.body.byteStream().use { input ->
-                        tmpFile.outputStream().use { output -> input.copyTo(output) }
+                        tmpFile.outputStream().use { output ->
+                            val buffer = ByteArray(8192)
+                            while (true) {
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                            }
+                        }
                     }
                 }
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.provider", tmpFile)
@@ -504,6 +524,7 @@ class NovelDetailScreenModel(
                     app,
                     uri,
                     targetRootUni = LocalNovelFiles.publicRootUni(app),
+                    stableFolderId = fileSource.downloadFolderId(novel.url),
                 )
                 runCatching { tmpFile.delete() }
                 val metadata = result.metadata
@@ -532,10 +553,12 @@ class NovelDetailScreenModel(
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                logcat(LogPriority.WARN, e) { "Book file download failed" }
+                if (source !is chimahon.novel.opds.OpdsSource) logcat(LogPriority.WARN, e) { "Book file download failed" }
                 mutableState.value = mutableState.value.copy(
-                    fileDownload = FileDownloadState.Error(e.message ?: "Download failed"),
+                    fileDownload = FileDownloadState.Error(if (source is chimahon.novel.opds.OpdsSource) "OPDS download failed. Check your connection and catalog permissions." else e.message ?: "Download failed"),
                 )
+            } finally {
+                temporary?.delete()
             }
         }
     }
