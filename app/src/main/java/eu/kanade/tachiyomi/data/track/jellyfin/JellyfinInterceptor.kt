@@ -27,7 +27,8 @@ class JellyfinInterceptor : Interceptor {
         return chain.proceed(
             request.newBuilder()
                 .header("User-Agent", "Aniyomi v${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})")
-                .url(url.newBuilder().setQueryParameter("api_key", apiKey).build())
+                .header("Authorization", "MediaBrowser Token=\"$apiKey\"")
+                .url(url.newBuilder().removeAllQueryParameters("api_key").removeAllQueryParameters("ApiKey").build())
                 .build(),
         )
     }
