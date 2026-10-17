@@ -127,6 +127,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
@@ -162,7 +165,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.collections.first
 import kotlin.coroutines.cancellation.CancellationException
 
-private const val MAX_SUBTITLE_HISTORY = 120
 private const val VIDEO_SELECTION_DELIMITER = "\u001e"
 class PlayerViewModelProviderFactory(
     private val activity: PlayerActivity,
@@ -242,28 +244,13 @@ class PlayerViewModel @JvmOverloads constructor(
     val selectedSubtitles = _selectedSubtitles.asStateFlow()
     private val _jimakuState = MutableStateFlow<JimakuState>(JimakuState.Idle)
     val jimakuState = _jimakuState.asStateFlow()
-    private val _currentSubtitleText = MutableStateFlow("")
-    val currentSubtitleText = _currentSubtitleText.asStateFlow()
-    private val _secondaryCurrentSubtitleText = MutableStateFlow("")
-    val secondaryCurrentSubtitleText = _secondaryCurrentSubtitleText.asStateFlow()
     private val _subtitlesVisible = MutableStateFlow(true)
     val subtitlesVisible = _subtitlesVisible.asStateFlow()
-    private val _subtitleHistory = MutableStateFlow<List<SubtitleCue>>(emptyList())
-    val subtitleHistory = _subtitleHistory.asStateFlow()
+    private val _subtitleCues = MutableStateFlow<List<SubtitleCue>>(emptyList())
+    val subtitleCues = _subtitleCues.asStateFlow()
     private val _activeSubtitleCueIndex = MutableStateFlow<Int?>(null)
     val activeSubtitleCueIndex = _activeSubtitleCueIndex.asStateFlow()
-    private val _primarySubtitleDelaySeconds = MutableStateFlow(0.0)
-    val primarySubtitleDelaySeconds = _primarySubtitleDelaySeconds.asStateFlow()
-    private val _subtitleSpeedSeconds = MutableStateFlow(1.0)
-    val subtitleSpeedSeconds = _subtitleSpeedSeconds.asStateFlow()
-    private var currentRawSubtitleText = ""
-    private var lastSubtitleHistoryText = ""
-    private var nextSubtitleCueIndex = 0
-    private val rawParsedSubtitleCuesByTrackId = mutableMapOf<Int, List<SubtitleCue>>()
-    private val rawParsedSubtitleCuesByTitle = mutableMapOf<String, List<SubtitleCue>>()
-    private val parsedSubtitleCuesByTrackId = mutableMapOf<Int, List<SubtitleCue>>()
-    private val parsedSubtitleCuesByTitle = mutableMapOf<String, List<SubtitleCue>>()
-    private var showingParsedSubtitleTrackId: Int? = null
+    private val subtitleJson = Json { ignoreUnknownKeys = true }
     private var lastAutoJimakuKey: String? = null
 
     private val _audioTracks = MutableStateFlow<List<VideoTrack>>(emptyList())
@@ -521,7 +508,6 @@ class PlayerViewModel @JvmOverloads constructor(
                                 externalFilename = getTrackExternalFilename(i),
                             )
                             subTracks.add(track)
-                            rememberParsedSubtitleTrack(track)
                         }
                         "audio" -> audioTracks.add(VideoTrack(getTrackMPVId(i), getTrackTitle(i), getTrackLanguage(i)))
                         else -> error("Unrecognized track type")
@@ -533,7 +519,7 @@ class PlayerViewModel @JvmOverloads constructor(
             }
             _subtitleTracks.update { subTracks }
             _audioTracks.update { audioTracks }
-            applyParsedSubtitleCuesForSelectedTrack()
+            refreshSubtitleCues()
 
             if (!isLoadingTracks.value) {
                 onFinishLoadingTracks()
@@ -551,7 +537,7 @@ class PlayerViewModel @JvmOverloads constructor(
             (preferredSubtitle ?: subtitleTracks.value.firstOrNull())?.let {
                 activity.player.sid = it.id
                 activity.player.secondarySid = -1
-                applyParsedSubtitleCuesForTrack(it.id)
+                refreshSubtitleCues()
             }
         }
 
@@ -574,12 +560,12 @@ class PlayerViewModel @JvmOverloads constructor(
     )
 
     @Immutable
+    @Serializable
     data class SubtitleCue(
-        val index: Int,
+        val index: Int = 0,
         val text: String,
-        val positionSeconds: Double,
-        val endPositionSeconds: Double = positionSeconds + 5.0,
-        val rawText: String = text,
+        @SerialName("start") val positionSeconds: Double,
+        @SerialName("end") val endPositionSeconds: Double? = null,
     )
 
     sealed interface JimakuState {
@@ -661,8 +647,7 @@ class PlayerViewModel @JvmOverloads constructor(
         val path = (if (isContentUri) uri.openContentFd(activity) else url)
             ?: return
         val name = if (isContentUri) uri.getFileName(activity) else null
-        val parsedCues = parseSubtitleUriOrPath(uri, path, name)
-        val title = name ?: subtitleTitleFromUriOrPath(uri, path)
+        val title = name ?: uri.lastPathSegment ?: File(path).name
         rememberAddedSubtitleForCurrentEpisode(
             AddedSubtitleTrack(
                 uriString = url,
@@ -676,7 +661,6 @@ class PlayerViewModel @JvmOverloads constructor(
         } else {
             MPVLib.command(arrayOf("sub-add", path, "cached", name))
         }
-        rememberParsedSubtitleCues(title, parsedCues)
         loadTracks()
     }
 
@@ -827,7 +811,6 @@ class PlayerViewModel @JvmOverloads constructor(
             files.forEach { file ->
                 _jimakuState.update { JimakuState.Downloading(file) }
                 val subtitleFile = jimakuApi.downloadFile(apiKey, file, outputDir)
-                rememberParsedSubtitleFile(subtitleFile, file.name)
                 rememberAddedSubtitleForCurrentEpisode(
                     AddedSubtitleTrack(
                         uriString = subtitleFile.toURI().toString(),
@@ -911,415 +894,45 @@ class PlayerViewModel @JvmOverloads constructor(
         return JimakuMediaGuess(title.trim(), episode, season)
     }
 
-    private fun String.cleanMpvSubtitleText(): String {
-        return stripDelimitedBlocks('{', '}')
-            .replace("""\N""", "\n")
-            .replace("""\n""", "\n")
-            .replace("""\h""", " ")
-            .stripDelimitedBlocks('<', '>')
-            .lines()
-            .map { it.trim() }
-            .map { it.collapseHorizontalWhitespace() }
-            .filter { line -> line.isNotBlank() && line.any { it.isLetterOrDigit() } }
-            .joinToString("\n")
+    fun refreshSubtitleRegexFilters() {
+        MPVLib.setPropertyBoolean("sub-text-filter-refresh", true)
+        refreshSubtitleCues()
     }
 
-    private fun String.stripDelimitedBlocks(open: Char, close: Char): String {
-        var depth = 0
-        return buildString(length) {
-            for (char in this@stripDelimitedBlocks) {
-                when {
-                    char == open -> depth++
-                    char == close && depth > 0 -> depth--
-                    depth == 0 -> append(char)
-                }
-            }
-        }
-    }
-
-    private fun String.collapseHorizontalWhitespace(): String {
-        var lastWasSpace = false
-        return buildString(length) {
-            for (char in this@collapseHorizontalWhitespace) {
-                if (char == ' ' || char == '\t') {
-                    if (!lastWasSpace) append(' ')
-                    lastWasSpace = true
-                } else {
-                    append(char)
-                    lastWasSpace = false
-                }
-            }
-        }.trim()
-    }
-
-    private fun String.toEffectiveSubtitleText(): String {
-        return applySubtitleRegexFilters(subtitlePreferences.subtitleRegexFilterOptions())
-    }
-
-    private fun List<SubtitleCue>.toEffectiveSubtitleCues(): List<SubtitleCue> {
-        return mapNotNull { cue ->
-            val rawText = cue.rawText.ifBlank { cue.text }
-            val effectiveText = rawText.toEffectiveSubtitleText()
-            if (effectiveText.isBlank()) {
+    private fun refreshSubtitleCues() {
+        if (panelShown.value != Panels.SubtitleSideList) return
+        // MPV_FORMAT_STRING serializes this native node property as JSON.
+        // MPV owns decoding and durations; absent ends stay unknown.
+        val lines = MPVLib.getPropertyString("sub-lines")
+        val options = subtitlePreferences.subtitleRegexFilterOptions()
+        val cues = lines?.let {
+            runCatching { subtitleJson.decodeFromString<List<SubtitleCue>>(it) }.getOrNull()
+        }.orEmpty().mapIndexedNotNull { index, cue ->
+            val text = cue.text.applySubtitleRegexFilters(options)
+            if (text.isBlank() || !cue.positionSeconds.isFinite() ||
+                cue.endPositionSeconds?.let { !it.isFinite() || it < cue.positionSeconds } == true
+            ) {
                 null
             } else {
-                cue.copy(text = effectiveText, rawText = rawText)
+                cue.copy(index = index, text = text)
             }
         }
+        _subtitleCues.update { cues }
+        updateActiveSubtitleCue()
     }
 
-    private fun refreshParsedSubtitleRegexFilters() {
-        parsedSubtitleCuesByTitle.clear()
-        rawParsedSubtitleCuesByTitle.forEach { (title, cues) ->
-            parsedSubtitleCuesByTitle[title] = cues.toEffectiveSubtitleCues()
-        }
-
-        parsedSubtitleCuesByTrackId.clear()
-        rawParsedSubtitleCuesByTrackId.forEach { (trackId, cues) ->
-            parsedSubtitleCuesByTrackId[trackId] = cues.toEffectiveSubtitleCues()
-        }
-    }
-
-    fun refreshSubtitleRegexFilters() {
-        refreshParsedSubtitleRegexFilters()
-        _currentSubtitleText.update { currentRawSubtitleText.toEffectiveSubtitleText() }
-
-        showingParsedSubtitleTrackId?.let {
-            applyParsedSubtitleCuesForTrack(it)
-            return
-        }
-
-        _subtitleHistory.update { cues -> cues.toEffectiveSubtitleCues() }
-        updateActiveSubtitleCueFromPosition(pos.value.toDouble())
-    }
-
-    private fun rememberParsedSubtitleTrack(track: VideoTrack) {
-        if (track.id == -1) return
-
-        rawParsedSubtitleCuesByTrackId[track.id]?.let {
-            rememberParsedSubtitleCues(track.name, it)
-            return
-        }
-
-        val cues = track.externalFilename
-            ?.let { File(it) }
-            ?.takeIf { it.exists() }
-            ?.let { parseSubtitleFile(it) }
-            .orEmpty()
-            .ifEmpty {
-                rawParsedSubtitleCuesByTitle[track.name]
-                    ?: rawParsedSubtitleCuesByTitle[File(track.name).name]
-                    ?: track.externalFilename
-                        ?.let { rawParsedSubtitleCuesByTitle[File(it).name] }
-                        .orEmpty()
-            }
-
-        if (cues.isNotEmpty()) {
-            rawParsedSubtitleCuesByTrackId[track.id] = cues
-            parsedSubtitleCuesByTrackId[track.id] = cues.toEffectiveSubtitleCues()
-            rememberParsedSubtitleCues(track.name, cues)
-        }
-    }
-
-    private fun rememberParsedSubtitleFile(file: File, title: String) {
-        rememberParsedSubtitleCues(title, parseSubtitleFile(file))
-    }
-
-    private fun rememberParsedSubtitleCues(title: String, cues: List<SubtitleCue>) {
-        if (title.isBlank() || cues.isEmpty()) return
-
-        val indexedRawCues = cues.mapIndexed { index, cue ->
-            val rawText = cue.rawText.ifBlank { cue.text }
-            cue.copy(index = index, text = rawText, rawText = rawText)
-        }
-        val indexedCues = indexedRawCues.toEffectiveSubtitleCues()
-        rawParsedSubtitleCuesByTitle[title] = indexedRawCues
-        parsedSubtitleCuesByTitle[title] = indexedCues
-        File(title).name
-            .takeIf { it.isNotBlank() && it != title }
-            ?.let {
-                rawParsedSubtitleCuesByTitle[it] = indexedRawCues
-                parsedSubtitleCuesByTitle[it] = indexedCues
-            }
-
-        val matchingTrack = subtitleTracks.value.firstOrNull { track ->
-            track.name == title ||
-                File(track.name).name == File(title).name ||
-                track.externalFilename?.let { File(it).name == File(title).name } == true
-        }
-        if (matchingTrack != null) {
-            rawParsedSubtitleCuesByTrackId[matchingTrack.id] = indexedRawCues
-            parsedSubtitleCuesByTrackId[matchingTrack.id] = indexedCues
-            if (selectedSubtitles.value.first == matchingTrack.id) {
-                applyParsedSubtitleCuesForTrack(matchingTrack.id)
+    private fun updateActiveSubtitleCue() {
+        // sub-start is in the same raw subtitle timeline as sub-lines. MPV has
+        // already selected the active event using its delay/speed settings.
+        val start = MPVLib.getPropertyDouble("sub-start")
+        val cue = start?.takeIf { it.isFinite() }?.let { activeStart ->
+            subtitleCues.value.lastOrNull {
+                it.positionSeconds <= activeStart &&
+                    (it.endPositionSeconds?.let { end -> activeStart < end }
+                        ?: (kotlin.math.abs(it.positionSeconds - activeStart) < 0.001))
             }
         }
-    }
-
-    private fun applyParsedSubtitleCuesForSelectedTrack() {
-        applyParsedSubtitleCuesForTrack(selectedSubtitles.value.first)
-    }
-
-    private fun applyParsedSubtitleCuesForTrack(trackId: Int) {
-        if (trackId == -1) {
-            showingParsedSubtitleTrackId = null
-            lastSubtitleHistoryText = ""
-            currentRawSubtitleText = ""
-            _currentSubtitleText.update { "" }
-            _secondaryCurrentSubtitleText.update { "" }
-            _subtitleHistory.update { emptyList() }
-            _activeSubtitleCueIndex.update { null }
-            return
-        }
-
-        val track = subtitleTracks.value.firstOrNull { it.id == trackId }
-        val rawCues = rawParsedSubtitleCuesByTrackId[trackId]
-            ?: track?.name?.let { rawParsedSubtitleCuesByTitle[it] }
-            ?: track?.name?.let { rawParsedSubtitleCuesByTitle[File(it).name] }
-            ?: track?.externalFilename?.let { rawParsedSubtitleCuesByTitle[File(it).name] }
-        val cues = parsedSubtitleCuesByTrackId[trackId]
-            ?: track?.name?.let { parsedSubtitleCuesByTitle[it] }
-            ?: track?.name?.let { parsedSubtitleCuesByTitle[File(it).name] }
-            ?: track?.externalFilename?.let { parsedSubtitleCuesByTitle[File(it).name] }
-
-        if (cues.isNullOrEmpty()) {
-            if (!rawCues.isNullOrEmpty()) {
-                showingParsedSubtitleTrackId = trackId
-                lastSubtitleHistoryText = ""
-                nextSubtitleCueIndex = rawCues.maxOfOrNull { it.index + 1 } ?: 0
-                _subtitleHistory.update { emptyList() }
-                _activeSubtitleCueIndex.update { null }
-                return
-            }
-            if (showingParsedSubtitleTrackId != null) {
-                showingParsedSubtitleTrackId = null
-                _subtitleHistory.update { emptyList() }
-                _activeSubtitleCueIndex.update { null }
-                lastSubtitleHistoryText = ""
-                nextSubtitleCueIndex = 0
-            }
-            return
-        }
-
-        showingParsedSubtitleTrackId = trackId
-        lastSubtitleHistoryText = ""
-        nextSubtitleCueIndex = cues.maxOfOrNull { it.index + 1 } ?: 0
-        _subtitleHistory.update { cues }
-        updateActiveSubtitleCueFromPosition(pos.value.toDouble())
-    }
-
-    private fun updateActiveSubtitleCueFromPosition(positionSeconds: Double, text: String = currentSubtitleText.value) {
-        val cues = subtitleHistory.value
-        if (cues.isEmpty()) {
-            _activeSubtitleCueIndex.update { null }
-            return
-        }
-
-        val delaySeconds = currentPrimarySubtitleDelaySeconds()
-        val speed = currentSubtitleSpeed()
-        val cueByTime = cues.lastOrNull {
-            positionSeconds >= it.effectiveStartSeconds(delaySeconds, speed) &&
-                positionSeconds <= it.effectiveEndSeconds(delaySeconds, speed)
-        }
-        val cueByText = text.takeIf { it.isNotBlank() }?.let { cleanedText ->
-            val normalizedText = cleanedText.normalizedSubtitleCueText()
-            cues
-                .filter { it.text.normalizedSubtitleCueText() == normalizedText }
-                .minByOrNull { kotlin.math.abs(it.effectiveStartSeconds(delaySeconds, speed) - positionSeconds) }
-        }
-
-        _activeSubtitleCueIndex.update { cueByTime?.index ?: cueByText?.index }
-    }
-
-    private fun SubtitleCue.effectiveStartSeconds(
-        delaySeconds: Double = currentPrimarySubtitleDelaySeconds(),
-        speed: Double = currentSubtitleSpeed(),
-    ): Double {
-        return positionSeconds * speed + delaySeconds
-    }
-
-    private fun SubtitleCue.effectiveEndSeconds(
-        delaySeconds: Double = currentPrimarySubtitleDelaySeconds(),
-        speed: Double = currentSubtitleSpeed(),
-    ): Double {
-        return endPositionSeconds * speed + delaySeconds
-    }
-
-    private fun currentPrimarySubtitleDelaySeconds(): Double {
-        return primarySubtitleDelaySeconds.value
-    }
-
-    private fun currentSubtitleSpeed(): Double {
-        return subtitleSpeedSeconds.value
-    }
-
-    fun updatePrimarySubtitleDelayMillis(delayMillis: Int) {
-        _primarySubtitleDelaySeconds.update { delayMillis / 1000.0 }
-        updateActiveSubtitleCueFromPosition(pos.value.toDouble())
-    }
-
-    fun updateSubtitleSpeed(speed: Double) {
-        _subtitleSpeedSeconds.update { speed }
-        updateActiveSubtitleCueFromPosition(pos.value.toDouble())
-    }
-
-    private fun String.normalizedSubtitleCueText(): String {
-        return cleanMpvSubtitleText()
-            .replace("\n", "")
-            .collapseHorizontalWhitespace()
-    }
-
-    private fun parseSubtitleUriOrPath(uri: Uri, path: String, name: String?): List<SubtitleCue> {
-        val title = name ?: subtitleTitleFromUriOrPath(uri, path)
-        return runCatching {
-            when {
-                uri.scheme == "content" -> {
-                    activity.contentResolver.openInputStream(uri)?.use { input ->
-                        parseSubtitleContent(title, input.bufferedReader().readText())
-                    }.orEmpty()
-                }
-                uri.scheme == "file" -> uri.path
-                    ?.let { File(it) }
-                    ?.let { parseSubtitleFile(it) }
-                    .orEmpty()
-                path.startsWith("file://") -> Uri.parse(path).path
-                    ?.let { File(it) }
-                    ?.let { parseSubtitleFile(it) }
-                    .orEmpty()
-                path.startsWith("fd://") || path.startsWith("http://") || path.startsWith("https://") -> emptyList()
-                else -> parseSubtitleFile(File(path))
-            }
-        }.getOrElse {
-            logcat(LogPriority.ERROR, it)
-            emptyList()
-        }
-    }
-
-    private fun subtitleTitleFromUriOrPath(uri: Uri, path: String): String {
-        return uri.lastPathSegment
-            ?: Uri.parse(path).lastPathSegment
-            ?: File(path).name
-    }
-
-    private fun parseSubtitleFile(file: File): List<SubtitleCue> {
-        if (!file.exists() || !file.isFile) return emptyList()
-        return runCatching {
-            parseSubtitleContent(file.name, file.readText())
-        }.getOrElse {
-            logcat(LogPriority.ERROR, it)
-            emptyList()
-        }
-    }
-
-    private fun parseSubtitleContent(fileName: String, content: String): List<SubtitleCue> {
-        val normalized = content
-            .removePrefix("\uFEFF")
-            .replace("\r\n", "\n")
-            .replace('\r', '\n')
-        val extension = fileName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
-        val cues = when {
-            extension == "ass" || extension == "ssa" || normalized.contains("[Events]", ignoreCase = true) -> {
-                parseAssSubtitleContent(normalized)
-            }
-            else -> parseSrtOrVttSubtitleContent(normalized)
-        }
-        return cues.mapIndexed { index, cue -> cue.copy(index = index) }
-    }
-
-    private fun parseSrtOrVttSubtitleContent(content: String): List<SubtitleCue> {
-        val cues = mutableListOf<SubtitleCue>()
-        content
-            .split(Regex("\n{2,}"))
-            .forEach { block ->
-                val lines = block.lines()
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() && it != "WEBVTT" }
-                val timeIndex = lines.indexOfFirst { it.contains("-->") }
-                if (timeIndex == -1) return@forEach
-
-                val timeParts = lines[timeIndex].split("-->", limit = 2)
-                val start = timeParts.getOrNull(0)?.let { parseSubtitleTimestampSeconds(it) } ?: return@forEach
-                val end = timeParts.getOrNull(1)?.let { parseSubtitleTimestampSeconds(it) } ?: (start + 5.0)
-                val text = lines.drop(timeIndex + 1)
-                    .joinToString("\n")
-                    .cleanMpvSubtitleText()
-
-                if (text.isNotBlank()) {
-                    cues += SubtitleCue(
-                        index = cues.size,
-                        text = text,
-                        positionSeconds = start,
-                        endPositionSeconds = end.coerceAtLeast(start + 1.0),
-                    )
-                }
-            }
-        return cues
-    }
-
-    private fun parseAssSubtitleContent(content: String): List<SubtitleCue> {
-        val cues = mutableListOf<SubtitleCue>()
-        var inEvents = false
-        var format = listOf("layer", "start", "end", "style", "name", "marginl", "marginr", "marginv", "effect", "text")
-
-        content.lineSequence().forEach { rawLine ->
-            val line = rawLine.trim()
-            when {
-                line.equals("[Events]", ignoreCase = true) -> {
-                    inEvents = true
-                    return@forEach
-                }
-                line.startsWith("[") && !line.equals("[Events]", ignoreCase = true) -> {
-                    inEvents = false
-                    return@forEach
-                }
-                !inEvents -> return@forEach
-                line.startsWith("Format:", ignoreCase = true) -> {
-                    format = line.substringAfter(':')
-                        .split(',')
-                        .map { it.trim().lowercase() }
-                    return@forEach
-                }
-                !line.startsWith("Dialogue:", ignoreCase = true) -> return@forEach
-            }
-
-            val startIndex = format.indexOf("start")
-            val endIndex = format.indexOf("end")
-            val textIndex = format.indexOf("text")
-            if (startIndex == -1 || endIndex == -1 || textIndex == -1 || format.isEmpty()) return@forEach
-
-            val values = line.substringAfter(':')
-                .trimStart()
-                .split(",", limit = format.size)
-            if (values.size <= maxOf(startIndex, endIndex, textIndex)) return@forEach
-
-            val start = parseSubtitleTimestampSeconds(values[startIndex]) ?: return@forEach
-            val end = parseSubtitleTimestampSeconds(values[endIndex]) ?: (start + 5.0)
-            val text = values[textIndex].cleanMpvSubtitleText()
-            if (text.isBlank()) return@forEach
-
-            cues += SubtitleCue(
-                index = cues.size,
-                text = text,
-                positionSeconds = start,
-                endPositionSeconds = end.coerceAtLeast(start + 1.0),
-            )
-        }
-        return cues
-    }
-
-    private fun parseSubtitleTimestampSeconds(raw: String): Double? {
-        val token = raw
-            .trim()
-            .substringBefore(' ')
-            .substringBefore('\t')
-            .replace(',', '.')
-        val parts = token.split(':')
-        if (parts.size < 2) return null
-
-        val seconds = parts.lastOrNull()?.toDoubleOrNull() ?: return null
-        val minutes = parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: return null
-        val hours = parts.getOrNull(parts.size - 3)?.toIntOrNull() ?: 0
-        return hours * 3600.0 + minutes * 60.0 + seconds
+        _activeSubtitleCueIndex.update { cue?.index }
     }
 
     fun selectSub(id: Int) {
@@ -1339,110 +952,30 @@ class PlayerViewModel @JvmOverloads constructor(
         }
         activity.player.secondarySid = _selectedSubtitles.value.second
         activity.player.sid = _selectedSubtitles.value.first
-        applyParsedSubtitleCuesForSelectedTrack()
+        refreshSubtitleCues()
         rememberSubtitleSelectionForCurrentEpisode()
     }
 
     fun updateSubtitle(sid: Int, secondarySid: Int) {
         _selectedSubtitles.update { Pair(sid, secondarySid) }
-        applyParsedSubtitleCuesForTrack(sid)
-    }
-
-    fun updateSubtitleText(text: String?) {
-        val cleaned = text.orEmpty().cleanMpvSubtitleText()
-        val effectiveText = cleaned.toEffectiveSubtitleText()
-        currentRawSubtitleText = cleaned
-        _currentSubtitleText.update { effectiveText }
-        if (showingParsedSubtitleTrackId != null) {
-            updateActiveSubtitleCueFromPosition(pos.value.toDouble(), effectiveText)
-            return
-        }
-        updateSubtitleHistory(cleaned, effectiveText)
-    }
-
-    fun updateSecondarySubtitleText(text: String?) {
-        val cleaned = text.orEmpty().cleanMpvSubtitleText()
-        _secondaryCurrentSubtitleText.update { cleaned.toEffectiveSubtitleText() }
-    }
-
-    private fun updateSubtitleHistory(rawText: String, text: String) {
-        if (text.isBlank()) {
-            lastSubtitleHistoryText = ""
-            _activeSubtitleCueIndex.update { null }
-            return
-        }
-
-        val existing = subtitleHistory.value.lastOrNull { it.text == text }
-        if (existing != null && text == lastSubtitleHistoryText) {
-            _activeSubtitleCueIndex.update { existing.index }
-            return
-        }
-
-        // Reuse existing cue if same text appears again (e.g. after rewind)
-        if (existing != null) {
-            _activeSubtitleCueIndex.update { existing.index }
-            lastSubtitleHistoryText = text
-            return
-        }
-
-        lastSubtitleHistoryText = text
-        val cue = SubtitleCue(
-            index = nextSubtitleCueIndex++,
-            text = text,
-            rawText = rawText,
-            positionSeconds = pos.value.toDouble(),
-        )
-        _subtitleHistory.update { cues -> (cues + cue).takeLast(MAX_SUBTITLE_HISTORY) }
-        _activeSubtitleCueIndex.update { cue.index }
+        refreshSubtitleCues()
     }
 
     fun selectSubtitleCue(index: Int) {
-        val cue = subtitleHistory.value.firstOrNull { it.index == index } ?: return
-        seekTo(cue.effectiveStartSeconds().coerceAtLeast(0.0))
-        _activeSubtitleCueIndex.update { cue.index }
+        val cue = subtitleCues.value.firstOrNull { it.index == index } ?: return
+        // Unlike lookup geometry, sub-lines exposes raw subtitle timestamps.
+        // Convert only here, when seeking to a row chosen from the native list.
+        val speed = MPVLib.getPropertyDouble("sub-speed") ?: 1.0
+        val delay = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
+        seekTo((cue.positionSeconds * speed + delay).coerceAtLeast(0.0))
     }
 
     fun seekToAdjacentSubtitle(forward: Boolean) {
-        // When no parsed subtitle cues are available, use mpv's native sub-seek
-        // which is reliable regardless of playback position
-        if (showingParsedSubtitleTrackId == null) {
-            MPVLib.command(arrayOf("sub-seek", if (forward) "1" else "-1", "primary"))
-            return
-        }
-
-        val delaySeconds = currentPrimarySubtitleDelaySeconds()
-        val speed = currentSubtitleSpeed()
-        val positionSeconds = pos.value.toDouble()
-        val target = if (forward) {
-            subtitleHistory.value
-                .filter { it.effectiveStartSeconds(delaySeconds, speed) > positionSeconds }
-                .minByOrNull { it.effectiveStartSeconds(delaySeconds, speed) }
-        } else {
-            subtitleHistory.value
-                .filter { it.effectiveEndSeconds(delaySeconds, speed) < positionSeconds }
-                .maxByOrNull { it.effectiveEndSeconds(delaySeconds, speed) }
-        }
-
-        if (target == null) {
-            MPVLib.command(arrayOf("sub-seek", if (forward) "1" else "-1", "primary"))
-            return
-        }
-
-        seekTo(target.effectiveStartSeconds(delaySeconds, speed).coerceAtLeast(0.0))
-        _activeSubtitleCueIndex.update { target.index }
+        MPVLib.command(arrayOf("sub-seek", if (forward) "1" else "-1", "primary"))
     }
 
     fun replayCurrentSubtitle() {
-        val currentCue = activeSubtitleCueIndex.value?.let { activeCueIndex ->
-            subtitleHistory.value.firstOrNull { it.index == activeCueIndex }
-        }
-        if (currentCue == null) {
-            MPVLib.command(arrayOf("sub-seek", "0", "primary"))
-            return
-        }
-
-        seekTo(currentCue.effectiveStartSeconds().coerceAtLeast(0.0))
-        _activeSubtitleCueIndex.update { currentCue.index }
+        MPVLib.command(arrayOf("sub-seek", "0", "primary"))
     }
 
     fun setSubtitlesVisible(visible: Boolean) {
@@ -1459,9 +992,10 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun updatePlayBackPos(pos: Float) {
         onSecondReached(pos.toInt(), duration.value.toInt())
+        val previousSecond = _pos.value.toInt()
         _pos.update { pos }
-        if (showingParsedSubtitleTrackId != null) {
-            updateActiveSubtitleCueFromPosition(pos.toDouble())
+        if (panelShown.value == Panels.SubtitleSideList) {
+            if (previousSecond != pos.toInt()) refreshSubtitleCues() else updateActiveSubtitleCue()
         }
     }
 
@@ -1592,6 +1126,7 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun showPanel(panel: Panels) {
         panelShown.update { panel }
+        if (panel == Panels.SubtitleSideList) refreshSubtitleCues()
         if (panel == Panels.None) {
             showControls()
         } else {
@@ -2406,7 +1941,7 @@ class PlayerViewModel @JvmOverloads constructor(
             activity.player.secondarySid = -1
             activity.player.sid = -1
             _selectedSubtitles.update { Pair(-1, -1) }
-            applyParsedSubtitleCuesForTrack(-1)
+            refreshSubtitleCues()
             pendingSubtitleSelectionKey = null
             return true
         }
@@ -2425,7 +1960,7 @@ class PlayerViewModel @JvmOverloads constructor(
         activity.player.secondarySid = secondaryTrack?.id ?: -1
         activity.player.sid = primaryTrack.id
         _selectedSubtitles.update { Pair(primaryTrack.id, secondaryTrack?.id ?: -1) }
-        applyParsedSubtitleCuesForTrack(primaryTrack.id)
+        refreshSubtitleCues()
         pendingSubtitleSelectionKey = null
         return true
     }
@@ -2988,8 +2523,6 @@ class PlayerViewModel @JvmOverloads constructor(
             "secondary-sub-delay",
             (subtitlePreferences.subtitlesSecondaryDelayForEpisode(episodeId, animeId).get() / 1000.0).toString(),
         )
-        updatePrimarySubtitleDelayMillis(primaryDelayMillis)
-        updateSubtitleSpeed(subtitlePreferences.subtitlesSpeedForEpisode(episodeId).get().toDouble())
     }
 
     /**

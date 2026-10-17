@@ -1105,8 +1105,6 @@ class PlayerActivity : BaseActivity() {
             "secondary-sid" -> trackId(value)?.let {
                 viewModel.updateSubtitle(viewModel.selectedSubtitles.value.first, it)
             }
-            "sub-text" -> viewModel.updateSubtitleText(value)
-            "secondary-sub-text" -> viewModel.updateSecondarySubtitleText(value)
             "hwdec", "hwdec-current" -> viewModel.getDecoder()
             "user-data/aniyomi" -> viewModel.handleLuaInvocation(property, value)
         }

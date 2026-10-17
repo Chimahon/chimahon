@@ -44,6 +44,8 @@ internal data class SubtitleLookupRequest(
     val matchOffset: Int = 0,
     val cueStartSeconds: Double? = null,
     val cueEndSeconds: Double? = null,
+    val nativeCueKey: String? = null,
+    val nativeRectangles: List<NativeSubtitleRectangle> = emptyList(),
 )
 
 @Composable

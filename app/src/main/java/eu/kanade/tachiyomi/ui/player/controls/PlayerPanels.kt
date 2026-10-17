@@ -54,8 +54,6 @@ fun PlayerPanels(
     animeId: Long?,
     episodeId: Long?,
     onSelectSubtitleCue: (Int) -> Unit,
-    onPrimarySubtitleDelayMillisChange: (Int) -> Unit,
-    onSubtitleSpeedChange: (Double) -> Unit,
     onSubtitleRegexFiltersChanged: () -> Unit,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
@@ -89,8 +87,6 @@ fun PlayerPanels(
                 SubtitleDelayPanel(
                     animeId = animeId,
                     episodeId = episodeId,
-                    onPrimaryDelayChange = onPrimarySubtitleDelayMillisChange,
-                    onSpeedChange = onSubtitleSpeedChange,
                     onDismissRequest = onDismissRequest,
                 )
             }
