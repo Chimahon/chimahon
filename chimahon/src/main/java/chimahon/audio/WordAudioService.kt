@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Request
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -160,7 +161,7 @@ class WordAudioService(
                 val body = response.body?.string() ?: return emptyList()
 
                 if (body.trim().startsWith("{")) {
-                    parseYomitanJson(body, source)
+                    parseOnlineJson(body, source)
                 } else {
                     listOf(WordAudioResult(name = source.name, url = url, source = source))
                 }
@@ -171,12 +172,25 @@ class WordAudioService(
         }
     }
 
-    private fun parseYomitanJson(jsonStr: String, source: WordAudioSource): List<WordAudioResult> {
+    private fun parseOnlineJson(jsonStr: String, source: WordAudioSource): List<WordAudioResult> {
         return try {
             val jsonObj = json.parseToJsonElement(jsonStr) as? JsonObject ?: return emptyList()
 
             if ((jsonObj["type"] as? JsonPrimitive)?.content != "audioSourceList") {
-                return emptyList()
+                val items = jsonObj["items"] as? JsonArray ?: return emptyList()
+                return items.mapNotNull { element ->
+                    val item = element as? JsonObject ?: return@mapNotNull null
+                    val url = sequenceOf("pathmp3", "pathogg")
+                        .mapNotNull { (item[it] as? JsonPrimitive)?.contentOrNull }
+                        .firstOrNull { it.startsWith("https://") || it.startsWith("http://") }
+                        ?: return@mapNotNull null
+                    val username = (item["username"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+                    WordAudioResult(
+                        name = username?.let { "${source.name} ($it)" } ?: source.name,
+                        url = url,
+                        source = source,
+                    )
+                }
             }
 
             val sourcesArray = jsonObj["audioSources"] as? JsonArray ?: return emptyList()
@@ -189,7 +203,7 @@ class WordAudioService(
                 WordAudioResult(name = name, url = url, source = source)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing Yomitan JSON", e)
+            Log.e(TAG, "Error parsing online audio JSON", e)
             emptyList()
         }
     }
