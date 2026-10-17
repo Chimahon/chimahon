@@ -510,12 +510,15 @@ data object HistoryTab : Tab {
             resumeLastMediaEvent.receiveAsFlow().collectLatest {
                 val mangaHistory = screenModel.getLastHistory()
                 val animeHistory = animeScreenModel.getLastHistory()
+                val novelHistory = novelScreenModel.getLastHistory()
                 val mangaLastReadAt = mangaHistory?.readAt?.time ?: Long.MIN_VALUE
                 val animeLastWatchedAt = animeHistory?.watchedAt?.time ?: Long.MIN_VALUE
 
                 when {
-                    mangaHistory == null && animeHistory == null ->
+                    mangaHistory == null && animeHistory == null && novelHistory == null ->
                         snackbarHostState.showSnackbar(context.stringResource(MR.strings.no_next_chapter))
+                    novelHistory != null && novelHistory.lastRead > maxOf(mangaLastReadAt, animeLastWatchedAt) ->
+                        resumeNovelHistory(novelHistory)
                     animeLastWatchedAt > mangaLastReadAt -> animeHistory?.let { history ->
                         openEpisode(context, animeScreenModel.getNextEpisode(history.animeId, history.episodeId))
                     }

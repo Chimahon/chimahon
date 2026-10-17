@@ -111,6 +111,10 @@ class NovelHistoryScreenModel(
         return withIOContext { novelRepository.getNovelById(novelId) }
     }
 
+    suspend fun getLastHistory(): NovelHistoryEntry? = withIOContext {
+        buildEntries(novelHistoryRepository.getHistoryWithRelations("").take(1)).firstOrNull()
+    }
+
     /**
      * Manga history-tap parity: resume the latest-read chapter (with its
      * stored position), never null just because everything is read. Local
