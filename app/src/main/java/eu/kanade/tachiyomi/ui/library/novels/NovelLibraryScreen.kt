@@ -489,7 +489,7 @@ fun Screen.NovelLibraryScreen(
                 onEditCategories = { navigator.push(CategoryScreen(CategoryScreen.Tab.NOVELS)) },
                 onConfirm = { include, exclude ->
                     screenModel.clearSelection()
-                    screenModel.setBooksCategories(dialog.books, include, exclude)
+                    screenModel.setNovelsCategories(dialog.novelIds, include, exclude)
                 },
             )
         }

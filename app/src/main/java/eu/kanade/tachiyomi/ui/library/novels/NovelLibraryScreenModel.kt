@@ -11,6 +11,7 @@ import chimahon.novel.data.BookMetadata
 import chimahon.novel.data.BookStorage
 import chimahon.novel.data.NovelCategory
 import eu.kanade.presentation.library.components.LibraryToolbarTitle
+import eu.kanade.tachiyomi.util.system.toast
 import tachiyomi.domain.novel.model.Novel
 import tachiyomi.domain.novel.model.NovelCategory as DbNovelCategory
 import tachiyomi.domain.novel.model.NovelUpdate
@@ -34,9 +35,11 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.preference.CheckboxState
+import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.service.NovelLibraryPreferences
+import tachiyomi.i18n.MR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -93,6 +96,22 @@ class NovelLibraryScreenModel(
             val books = BookStorage.loadAllBooks(app)
                 .filterNot { it.id.startsWith("src_") }
             val sourceNovels = novelRepository.getFavorites()
+            val bookIds = books.map { it.id }.toSet()
+            val sourceManager = Injekt.get<chimahon.novel.manager.NovelSourceManager>()
+            val linkedSourceNovelIds = sourceNovels.filterNot { it.source == Novel.LOCAL_SOURCE_ID }
+                .mapNotNull { novel ->
+                    val folder = novel.localFolder?.takeIf { it in bookIds }
+                        ?: libraryPreferences.downloadedBookFolder(novel.id).get().takeIf { it in bookIds }
+                        ?: runCatching {
+                            (sourceManager.getNovelSource(novel.source) as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource)
+                                ?.downloadFolderId(novel.url)?.takeIf { it in bookIds }
+                        }.getOrNull()
+                    folder?.let { it to novel.id }
+                }.groupBy({ it.first }, { it.second })
+                .mapNotNull { (folder, ids) -> ids.singleOrNull()?.let { folder to it } }.toMap()
+            linkedSourceNovelIds.forEach { (folder, novelId) ->
+                libraryPreferences.downloadedBookFolder(novelId).set(folder)
+            }
             val localRows = novelRepository.getNovelsBySourceId(Novel.LOCAL_SOURCE_ID)
             val localNovelIds = localRows
                 .mapNotNull { row -> row.localFolder?.takeIf { it.isNotBlank() }?.let { it to row.id } }
@@ -119,7 +138,8 @@ class NovelLibraryScreenModel(
                 .toSet()
 
             mutableState.update {
-                it.copy(
+                val activeCategoryId = it.activeCategory?.id
+                val updated = it.copy(
                     isLoading = false,
                     categories = categories.toImmutableList(),
                     books = books.toImmutableList(),
@@ -130,6 +150,11 @@ class NovelLibraryScreenModel(
                     novelCategoryIds = categoryMap.toImmutableMap(),
                     booksWithoutContent = booksWithoutContent,
                     localNovelIds = localNovelIds,
+                    linkedSourceNovelIds = linkedSourceNovelIds,
+                )
+                updated.copy(
+                    activeCategoryIndex = updated.displayedCategories.indexOfFirst { category -> category.id == activeCategoryId }
+                        .takeIf { index -> index >= 0 } ?: updated.coercedActiveCategoryIndex,
                 )
             }
 
@@ -202,19 +227,15 @@ class NovelLibraryScreenModel(
 
     fun selectAll() {
         mutableState.update { state ->
-            val allIds = state.displayedCategories.flatMap { cat ->
-                state.getItemsForCategory(cat).map { it.id }
-            }.toImmutableList()
-            state.copy(selection = allIds)
+            val ids = state.activeCategory?.let { state.getItemsForCategory(it).map { item -> item.id } }.orEmpty()
+            state.copy(selection = (state.selection + ids).distinct().toImmutableList())
         }
     }
 
     fun invertSelection() {
         mutableState.update { state ->
-            val allIds = state.displayedCategories.flatMap { cat ->
-                state.getItemsForCategory(cat).map { it.id }
-            }.toSet()
-            val newSelection = allIds.minus(state.selection).toList().toImmutableList()
+            val ids = state.activeCategory?.let { state.getItemsForCategory(it).map { item -> item.id } }.orEmpty().toSet()
+            val newSelection = (state.selection.filterNot { it in ids } + (ids - state.selection.toSet())).toImmutableList()
             state.copy(selection = newSelection)
         }
     }
@@ -320,49 +341,48 @@ class NovelLibraryScreenModel(
 
     fun showChangeCategoryDialog() {
         val s = mutableState.value
-        val selectedLocalBooks = s.books.filter { it.id in s.selection.toSet() }
         val userCategories = s.categories.filterNot { it.isSystemCategory }
         screenModelScope.launch {
-            // Category sets from the DB; sidecar fills gaps for
-            // never-registered books. Long DB ids surface as UI strings.
-            val dbSets = selectedLocalBooks.mapNotNull { book ->
-                s.localNovelIds[book.id]?.let { novelId ->
-                    runCatching { novelCategoryRepository.getByNovelId(novelId) }.getOrNull()
-                        ?.map { if (it.id == 0L) NovelCategory.UNCATEGORIZED_ID else it.id.toString() }
-                        ?.toSet()
+            val novelIds = mutableSetOf<Long>()
+            for (id in s.selection.distinct()) {
+                val novelId = s.linkedSourceNovelIds[id]
+                    ?: s.sourceNovels.firstOrNull { sourceNovelLibraryItemId(it.id) == id }?.id
+                    ?: novelRepository.getNovelByLocalFolder(id)?.id
+                    ?: Injekt.get<RegisterLocalNovelHome>().register(id)
+                if (novelId == null) {
+                    app.toast(MR.strings.internal_error)
+                    return@launch
                 }
+                novelIds += novelId
             }
-            val sidecarSets = selectedLocalBooks
-                .filter { book -> s.localNovelIds[book.id] == null }
-                .map { it.categoryIds.toSet() }
-            val allSets = dbSets + sidecarSets
+            val allSets = novelIds.map { novelCategoryRepository.getByNovelId(it).map { category -> category.id }.toSet() }
             val commonCategoryIds = if (allSets.isEmpty()) {
                 emptySet()
             } else {
                 allSets.reduce { set1, set2 -> set1.intersect(set2) }
             }
-            val commonCategories = userCategories.filter { it.id in commonCategoryIds }
+            val commonCategories = userCategories.filter { it.id.toLongOrNull() in commonCategoryIds }
 
             val mixCategoryIds = if (allSets.isEmpty()) {
                 emptySet()
             } else {
                 allSets.flatMap { it }.distinct().toSet() - commonCategoryIds
             }
-            showChangeCategoryDialog(selectedLocalBooks, userCategories, commonCategories, mixCategoryIds)
+            showChangeCategoryDialog(novelIds.toList(), userCategories, commonCategories, mixCategoryIds)
         }
     }
 
     private fun showChangeCategoryDialog(
-        selectedLocalBooks: List<BookMetadata>,
+        novelIds: List<Long>,
         userCategories: List<NovelCategory>,
         commonCategories: List<NovelCategory>,
-        mixCategoryIds: Set<String>,
+        mixCategoryIds: Set<Long>,
     ) {
-        val mixCategories = userCategories.filter { it.id in mixCategoryIds }
+        val mixCategories = userCategories.filter { it.id.toLongOrNull() in mixCategoryIds }
 
         val preselected = userCategories.map { cat ->
             val mapped = Category(
-                id = cat.id.hashCode().toLong(),
+                id = cat.id.toLong(),
                 name = cat.name,
                 order = cat.order.toLong(),
                 flags = cat.flags,
@@ -376,35 +396,20 @@ class NovelLibraryScreenModel(
         }.toImmutableList()
 
         mutableState.update {
-            it.copy(dialog = Dialog.ChangeCategory(selectedLocalBooks.toImmutableList(), preselected))
+            it.copy(dialog = Dialog.ChangeCategory(novelIds.toImmutableList(), preselected))
         }
     }
 
-    fun setBooksCategories(
-        books: List<BookMetadata>,
+    fun setNovelsCategories(
+        novelIds: List<Long>,
         addCategories: List<Long>,
         removeCategories: List<Long>,
     ) {
-        screenModelScope.launch {
-            val s = mutableState.value
-            // Dialog ids are hashCode-based; map back through the UI list to
-            // DB longs ("default" = system 0L, absence = default bucket).
-            fun mapIds(ids: List<Long>): Set<Long> = ids.mapNotNull { id ->
-                s.categories.find { it.id.hashCode().toLong() == id }?.let {
-                    if (it.id == NovelCategory.UNCATEGORIZED_ID) 0L else it.id.toLongOrNull()
-                }
-            }.toSet()
-            val addIds = mapIds(addCategories)
-            val removeIds = mapIds(removeCategories)
-            books.forEach { book ->
-                val novelId = runCatching { novelRepository.getNovelByLocalFolder(book.id)?.id }.getOrNull()
-                    ?: return@forEach
-                val current = runCatching { novelCategoryRepository.getByNovelId(novelId) }
-                    .getOrNull().orEmpty().map { it.id }.toSet()
-                runCatching {
-                    Injekt.get<chimahon.novel.interactor.SetNovelCategories>()
-                        .await(novelId, (current - removeIds + addIds).toList())
-                }
+        screenModelScope.launchNonCancellable {
+            novelIds.distinct().forEach { novelId ->
+                val current = novelCategoryRepository.getByNovelId(novelId).map { it.id }.toSet()
+                Injekt.get<chimahon.novel.interactor.SetNovelCategories>()
+                    .await(novelId, (current - removeCategories.toSet() + addCategories).toList())
             }
             loadLibrary()
         }
@@ -468,7 +473,7 @@ class NovelLibraryScreenModel(
 
     sealed interface Dialog {
         data class ChangeCategory(
-            val books: ImmutableList<BookMetadata>,
+            val novelIds: ImmutableList<Long>,
             val initialSelection: ImmutableList<CheckboxState<Category>>,
         ) : Dialog
         data object DeleteConfirm : Dialog
@@ -498,6 +503,7 @@ class NovelLibraryScreenModel(
         val novelCategoryIds: Map<Long, List<Long>> = emptyMap(),
         val booksWithoutContent: Set<String> = emptySet(),
         val localNovelIds: Map<String, Long> = emptyMap(),
+        val linkedSourceNovelIds: Map<String, Long> = emptyMap(),
         val deleteDialogDownloadFiles: Boolean = false,
     ) {
         val hasActiveFilters: Boolean
@@ -528,6 +534,7 @@ class NovelLibraryScreenModel(
                 // (LocalBook owns MISSING/add-files/folder routing); rendering both
                 // showed every import twice.
                 .filterNot { it.source == Novel.LOCAL_SOURCE_ID }
+                .filterNot { it.id in linkedSourceNovelIds.values }
                 .filter { query == null || it.title.contains(query, ignoreCase = true) }
                 .map { NovelLibraryItem.SourceNovel(it, unreadCount = unreadCounts[it.id]?.toInt() ?: 0, downloadCount = downloadCounts[it.id]?.toInt() ?: 0) }
 
@@ -537,8 +544,9 @@ class NovelLibraryScreenModel(
                     is NovelLibraryItem.LocalBook -> {
                         // Row joins win; the sidecar survives only for
                         // never-registered books.
-                        val rowIds = localNovelIds[item.metadata.id]?.let { novelCategoryIds[it] }
-                        if (rowIds != null) {
+                        val novelId = linkedSourceNovelIds[item.metadata.id] ?: localNovelIds[item.metadata.id]
+                        if (novelId != null) {
+                            val rowIds = novelCategoryIds[novelId].orEmpty().filter { it > 0L }
                             if (category.isSystemCategory) {
                                 rowIds.isEmpty()
                             } else {
@@ -556,7 +564,7 @@ class NovelLibraryScreenModel(
                     }
                     is NovelLibraryItem.SourceNovel -> {
                         // Absence of join rows = Default/system category (manga convention)
-                        val ids = novelCategoryIds[item.novel.id].orEmpty()
+                        val ids = novelCategoryIds[item.novel.id].orEmpty().filter { it > 0L }
                         if (category.isSystemCategory) {
                             ids.isEmpty()
                         } else {

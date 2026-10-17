@@ -77,7 +77,8 @@ class NovelCategoryRepositoryImpl(
     override suspend fun setNovelCategories(novelId: Long, categoryIds: List<Long>) {
         handler.await(inTransaction = true) {
             novel_categoriesQueries.deleteNovelsCategoriesByNovelId(novelId)
-            categoryIds.forEach { categoryId ->
+            // Default means no named category, never an explicit join row.
+            categoryIds.filter { it > NovelCategory.SYSTEM_CATEGORY_ID }.distinct().forEach { categoryId ->
                 novel_categoriesQueries.insertNovelsCategories(novelId, categoryId)
             }
         }

@@ -529,15 +529,20 @@ class NovelDetailScreenModel(
                 runCatching { tmpFile.delete() }
                 val metadata = result.metadata
                 if (metadata != null) {
-                    runCatching {
-                        Injekt.get<RegisterLocalNovelHome>().register(metadata.id)
-                    }
+                    val localNovelId = Injekt.get<RegisterLocalNovelHome>().register(metadata.id)
                     // Downloading is acquiring: the online novel joins the
                     // library too, so leaving and coming back still shows it
                     // favorited. Remember pre-state for symmetric delete.
                     onlineFavoriteBeforeDownload = mutableState.value.isFavorite
                     if (!mutableState.value.isFavorite) {
                         runCatching { addToLibrary() }
+                    }
+                    cachedDbNovel?.id?.let { sourceNovelId ->
+                        novelLibraryPreferences.downloadedBookFolder(sourceNovelId).set(metadata.id)
+                        if (localNovelId != null) {
+                            val categories = novelCategoryRepository.getByNovelId(sourceNovelId).map { it.id }
+                            setNovelCategoriesInteractor.await(sourceNovelId, categories)
+                        }
                     }
                     mutableState.value = mutableState.value.copy(
                         fileDownload = FileDownloadState.Done(
@@ -576,6 +581,7 @@ class NovelDetailScreenModel(
     fun deleteDownloadedBook() {
         val done = mutableState.value.fileDownload as? FileDownloadState.Done ?: return
         val bookId = done.bookId ?: return
+        cachedDbNovel?.id?.let { novelLibraryPreferences.downloadedBookFolder(it).delete() }
         // Only undo the auto-favorite when download created it; a prior
         // manual favorite survives the delete.
         val undoFavorite = onlineFavoriteBeforeDownload == false
@@ -855,11 +861,11 @@ class NovelDetailScreenModel(
     fun showChangeCategoryDialog() {
         val dbNovel = cachedDbNovel ?: return
         screenModelScope.launch {
-            val all = novelCategoryRepository.getAll()
+            val all = novelCategoryRepository.getAll().filterNot { it.isSystemCategory }
             val assigned = novelCategoryRepository.getByNovelId(dbNovel.id).map { it.id }.toSet()
             val initialSelection = all.map { cat ->
                 val mapped = Category(
-                    id = cat.id.hashCode().toLong(),
+                    id = cat.id,
                     name = cat.name,
                     order = cat.order.toLong(),
                     flags = cat.flags,
@@ -881,7 +887,7 @@ class NovelDetailScreenModel(
         val dbNovel = cachedDbNovel ?: return
         screenModelScope.launch {
             val ids = novelCategoryRepository.getAll()
-                .filter { cat -> include.any { it == cat.id.hashCode().toLong() } }
+                .filter { cat -> !cat.isSystemCategory && cat.id in include }
                 .map { it.id }
             setNovelCategoriesInteractor.await(dbNovel.id, ids)
             dismissDialog()
