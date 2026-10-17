@@ -4,6 +4,40 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.7]
+
+### Added
+- Local PDF support for manga
+- Bulk OCR action for selected downloaded chapters
+- OCR queue notifications with processing controls
+- OPDS catalog support for novels
+- List, panorama, and cover-only layouts for novel browsing
+- Default novel category setting
+- Automatic loading of local sidecar subtitles
+
+### Changed
+- OCR model management moved to OCR settings, with storage usage and model update and delete controls
+- Chimahon icons and filenames used for crash reports and other exports
+- Faster local arm64 debug builds
+- Player subtitles rendered by MPV, with native text lookup and the existing regex options
+- Private extension installer selectable in stable builds
+
+### Fixed
+- PNG-prefixed HLS streams failing during anime playback and sentence audio extraction
+- Sentence audio extraction failing on streams that require authentication headers
+- Forvo API responses not providing word audio links
+- Anime extension updates getting stuck or failing to refresh installation status
+- Anime OCR captures rounding playback time to whole seconds
+- Novel WebView ignoring the user agent configured in Advanced settings
+- Disabled novel languages reappearing when Multi is selected
+- The final novel chapter not being marked read when paging past its end
+- Removed novels appearing in statistics and duplicate entries created when re-adding some novels
+- First-dictionary Anki glossaries omitting additional senses
+- Jellyfin source detection and progress tracking per season and episode
+- Deleted anime categories remaining in library update filters
+- Subtitle overlay position not following MPV's subtitle position setting
+- Subtitle lookup applying subtitle delay twice or omitting subtitle speed when selecting sentence audio
+
 ## [v2.4.6]
 
 ### Added
