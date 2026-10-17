@@ -530,6 +530,15 @@ class NovelDetailScreenModel(
                 val metadata = result.metadata
                 if (metadata != null) {
                     val localNovelId = Injekt.get<RegisterLocalNovelHome>().register(metadata.id)
+                    if (source is chimahon.novel.opds.OpdsSource && localNovelId != null &&
+                        novelRepository.getNovelById(localNovelId)?.thumbnailUrl.isNullOrBlank()
+                    ) {
+                        source.saveDownloadedCover(novel.url)?.let { cover ->
+                            novelRepository.update(
+                                NovelUpdate(id = localNovelId, thumbnailUrl = cover, coverLastModified = System.currentTimeMillis()),
+                            )
+                        }
+                    }
                     // Downloading is acquiring: the online novel joins the
                     // library too, so leaving and coming back still shows it
                     // favorited. Remember pre-state for symmetric delete.

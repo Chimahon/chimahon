@@ -119,7 +119,7 @@ class OpdsSource(
                         temporary.writeBytes(bytes)
                     }
                     check(temporary.length() > 0 && temporary.renameTo(target))
-                    target.toURI().toString()
+                    target.absolutePath
                 } finally {
                     temporary.delete()
                 }
@@ -147,9 +147,30 @@ class OpdsSource(
     override fun downloadFolderId(path: String) = store.book(path).folder
     override fun downloadClient() = client
 
+    suspend fun saveDownloadedCover(path: String): String? = withContext(Dispatchers.IO) {
+        var temporary: File? = null
+        try {
+            val image = getNovelDetails(SNNovel(url = path)).thumbnail_url ?: return@withContext null
+            val target = File(context.filesDir, "opds_covers/${store.book(path).key}.image")
+            if (!target.isFile) {
+                target.parentFile?.mkdirs()
+                val staged = File(target.parentFile, "${target.name}.${java.util.UUID.randomUUID()}.tmp")
+                temporary = staged
+                File(image).copyTo(staged)
+                check(staged.length() > 0 && staged.renameTo(target))
+            }
+            target.absolutePath
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            null
+        } finally {
+            temporary?.delete()
+        }
+    }
+
     fun novel(book: OpdsBook) = book.toNovel().copy(thumbnail_url = cachedCover(book))
     private fun coverFile(book: OpdsBook) = File(context.cacheDir, "opds_covers/${book.key}.image")
-    private fun cachedCover(book: OpdsBook) = coverFile(book).takeIf { it.isFile }?.toURI()?.toString()
+    private fun cachedCover(book: OpdsBook) = coverFile(book).takeIf { it.isFile }?.absolutePath
 
     companion object {
         const val ID = 0x4f504453L
