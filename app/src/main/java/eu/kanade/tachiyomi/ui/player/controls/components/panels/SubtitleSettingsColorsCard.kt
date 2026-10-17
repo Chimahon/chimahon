@@ -57,6 +57,7 @@ import eu.kanade.presentation.player.components.TintedSliderItem
 import eu.kanade.tachiyomi.ui.player.controls.CARDS_MAX_WIDTH
 import eu.kanade.tachiyomi.ui.player.controls.panelCardsColors
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
+import `is`.xyz.mpv.MPVLib
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.deleteAndGet
 import tachiyomi.i18n.MR
@@ -120,6 +121,7 @@ fun SubtitleSettingsColorsCard(
                     onClick = {
                         resetColors(preferences, currentColorType)
                         currentColor = currentColorType.preference(preferences).get()
+                        MPVLib.setPropertyString(currentColorType.mpvProperty, currentColor.toColorHexString())
                     },
                 ) {
                     Row(
@@ -136,6 +138,7 @@ fun SubtitleSettingsColorsCard(
                 onColorChange = {
                     currentColor = it
                     currentColorType.preference(preferences).set(it)
+                    MPVLib.setPropertyString(currentColorType.mpvProperty, it.toColorHexString())
                 },
             )
         }
@@ -154,18 +157,22 @@ fun Int.toColorHexString() = "#" + this.toHexString().uppercase()
 
 enum class SubColorType(
     val titleRes: StringResource,
+    val mpvProperty: String,
     val preference: (SubtitlePreferences) -> Preference<Int>,
 ) {
     Text(
         MR.strings.player_sheets_subtitles_color_text,
+        mpvProperty = "sub-color",
         preference = SubtitlePreferences::textColorSubtitles,
     ),
     Border(
         MR.strings.player_sheets_subtitles_color_border,
+        mpvProperty = "sub-border-color",
         preference = SubtitlePreferences::borderColorSubtitles,
     ),
     Background(
         MR.strings.player_sheets_subtitles_color_background,
+        mpvProperty = "sub-back-color",
         preference = SubtitlePreferences::backgroundColorSubtitles,
     ),
 }

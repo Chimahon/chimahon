@@ -1,18 +1,13 @@
 package eu.kanade.tachiyomi.ui.player.utils
 
 import android.content.Context
-import android.graphics.Typeface
-import androidx.compose.ui.text.font.FontFamily
 import com.yubyf.truetypeparser.TTFFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Resolves subtitle font families to files and Compose [FontFamily]s.
- *
- * Single source of truth for both the font picker and the subtitle overlay:
- * the shared app fonts directory plus Android system font directories.
+ * Resolves font files for the subtitle font picker from the app and system font directories.
  */
 object SubtitleFontResolver {
 
@@ -49,17 +44,6 @@ object SubtitleFontResolver {
 
     fun invalidate() {
         cachedFamilies = null
-    }
-
-    suspend fun resolveFontFamily(
-        context: Context,
-        family: String,
-        includeSystemFonts: Boolean,
-    ): FontFamily? {
-        return runCatching {
-            val file = fontFamilies(context, includeSystemFonts)[family] ?: return null
-            FontFamily(Typeface.createFromFile(file))
-        }.getOrNull()
     }
 
     private val FONT_EXTENSION_REGEX = Regex(""".*\.[ot]tf$""")

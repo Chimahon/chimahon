@@ -981,6 +981,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun refreshSubtitleRegexFilters() {
+        MPVLib.setPropertyBoolean("sub-text-filter-refresh", true)
         refreshParsedSubtitleRegexFilters()
         _currentSubtitleText.update { currentRawSubtitleText.toEffectiveSubtitleText() }
 
