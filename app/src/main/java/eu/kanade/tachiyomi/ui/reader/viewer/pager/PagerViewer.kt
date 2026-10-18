@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.graphics.PointF
+import android.graphics.RectF
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -23,6 +24,7 @@ import eu.kanade.tachiyomi.ui.reader.model.ReaderItem
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrPageRegion
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
 import kotlinx.coroutines.MainScope
@@ -544,6 +546,14 @@ abstract class PagerViewer(
         adapter.refresh()
         pager.adapter = adapter
         pager.setCurrentItem(currentItem, false)
+    }
+
+    fun ocrRegions(region: RectF): List<OcrPageRegion> =
+        (currentPage as? ReaderPage)?.let(::getPageHolder)?.ocrRegions(region).orEmpty()
+
+    fun refreshOcr() {
+        setOcrEnabled(false)
+        setOcrEnabled(activity.viewModel.isOcrEnabled())
     }
 
     fun setOcrEnabled(enabled: Boolean) {

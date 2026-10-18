@@ -774,6 +774,29 @@ open class ReaderPageImageView @JvmOverloads constructor(
         (pageView as? SubsamplingScaleImageView)?.invalidate()
     }
 
+    /** Converts the on-screen selection to the image space used by the existing OCR overlay. */
+    fun normalizedOcrRegion(screenRegion: RectF): RectF? {
+        val image = pageView as? SubsamplingScaleImageView ?: return null
+        if (!image.isReady || image.sWidth <= 0 || image.sHeight <= 0) return null
+        val location = IntArray(2)
+        image.getLocationOnScreen(location)
+        val visible = android.graphics.Rect()
+        if (!image.getLocalVisibleRect(visible)) return null
+        visible.offset(location[0], location[1])
+        val clipped = RectF(screenRegion)
+        if (!clipped.intersect(RectF(visible))) return null
+        val first = image.viewToSourceCoord(clipped.left - location[0], clipped.top - location[1]) ?: return null
+        val last = image.viewToSourceCoord(clipped.right - location[0], clipped.bottom - location[1]) ?: return null
+        return OcrCoordinateMapper.regionToSource(
+            RectF(
+                minOf(first.x, last.x) / image.sWidth,
+                minOf(first.y, last.y) / image.sHeight,
+                maxOf(first.x, last.x) / image.sWidth,
+                maxOf(first.y, last.y) / image.sHeight,
+            ),
+        )
+    }
+
     /**
      * Clear all OCR state. Called by [PagerPageHolder] when page is detached.
      */

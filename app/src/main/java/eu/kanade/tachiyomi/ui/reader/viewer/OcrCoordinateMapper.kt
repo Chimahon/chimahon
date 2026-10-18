@@ -1,10 +1,13 @@
 package eu.kanade.tachiyomi.ui.reader.viewer
 
 import android.graphics.RectF
+import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import okio.BufferedSource
 import tachiyomi.decoder.ImageDecoder
 import java.io.ByteArrayInputStream
 import kotlin.math.max
+
+data class OcrPageRegion(val page: ReaderPage, val bounds: RectF)
 
 /**
  * Coordinate remapping for OCR blocks under reader transformations.
@@ -17,6 +20,69 @@ import kotlin.math.max
  * algorithm — no Kotlin reimplementation needed.
  */
 object OcrCoordinateMapper {
+
+    /** Inverts an axis-aligned display transform, clipping out margins and other pages. */
+    fun regionToSource(
+        region: RectF,
+        displayedBounds: RectF = RectF(0f, 0f, 1f, 1f),
+        sourceBounds: RectF = RectF(0f, 0f, 1f, 1f),
+    ): RectF? {
+        val clipped = RectF(region)
+        if (displayedBounds.isEmpty || !clipped.intersect(displayedBounds)) return null
+        return RectF(
+            sourceBounds.left + (clipped.left - displayedBounds.left) / displayedBounds.width() * sourceBounds.width(),
+            sourceBounds.top + (clipped.top - displayedBounds.top) / displayedBounds.height() * sourceBounds.height(),
+            sourceBounds.left + (clipped.right - displayedBounds.left) / displayedBounds.width() * sourceBounds.width(),
+            sourceBounds.top + (clipped.bottom - displayedBounds.top) / displayedBounds.height() * sourceBounds.height(),
+        ).takeUnless { it.isEmpty }
+    }
+
+    fun regionBeforeRotation(region: RectF, clockwise: Boolean): RectF = if (clockwise) {
+        RectF(region.top, 1f - region.right, region.bottom, 1f - region.left)
+    } else {
+        RectF(1f - region.bottom, region.left, 1f - region.top, region.right)
+    }
+
+    /** Positions crop-relative recognition results back on their original page. */
+    fun blocksFromRegion(blocks: List<OcrTextBlock>, region: RectF): List<OcrTextBlock> = blocks.map { block ->
+        block.copy(
+            xmin = region.left + block.xmin * region.width(),
+            ymin = region.top + block.ymin * region.height(),
+            xmax = region.left + block.xmax * region.width(),
+            ymax = region.top + block.ymax * region.height(),
+            lineGeometries = block.lineGeometries?.map { line ->
+                line.copy(
+                    xmin = region.left + line.xmin * region.width(),
+                    ymin = region.top + line.ymin * region.height(),
+                    xmax = region.left + line.xmax * region.width(),
+                    ymax = region.top + line.ymax * region.height(),
+                )
+            },
+        )
+    }
+
+    /** Keeps unaffected lines when the selected area intersects only part of a merged block. */
+    fun replaceRegion(
+        blocks: List<OcrTextBlock>,
+        region: RectF,
+        replacement: List<OcrTextBlock>,
+    ): List<OcrTextBlock> = blocks.mapNotNull { block ->
+        if (!RectF.intersects(region, RectF(block.xmin, block.ymin, block.xmax, block.ymax))) return@mapNotNull block
+        val geometry = block.lineGeometries?.takeIf { it.size == block.lines.size } ?: return@mapNotNull null
+        val kept = geometry.indices.filter { index ->
+            val line = geometry[index]
+            !RectF.intersects(region, RectF(line.xmin, line.ymin, line.xmax, line.ymax))
+        }
+        if (kept.isEmpty()) return@mapNotNull null
+        block.copy(
+            xmin = kept.minOf { geometry[it].xmin },
+            ymin = kept.minOf { geometry[it].ymin },
+            xmax = kept.maxOf { geometry[it].xmax },
+            ymax = kept.maxOf { geometry[it].ymax },
+            lines = kept.map { block.lines[it] },
+            lineGeometries = kept.map { geometry[it] },
+        )
+    } + replacement
 
     // ──────────────────────────────────────────────────
     // Public API

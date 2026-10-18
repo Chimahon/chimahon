@@ -95,11 +95,8 @@ fun ReaderAppBars(
     currentPageText: String,
     enabledButtons: ImmutableSet<String>,
     currentReadingMode: ReadingMode,
-    dualPageSplitEnabled: Boolean,
-    doublePages: Boolean,
     onClickChapterList: () -> Unit,
-    onClickPageLayout: () -> Unit,
-    onClickShiftPage: () -> Unit,
+    onCropReOcr: (() -> Unit)?,
     // SY <--
 
     // Chimahon -->
@@ -286,14 +283,11 @@ fun ReaderAppBars(
                     // SY -->
                     enabledButtons = enabledButtons,
                     currentReadingMode = currentReadingMode,
-                    dualPageSplitEnabled = dualPageSplitEnabled,
-                    doublePages = doublePages,
                     onClickChapterList = onClickChapterList,
                     onClickWebView = onOpenInWebView,
                     onClickBrowser = onOpenInBrowser,
                     onClickShare = onShare,
-                    onClickPageLayout = onClickPageLayout,
-                    onClickShiftPage = onClickShiftPage,
+                    onCropReOcr = onCropReOcr,
                     // SY <--
                 )
             }

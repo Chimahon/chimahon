@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.net.Uri
 import android.os.SystemClock
 import androidx.annotation.ColorInt
@@ -33,6 +34,11 @@ import eu.kanade.tachiyomi.data.download.model.Download
 import chimahon.ocr.effectiveScanResolution
 import chimahon.ocr.isOcrAllowedForLanguage
 import eu.kanade.tachiyomi.data.ocr.retryWithBackoff
+import eu.kanade.tachiyomi.data.ocr.LocalOcrBridge
+import eu.kanade.tachiyomi.data.ocr.ModelDownloader
+import eu.kanade.tachiyomi.data.ocr.OcrEngineType
+import eu.kanade.tachiyomi.data.ocr.PaddleOcrBridge
+import eu.kanade.tachiyomi.data.ocr.recognizePage
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
@@ -43,6 +49,10 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.source.online.MetadataSource
 import eu.kanade.tachiyomi.source.online.all.MergedSource
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
+import eu.kanade.tachiyomi.ui.dictionary.toScreenLookupBlocks
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrCoordinateMapper
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrPageRegion
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
 import eu.kanade.tachiyomi.ui.reader.chapter.ReaderChapterItem
 import eu.kanade.tachiyomi.ui.reader.loader.ChapterLoader
 import eu.kanade.tachiyomi.ui.reader.loader.DownloadPageLoader
@@ -81,6 +91,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -1296,7 +1308,9 @@ class ReaderViewModel @JvmOverloads constructor(
     // SY <--
 
     // Chimahon: OCR methods
-    fun isOcrEnabled(): Boolean = readerPreferences.ocrOverlayEnabled().get() && isOcrAllowedForCurrentManga()
+    fun isOcrEnabled(): Boolean = (readerPreferences.ocrOverlayEnabled().get() || state.value.regionOcrEnabled) && isOcrAllowedForCurrentManga()
+
+    private fun isRegionOnlyOcr(): Boolean = state.value.regionOcrEnabled && !readerPreferences.ocrOverlayEnabled().get()
 
     fun isOcrAllowedForCurrentManga(): Boolean {
         val manga = manga ?: return true
@@ -1363,7 +1377,8 @@ class ReaderViewModel @JvmOverloads constructor(
 
     fun toggleOcrEnabled(): Boolean {
         val pref = readerPreferences.ocrOverlayEnabled()
-        val enabled = !pref.get()
+        val enabled = !isOcrEnabled()
+        mutableState.update { it.copy(regionOcrEnabled = false) }
         if (enabled && !isOcrAllowedForCurrentManga()) {
             cancelOcrScan()
             pref.set(false)
@@ -1767,7 +1782,10 @@ class ReaderViewModel @JvmOverloads constructor(
             }
         }
 
+        if (isRegionOnlyOcr()) return emptyList()
+
         val deferred = ocrCacheMutex.withLock {
+            ocrCache[cacheKey]?.let { return it }
             ocrInFlight[cacheKey] ?: viewModelScope.async(ocrDispatcher) {
                 withTimeoutOrNull(10_000) {
                     page.statusFlow.first { it == Page.State.Ready }
@@ -1779,6 +1797,13 @@ class ReaderViewModel @JvmOverloads constructor(
                 fetchOcrBlocks(page, ocrSource)
             }.also { created ->
                 ocrInFlight[cacheKey] = created
+                created.invokeOnCompletion {
+                    viewModelScope.launch {
+                        ocrCacheMutex.withLock {
+                            if (ocrInFlight[cacheKey] === created) ocrInFlight.remove(cacheKey)
+                        }
+                    }
+                }
             }
         }
 
@@ -1786,10 +1811,93 @@ class ReaderViewModel @JvmOverloads constructor(
             deferred.await()
         } finally {
             ocrCacheMutex.withLock {
-                if (ocrInFlight[cacheKey] === deferred) {
+                if (ocrInFlight[cacheKey] === deferred && deferred.isCompleted) {
                     ocrInFlight.remove(cacheKey)
                 }
             }
+        }
+    }
+
+    /** Recognizes every crop before replacing regions in the existing page cache. */
+    suspend fun rescanOcrRegions(regions: List<OcrPageRegion>) = withContext(Dispatchers.IO) {
+        require(regions.isNotEmpty())
+        check(isOcrAllowedForCurrentManga())
+        val manga = state.value.manga ?: error("No manga loaded")
+        val ocrSource = state.value.ocrSource
+        val source = sourceManager.getOrStub(manga.source)
+        val profile = resolveOcrProfile()
+        val engine = ocrSource.recognitionEngine ?: OcrEngineType.fromPreference(dictionaryPreferences.ocrEngine().get())
+        // Missing models normally yield an empty result. A rescan must keep the old blocks in that case.
+        when (engine) {
+            OcrEngineType.LOCAL -> {
+                val models = Injekt.get<ModelDownloader>()
+                if (!models.isDownloaded) models.triggerDownload()
+                val bridge = Injekt.get<LocalOcrBridge>()
+                check(models.isDownloaded && bridge.isAvailable && bridge.init()) { "Local OCR is not ready" }
+            }
+            OcrEngineType.PADDLE -> {
+                val models = Injekt.get<ModelDownloader>()
+                if (!models.isPaddleDownloaded) models.triggerPaddleDownload()
+                val bridge = Injekt.get<PaddleOcrBridge>()
+                check(models.isPaddleDownloaded && bridge.isAvailable && bridge.init()) { "Paddle OCR is not ready" }
+            }
+            OcrEngineType.CLOUD -> Unit
+        }
+        val language = chimahon.ocr.OcrLanguage.entries.find {
+            it.bcp47.equals(profile.languageCode, ignoreCase = true)
+        } ?: chimahon.ocr.OcrLanguage.JAPANESE
+        val originals = mutableMapOf<OcrCacheKey, List<OcrTextBlock>>()
+        val changes = regions.groupBy { it.page }.map { (page, selections) ->
+            check(page.status == Page.State.Ready)
+            val chapter = page.chapter.chapter.toDomainChapter() ?: error("No chapter loaded")
+            val key = OcrCacheKey(chapter.id ?: error("No chapter ID"), page.index, ocrSource)
+            originals[key] = getCachedOcrBlocks(page)
+            val bitmap = getCurrentPageBitmap(page) ?: error("Could not decode page")
+            val replacements = try {
+                selections.map { selection ->
+                    currentCoroutineContext().ensureActive()
+                    val left = kotlin.math.floor(selection.bounds.left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+                    val top = kotlin.math.floor(selection.bounds.top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+                    val right = kotlin.math.ceil(selection.bounds.right * bitmap.width).toInt().coerceIn(left + 1, bitmap.width)
+                    val bottom = kotlin.math.ceil(selection.bounds.bottom * bitmap.height).toInt().coerceIn(top + 1, bitmap.height)
+                    val bounds = RectF(left.toFloat() / bitmap.width, top.toFloat() / bitmap.height, right.toFloat() / bitmap.width, bottom.toFloat() / bitmap.height)
+                    val crop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+                    val blocks = try {
+                        retryWithBackoff(times = 3) {
+                            recognizePage(crop, language, engineType = engine)
+                        }.toScreenLookupBlocks(language.bcp47)
+                    } finally {
+                        if (crop !== bitmap) crop.recycle()
+                    }
+                    bounds to OcrCoordinateMapper.blocksFromRegion(blocks, bounds)
+                }
+            } finally {
+                bitmap.recycle()
+            }
+            Triple(key, chapter, replacements)
+        }
+        var updated: Map<OcrCacheKey, List<OcrTextBlock>>? = null
+        while (updated == null) {
+            val pending = ocrCacheMutex.withLock { changes.mapNotNull { ocrInFlight[it.first] } }
+            pending.awaitAll()
+            updated = ocrCacheMutex.withLock {
+                currentCoroutineContext().ensureActive()
+                if (state.value.ocrSource != ocrSource || state.value.manga?.id != manga.id) throw CancellationException()
+                if (changes.any { ocrInFlight[it.first]?.isActive == true }) return@withLock null
+                changes.associate { (key, _, replacements) ->
+                    key to replacements.fold(ocrCache[key] ?: originals.getValue(key)) { current, (bounds, scanned) ->
+                        OcrCoordinateMapper.replaceRegion(current, bounds, scanned)
+                    }
+                }.also { result ->
+                    ocrCache.putAll(result)
+                    trimOcrCacheLocked()
+                }
+            }
+        }
+        mutableState.update { it.copy(regionOcrEnabled = true) }
+        val completed = checkNotNull(updated)
+        changes.forEach { (key, chapter, _) ->
+            savePersistentOcrBlocks(ocrSource, manga, chapter, source, key.pageIndex, completed.getValue(key).map { it.toCacheBlock() }, language.bcp47)
         }
     }
 
@@ -1830,16 +1938,15 @@ class ReaderViewModel @JvmOverloads constructor(
             ?.map { it.toViewerBlock() }
             ?: return null
 
-        ocrCacheMutex.withLock {
-            ocrCache[cacheKey] = diskBlocks
+        return ocrCacheMutex.withLock {
+            val blocks = ocrCache.getOrPut(cacheKey) { diskBlocks }
             trimOcrCacheLocked()
+            blocks
         }
-        logcat { "OCR disk hit: chapter=$chapterId page=${page.index} blocks=${diskBlocks.size}" }
-        return diskBlocks
     }
 
     private fun scanOcrPages(currentPage: ReaderPage) {
-        if (!isOcrEnabled()) return
+        if (!isOcrEnabled() || isRegionOnlyOcr()) return
         val chapter = currentPage.chapter
         val chapterId = chapter.chapter.id ?: return
         if (ocrScanChapterId == chapterId) {
@@ -2031,37 +2138,23 @@ class ReaderViewModel @JvmOverloads constructor(
         val endPage = minOf(startPage + count, totalPages)
         for (pageIndex in startPage until endPage) {
             val cacheKey = OcrCacheKey(chapterId, pageIndex, ReaderOcrSource.AUTOMATIC)
-            ocrCacheMutex.withLock {
-                if (ocrCache.containsKey(cacheKey)) return@withLock
-            }
+            if (ocrCacheMutex.withLock { ocrCache.containsKey(cacheKey) }) continue
 
             getMokuroBlocksForPage(chapterData, pageIndex)?.let { rawBlocks ->
                 val blocks = rawBlocks.map { it.copy(language = chimahon.ocr.OcrLanguage.JAPANESE.bcp47) }
                 ocrCacheMutex.withLock {
+                    if (ocrCache.containsKey(cacheKey)) return@let
                     ocrCache[cacheKey] = blocks
                     trimOcrCacheLocked()
+                    ocrCacheManager.saveOcrBlocks(
+                        manga = manga,
+                        chapter = chapter,
+                        source = source,
+                        pageIndex = pageIndex,
+                        blocks = blocks.map { it.toCacheBlock() },
+                        language = chimahon.ocr.OcrLanguage.JAPANESE.bcp47,
+                    )
                 }
-                ocrCacheManager.saveOcrBlocks(
-                    manga = manga,
-                    chapter = chapter,
-                    source = source,
-                    pageIndex = pageIndex,
-                    blocks = blocks.map {
-                        chimahon.ocr.OcrTextBlock(
-                            xmin = it.xmin,
-                            ymin = it.ymin,
-                            xmax = it.xmax,
-                            ymax = it.ymax,
-                            lines = it.lines,
-                            vertical = it.vertical,
-                            lineGeometries = it.lineGeometries?.map { lg ->
-                                chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
-                            },
-                            language = it.language,
-                        )
-                    },
-                    language = chimahon.ocr.OcrLanguage.JAPANESE.bcp47,
-                )
             }
         }
         logcat { "Mokuro: prewarmed OCR for pages $startPage-${endPage - 1} of chapter $chapterId" }
@@ -2376,20 +2469,7 @@ class ReaderViewModel @JvmOverloads constructor(
                     chapter = domainChapter,
                     source = source,
                     pageIndex = page.index,
-                    blocks = blocks.map {
-                        chimahon.ocr.OcrTextBlock(
-                            xmin = it.xmin,
-                            ymin = it.ymin,
-                            xmax = it.xmax,
-                            ymax = it.ymax,
-                            lines = it.lines,
-                            vertical = it.vertical,
-                            lineGeometries = it.lineGeometries?.map { lg ->
-                                chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
-                            },
-                            language = it.language,
-                        )
-                    },
+                    blocks = blocks.map { it.toCacheBlock() },
                     language = ocrLang.bcp47,
                 )
                 val elapsedMs = SystemClock.elapsedRealtime() - startMs
@@ -2430,20 +2510,7 @@ class ReaderViewModel @JvmOverloads constructor(
                     chapter = domainChapter,
                     source = source,
                     pageIndex = page.index,
-                    blocks = blocks.map {
-                        chimahon.ocr.OcrTextBlock(
-                            xmin = it.xmin,
-                            ymin = it.ymin,
-                            xmax = it.xmax,
-                            ymax = it.ymax,
-                            lines = it.lines,
-                            vertical = it.vertical,
-                            lineGeometries = it.lineGeometries?.map { lg ->
-                                chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
-                            },
-                            language = it.language,
-                        )
-                    },
+                    blocks = blocks.map { it.toCacheBlock() },
                     language = mokuroLang,
                 )
                 val elapsedMs = SystemClock.elapsedRealtime() - startMs
@@ -2566,20 +2633,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 chapter = domainChapter,
                 source = source,
                 pageIndex = page.index,
-                blocks = finalBlocks.map {
-                    chimahon.ocr.OcrTextBlock(
-                        xmin = it.xmin,
-                        ymin = it.ymin,
-                        xmax = it.xmax,
-                        ymax = it.ymax,
-                        lines = it.lines,
-                        vertical = it.vertical,
-                        lineGeometries = it.lineGeometries?.map { lg ->
-                            chimahon.ocr.OcrLineGeometry(lg.xmin, lg.ymin, lg.xmax, lg.ymax, lg.rotation)
-                        },
-                        language = it.language,
-                    )
-                },
+                blocks = finalBlocks.map { it.toCacheBlock() },
                 language = ocrLang.bcp47,
             )
 
@@ -2665,6 +2719,7 @@ class ReaderViewModel @JvmOverloads constructor(
         @field:IntRange(from = -100, to = 100) val brightnessOverlayValue: Int = 0,
         val ocrScanProgress: OcrScanProgress? = null,
         val ocrSource: ReaderOcrSource = ReaderOcrSource.AUTOMATIC,
+        val regionOcrEnabled: Boolean = false,
         val mokuroAvailable: Boolean = false,
 
         // SY -->
@@ -2883,3 +2938,14 @@ private fun chimahon.ocr.OcrTextBlock.toViewerBlock(): eu.kanade.tachiyomi.ui.re
 }
 
 private const val OCR_SCAN_WORKERS = 2
+
+private fun OcrTextBlock.toCacheBlock() = chimahon.ocr.OcrTextBlock(
+    xmin = xmin,
+    ymin = ymin,
+    xmax = xmax,
+    ymax = ymax,
+    lines = lines,
+    vertical = vertical,
+    lineGeometries = lineGeometries?.map { chimahon.ocr.OcrLineGeometry(it.xmin, it.ymin, it.xmax, it.ymax, it.rotation) },
+    language = language,
+)

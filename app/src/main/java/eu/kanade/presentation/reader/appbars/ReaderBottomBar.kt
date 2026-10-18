@@ -3,6 +3,7 @@ package eu.kanade.presentation.reader.appbars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.FormatListNumbered
 import androidx.compose.material.icons.outlined.Public
@@ -23,7 +24,6 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import kotlinx.collections.immutable.ImmutableSet
 import tachiyomi.i18n.MR
-import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.i18n.stringResource
 
 @Composable
@@ -41,14 +41,11 @@ fun ReaderBottomBar(
     onClickMangaStats: (() -> Unit)?,
     // SY -->
     currentReadingMode: ReadingMode,
-    dualPageSplitEnabled: Boolean,
-    doublePages: Boolean,
     onClickChapterList: () -> Unit,
     onClickWebView: (() -> Unit)?,
     onClickBrowser: (() -> Unit)?,
     onClickShare: (() -> Unit)?,
-    onClickPageLayout: () -> Unit,
-    onClickShiftPage: () -> Unit,
+    onCropReOcr: (() -> Unit)?,
     // SY <--
     modifier: Modifier = Modifier,
 ) {
@@ -153,30 +150,12 @@ fun ReaderBottomBar(
             }
         }
 
-        if (
-            !dualPageSplitEnabled &&
-            ReaderBottomButton.PageLayout.isIn(enabledButtons) &&
-            ReadingMode.isPagerType(currentReadingMode.flagValue)
-        ) {
-            IconButton(onClick = onClickPageLayout) {
+        if (ReaderBottomButton.CropReOcr.isIn(enabledButtons) && onCropReOcr != null) {
+            IconButton(onClick = onCropReOcr) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_book_open_variant_24dp),
-                    contentDescription = stringResource(SYMR.strings.page_layout),
-                    // KMK -->
+                    imageVector = Icons.Outlined.CropFree,
+                    contentDescription = stringResource(MR.strings.pref_ocr_two_finger_region),
                     tint = iconColor,
-                    // KMK <--
-                )
-            }
-        }
-
-        if (doublePages) {
-            IconButton(onClick = onClickShiftPage) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_page_next_outline_24dp),
-                    contentDescription = stringResource(SYMR.strings.shift_double_pages),
-                    // KMK -->
-                    tint = iconColor,
-                    // KMK <--
                 )
             }
         }

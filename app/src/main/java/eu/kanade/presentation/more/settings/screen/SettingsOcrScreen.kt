@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +41,7 @@ import androidx.core.content.ContextCompat
 import chimahon.ocr.OcrCacheManager
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
 import eu.kanade.tachiyomi.data.ocr.ModelDownloader
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -95,6 +97,10 @@ object SettingsOcrScreen : SearchableSettings {
         val activeOcrBgOpacityPref = dictionaryPreferences.activeOcrBgOpacity()
         val activeOcrBgOpacity by activeOcrBgOpacityPref.collectAsState()
 
+        val regionGesturePref = readerPreferences.ocrTwoFingerRegionEnabled()
+        val regionGesture by regionGesturePref.collectAsState()
+        val overlayGesturePref = readerPreferences.ocrTwoFingerGestureEnabled()
+        val overlayGesture by overlayGesturePref.collectAsState()
         val ocrOutlineVisiblePref = readerPreferences.ocrOutlineVisible()
 
         val ocrButtonSizePref = dictionaryPreferences.ocrButtonSize()
@@ -343,10 +349,35 @@ object SettingsOcrScreen : SearchableSettings {
             Preference.PreferenceGroup(
                 title = stringResource(MR.strings.pref_category_behavior),
                 preferenceItems = persistentListOf(
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = readerPreferences.ocrTwoFingerGestureEnabled(),
+                    Preference.PreferenceItem.CustomPreference(
+                        title = stringResource(MR.strings.pref_ocr_two_finger_region),
+                        content = {
+                            SwitchPreferenceWidget(
+                                modifier = Modifier.alpha(if (overlayGesture) .38f else 1f),
+                                title = stringResource(MR.strings.pref_ocr_two_finger_region),
+                                subtitle = stringResource(MR.strings.pref_ocr_two_finger_region_summary),
+                                checked = regionGesture,
+                                onCheckedChanged = { enabled ->
+                                    if (enabled) overlayGesturePref.set(false)
+                                    regionGesturePref.set(enabled)
+                                },
+                            )
+                        },
+                    ),
+                    Preference.PreferenceItem.CustomPreference(
                         title = stringResource(MR.strings.pref_ocr_two_finger_gesture),
-                        subtitle = stringResource(MR.strings.pref_ocr_two_finger_gesture_summary),
+                        content = {
+                            SwitchPreferenceWidget(
+                                modifier = Modifier.alpha(if (regionGesture) .38f else 1f),
+                                title = stringResource(MR.strings.pref_ocr_two_finger_gesture),
+                                subtitle = stringResource(MR.strings.pref_ocr_two_finger_gesture_summary),
+                                checked = overlayGesture,
+                                onCheckedChanged = { enabled ->
+                                    if (enabled) regionGesturePref.set(false)
+                                    overlayGesturePref.set(enabled)
+                                },
+                            )
+                        },
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = readerPreferences.ocrAutoOnDownload(),

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.view.LayoutInflater
 import android.webkit.WebView
@@ -19,6 +20,7 @@ import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrCoordinateMapper
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrPageRegion
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -115,6 +117,7 @@ class PagerPageHolder(
      * Calculated during `setImage` if `imageCropBorders` is enabled.
      */
     private var pageCropRect: android.graphics.RectF? = null
+    private var ocrOriginalIsWide = false
 
     // Dimensions recorded when handleWideImage adds a center margin to a single wide image.
     private var wideImageWidth: Int = 0
@@ -257,10 +260,12 @@ class PagerPageHolder(
                     } else {
                         null
                     }.use { source2 ->
+                        val original = Buffer().readFrom(source)
+                        ocrOriginalIsWide = ImageUtil.isWideImage(original)
                         val itemSource = if (viewer.config.dualPageSplit) {
-                            process(item.first, Buffer().readFrom(source))
+                            process(item.first, original)
                         } else {
-                            mergePages(Buffer().readFrom(source), source2?.let { Buffer().readFrom(it) })
+                            mergePages(original, source2?.let { Buffer().readFrom(it) })
                         }
                         // SY <--
                         val isAnimated = ImageUtil.isAnimatedAndSupported(itemSource)
@@ -744,6 +749,43 @@ class PagerPageHolder(
         ocrLoadJob = scope.launch {
             loadOcrWithTransform()
         }
+    }
+
+    fun ocrRegions(screenRegion: RectF): List<OcrPageRegion> {
+        val selected = normalizedOcrRegion(screenRegion) ?: return emptyList()
+        val region = OcrCoordinateMapper.regionToSource(selected, sourceBounds = pageCropRect ?: RectF(0f, 0f, 1f, 1f))
+            ?: return emptyList()
+        val ep = extraPage
+        if (ep != null && mergedPage1W > 0 && !page.fullPage && !page.isolatedPage) {
+            val totalWidth = (mergedPage1W + mergedCenterMargin + mergedPage2W).toFloat()
+            val totalHeight = maxOf(mergedPage1H, mergedPage2H).toFloat()
+            val page1X = if (mergedIsLTR) 0f else (mergedPage2W + mergedCenterMargin).toFloat()
+            val page2X = if (mergedIsLTR) (mergedPage1W + mergedCenterMargin).toFloat() else 0f
+            fun part(target: ReaderPage, x: Float, width: Int, height: Int): OcrPageRegion? {
+                val top = (totalHeight - height) / 2f
+                val canvas = RectF(x / totalWidth, top / totalHeight, (x + width) / totalWidth, (top + height) / totalHeight)
+                return OcrCoordinateMapper.regionToSource(region, canvas)?.let { OcrPageRegion(target, it) }
+            }
+            return listOfNotNull(part(page, page1X, mergedPage1W, mergedPage1H), part(ep, page2X, mergedPage2W, mergedPage2H))
+        }
+        var regions = listOf(region)
+        if (wideCenterPadding > 0 && wideImageWidth > 0) {
+            val ratio = wideImageWidth.toFloat() / (wideImageWidth + wideCenterPadding)
+            val gap = 1f - ratio
+            regions = listOfNotNull(
+                OcrCoordinateMapper.regionToSource(region, RectF(0f, 0f, ratio / 2f, 1f), RectF(0f, 0f, .5f, 1f)),
+                OcrCoordinateMapper.regionToSource(region, RectF(ratio / 2f + gap, 0f, 1f, 1f), RectF(.5f, 0f, 1f, 1f)),
+            )
+        }
+        if (viewer.config.dualPageRotateToFit && ocrOriginalIsWide) {
+            regions = regions.map { OcrCoordinateMapper.regionBeforeRotation(it, !viewer.config.dualPageRotateToFitInvert) }
+        } else if (viewer.config.dualPageSplit && !viewer.config.dualPageRotateToFit && (page is InsertPage || ocrOriginalIsWide)) {
+            val keepLeft = ((viewer is L2RPagerViewer) xor (page is InsertPage)) xor viewer.config.dualPageInvert
+            val sourceHalf = if (keepLeft) RectF(0f, 0f, .5f, 1f) else RectF(.5f, 0f, 1f, 1f)
+            regions = regions.mapNotNull { OcrCoordinateMapper.regionToSource(it, sourceBounds = sourceHalf) }
+        }
+        val originalPage = (page as? InsertPage)?.parent ?: page
+        return regions.map { OcrPageRegion(originalPage, it) }
     }
 
     fun applyOcrEnabled(enabled: Boolean) {

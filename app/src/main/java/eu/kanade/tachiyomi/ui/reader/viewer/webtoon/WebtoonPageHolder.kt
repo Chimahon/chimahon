@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrCoordinateMapper
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrPageRegion
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -95,6 +96,7 @@ class WebtoonPageHolder(
      * Calculated during `setImage` if `imageCropBorders` is enabled.
      */
     private var pageCropRect: android.graphics.RectF? = null
+    private var ocrOriginalIsWide = false
 
     init {
         refreshLayoutParams()
@@ -255,6 +257,7 @@ class WebtoonPageHolder(
     }
 
     private fun process(imageSource: BufferedSource): BufferedSource {
+        ocrOriginalIsWide = ImageUtil.isWideImage(imageSource)
         if (viewer.config.dualPageRotateToFit) {
             return rotateDualPage(imageSource)
         }
@@ -295,6 +298,31 @@ class WebtoonPageHolder(
         progressContainer.isVisible = false
         removeErrorLayout()
         applyOcrEnabled(viewer.activity.viewModel.isOcrEnabled())
+    }
+
+    fun ocrRegions(screenRegion: RectF): List<OcrPageRegion> {
+        val target = page ?: return emptyList()
+        val selected = frame.normalizedOcrRegion(screenRegion) ?: return emptyList()
+        val region = OcrCoordinateMapper.regionToSource(selected, sourceBounds = pageCropRect ?: RectF(0f, 0f, 1f, 1f))
+            ?: return emptyList()
+        val regions = when {
+            viewer.config.dualPageRotateToFit && ocrOriginalIsWide -> listOf(
+                OcrCoordinateMapper.regionBeforeRotation(region, !viewer.config.dualPageRotateToFitInvert),
+            )
+            viewer.config.dualPageSplit && !viewer.config.dualPageRotateToFit && ocrOriginalIsWide -> {
+                val upperIsRight = !viewer.config.dualPageInvert
+                listOf(0f, .5f).mapNotNull { top ->
+                    val rightHalf = (top == 0f) == upperIsRight
+                    OcrCoordinateMapper.regionToSource(
+                        region,
+                        RectF(0f, top, 1f, top + .5f),
+                        if (rightHalf) RectF(.5f, 0f, 1f, 1f) else RectF(0f, 0f, .5f, 1f),
+                    )
+                }
+            }
+            else -> listOf(region)
+        }
+        return regions.map { OcrPageRegion(target, it) }
     }
 
     fun applyOcrEnabled(enabled: Boolean) {

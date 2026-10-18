@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.graphics.PointF
+import android.graphics.RectF
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -26,6 +27,7 @@ import eu.kanade.tachiyomi.ui.reader.model.ViewerChapters
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonPageHolder
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
+import eu.kanade.tachiyomi.ui.reader.viewer.OcrPageRegion
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
 import kotlinx.coroutines.MainScope
@@ -484,6 +486,15 @@ class WebtoonViewer(
         } else {
             recycler.scrollBy(0, scrollDistance)
         }
+    }
+
+    fun ocrRegions(region: RectF): List<OcrPageRegion> = (0 until recycler.childCount).flatMap { index ->
+        (recycler.getChildViewHolder(recycler.getChildAt(index)) as? WebtoonPageHolder)?.ocrRegions(region).orEmpty()
+    }
+
+    fun refreshOcr() {
+        setOcrEnabled(false)
+        setOcrEnabled(activity.viewModel.isOcrEnabled())
     }
 
     fun setOcrEnabled(enabled: Boolean) {

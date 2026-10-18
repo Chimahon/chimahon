@@ -3,9 +3,11 @@ package eu.kanade.presentation.reader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.CropFree
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Share
@@ -38,6 +40,7 @@ fun ReaderPageActionsDialog(
     onShareCombined: (copyToClipboard: Boolean) -> Unit,
     onSaveCombined: () -> Unit,
     hasExtraPage: Boolean,
+    onCropReOcr: (() -> Unit)?,
     // SY <--
 ) {
     var showSetCoverDialog by remember { mutableStateOf(false) }
@@ -47,6 +50,17 @@ fun ReaderPageActionsDialog(
 
     AdaptiveSheet(onDismissRequest = onDismissRequest) {
         Column(modifier = Modifier.padding(vertical = 16.dp)) {
+            onCropReOcr?.let { crop ->
+                ActionButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    title = stringResource(MR.strings.pref_ocr_two_finger_region),
+                    icon = Icons.Outlined.CropFree,
+                    onClick = {
+                        onDismissRequest()
+                        crop()
+                    },
+                )
+            }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {

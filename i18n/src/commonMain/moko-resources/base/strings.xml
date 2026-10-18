@@ -434,6 +434,12 @@
     <string name="pref_ocr_cache_size">OCR cache size</string>
     <string name="pref_ocr_clear_cache">Clear OCR cache</string>
     <string name="pref_ocr_two_finger_gesture">OCR two-finger gesture</string>
+    <string name="pref_ocr_two_finger_region">Crop and re-OCR</string>
+    <string name="pref_ocr_two_finger_region_summary">Two-finger tap to select and rescan an area</string>
+    <string name="ocr_region_select">Drag over the area to rescan</string>
+    <string name="ocr_region_scanning">Recognizing selected area…</string>
+    <string name="ocr_region_unavailable">Select an area inside a loaded page</string>
+    <string name="ocr_region_failed">Could not rescan the area. Previous OCR was kept.</string>
     <string name="pref_ocr_two_finger_gesture_summary">Allow two-finger tap to toggle OCR overlay</string>
     <string name="ocr_ready">OCR ready</string>
     <string name="ocr_not_ready">OCR not ready</string>
