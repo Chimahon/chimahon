@@ -10,6 +10,8 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import chimahon.novel.manager.NovelSourceManager
+import eu.kanade.core.preference.asState
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
@@ -21,7 +23,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.Serializable
-import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.service.LibraryPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -30,6 +31,7 @@ class BrowseNovelSourceScreenModel(
     val sourceId: Long,
     private val initialListing: Listing? = null,
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
+    sourcePreferences: SourcePreferences = Injekt.get(),
 ) : StateScreenModel<BrowseNovelSourceScreenModel.State>(State()) {
 
     private var currentPage = 1
@@ -37,7 +39,7 @@ class BrowseNovelSourceScreenModel(
     private val sourceManager: NovelSourceManager = Injekt.get()
     val source: NovelSource? get() = sourceManager.getNovelSource(sourceId)
 
-    var displayMode: LibraryDisplayMode by mutableStateOf(LibraryDisplayMode.CompactGrid)
+    var displayMode by sourcePreferences.sourceDisplayMode().asState(screenModelScope)
 
     private val pageSource: NovelsPageSource?
         get() = source as? NovelsPageSource
