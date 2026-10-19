@@ -28,6 +28,8 @@ class DictionaryPreferences(
 
     fun ocrBoxOpacity() = preferenceStore.getFloat("pref_ocr_box_opacity", 0.0f)
 
+    fun showScreenLookupOverlay() = preferenceStore.getBoolean("pref_show_screen_lookup_ocr_overlay", true)
+
     /** Opacity of text characters in the currently active/tapped OCR block (0..1). */
     fun activeOcrTextOpacity() = preferenceStore.getFloat("pref_active_ocr_text_opacity", 1.0f)
 
