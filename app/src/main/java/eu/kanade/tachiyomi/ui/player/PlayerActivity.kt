@@ -726,11 +726,6 @@ class PlayerActivity : BaseActivity() {
             removeUnmodifiedAssetCopy(configDir, "cacert.pem")
         }
         writeFontsConf(configDir)
-        setupFontsDirectory()
-
-        val showBlackBars = if (subtitlePreferences.subtitleBlackBars().get()) "yes" else "no"
-        MPVLib.setOptionString("sub-ass-force-margins", showBlackBars)
-        MPVLib.setOptionString("sub-use-margins", showBlackBars)
 
         player.initialize(
             configDir = configDir,
@@ -824,19 +819,6 @@ class PlayerActivity : BaseActivity() {
         } catch (e: IOException) {
             logcat(LogPriority.ERROR, e) { "Failed to remove unused asset file: $filename" }
         }
-    }
-
-    private fun setupFontsDirectory() {
-        val fontsDir = chimahon.novel.data.FontManager.getFontsDir(applicationContext)
-        if (!fontsDir.exists()) fontsDir.mkdirs()
-        MPVLib.setPropertyString(
-            "sub-fonts-dir",
-            fontsDir.path,
-        )
-        MPVLib.setPropertyString(
-            "osd-fonts-dir",
-            fontsDir.path,
-        )
     }
 
     /**

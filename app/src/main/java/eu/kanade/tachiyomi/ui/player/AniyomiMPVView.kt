@@ -25,6 +25,7 @@ import android.util.AttributeSet
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.SurfaceHolder
+import chimahon.novel.data.FontManager
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.ui.player.controls.components.panels.toColorHexString
 import eu.kanade.tachiyomi.ui.player.settings.AdvancedPlayerPreferences
@@ -308,6 +309,13 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
     }
 
     private fun setupSubtitlesOptions() {
+        // Set font paths after MPV is created and before its subtitle renderer is initialized.
+        val fontsDir = FontManager.getFontsDir(context)
+        MPVLib.setOptionString("sub-fonts-dir", fontsDir.path)
+        MPVLib.setOptionString("osd-fonts-dir", fontsDir.path)
+        val showBlackBars = if (subtitlePreferences.subtitleBlackBars().get()) "yes" else "no"
+        MPVLib.setOptionString("sub-ass-force-margins", showBlackBars)
+        MPVLib.setOptionString("sub-use-margins", showBlackBars)
         MPVLib.setSubtitleTextFilter(NativeSubtitleTextFilter(subtitlePreferences))
         MPVLib.setOptionString("sub-delay", (subtitlePreferences.subtitlesDelay().get() / 1000.0).toString())
         MPVLib.setOptionString("sub-speed", subtitlePreferences.subtitlesSpeed().get().toString())
