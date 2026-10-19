@@ -5,8 +5,6 @@ import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -14,7 +12,6 @@ import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.text.TextPaint
 import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -56,7 +53,6 @@ import chimahon.ocr.OcrCharacterLine
 import chimahon.ocr.OcrHitTester
 import chimahon.ocr.OcrLanguage
 import chimahon.ocr.OcrResult
-import chimahon.ocr.OcrTextOverlayPainter
 import chimahon.ocr.extractOcrLookupText
 import chimahon.ocr.extractWholeWord
 import chimahon.ocr.isOcrLookupStartChar
@@ -484,80 +480,12 @@ private class NovelImageView(context: Context) : FrameLayout(context) {
 private class NovelSubsamplingImageView(context: Context) : SubsamplingScaleImageView(context) {
     private var ocrBlocks: List<NovelOcrBlock> = emptyList()
     var scanWholeWord: Boolean = false
-    private val density = resources.displayMetrics.density
-    private val boxFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = android.graphics.Color.argb(190, 255, 255, 255)
-    }
-    private val boxStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 1.5f * density
-        color = android.graphics.Color.argb(220, 0, 150, 210)
-    }
-    private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.BLACK
-    }
 
     fun setOcrBlocks(blocks: List<NovelOcrBlock>) {
         ocrBlocks = blocks
         invalidate()
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        if (!isReady || ocrBlocks.isEmpty()) return
-
-        for (block in ocrBlocks) {
-            val rect = blockViewRect(block) ?: continue
-            if (rect.right < 0f || rect.bottom < 0f || rect.left > width || rect.top > height) continue
-
-            if (block.lines.isEmpty()) {
-                drawOcrText(
-                    canvas,
-                    block.displayText,
-                    rect,
-                    block.vertical,
-                    rotation = 0f,
-                )
-            } else {
-                block.lines.forEach { line ->
-                    val lineRect = lineViewRect(line) ?: return@forEach
-                    drawOcrText(
-                        canvas = canvas,
-                        text = line.text,
-                        rect = lineRect,
-                        vertical = line.isVertical(block.vertical),
-                        rotation = line.rotation,
-                    )
-                }
-            }
-        }
-    }
-
-    private fun drawOcrText(
-        canvas: Canvas,
-        text: String,
-        rect: RectF,
-        vertical: Boolean,
-        rotation: Float,
-    ) {
-        if (text.isBlank() || rect.width() <= 0f || rect.height() <= 0f) return
-        canvas.save()
-        OcrTextOverlayPainter.drawLine(
-            canvas = canvas,
-            text = text,
-            rect = rect,
-            rotation = rotation,
-            vertical = vertical,
-            density = density,
-            scaleCompensation = 1f,
-            minimumTextSize = 1f,
-            textPaint = textPaint,
-            backgroundPaint = boxFill,
-            borderPaint = boxStroke,
-        )
-        canvas.restore()
-    }
     fun getOcrLookup(viewX: Float, viewY: Float): NovelOcrLookup? {
         if (!isReady || ocrBlocks.isEmpty()) return null
         val lines = ocrBlocks.flatMap { block ->
