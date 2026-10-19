@@ -16,7 +16,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 
 - Removed the blue OCR overlay from novel images
 - Novel browse now shares its display mode with manga and anime
-- Reader bottom bar page layout and shift double pages buttons replaced by crop and re-OCR
+- Page layout toolbar controls are optional and disabled by default
 - Updated mpv/libass builds with native system-font discovery
 
 ### Fixed

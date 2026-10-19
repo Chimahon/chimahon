@@ -14,7 +14,8 @@ enum class ReaderBottomButton(val value: String, val stringRes: StringResource) 
     CropBordersPager("cbp", SYMR.strings.pref_crop_borders_pager),
     CropBordersContinuesVertical("cbc", SYMR.strings.pref_crop_borders_continuous_vertical),
     CropBordersWebtoon("cbw", SYMR.strings.pref_crop_borders_webtoon),
-    // Reuse the former page-layout slot to preserve saved bottom-bar visibility.
+    PageLayout("layout", SYMR.strings.page_layout),
+    // Keep the crop button's saved key; restored page-layout controls are opt-in.
     CropReOcr("pl", MR.strings.pref_ocr_two_finger_region),
     MangaStats("ms", MR.strings.action_manga_stats),
     ;

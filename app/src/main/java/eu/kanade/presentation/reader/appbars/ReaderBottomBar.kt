@@ -24,6 +24,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import kotlinx.collections.immutable.ImmutableSet
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.sy.SYMR
 import tachiyomi.presentation.core.i18n.stringResource
 
 @Composable
@@ -41,10 +42,14 @@ fun ReaderBottomBar(
     onClickMangaStats: (() -> Unit)?,
     // SY -->
     currentReadingMode: ReadingMode,
+    dualPageSplitEnabled: Boolean,
+    doublePages: Boolean,
     onClickChapterList: () -> Unit,
     onClickWebView: (() -> Unit)?,
     onClickBrowser: (() -> Unit)?,
     onClickShare: (() -> Unit)?,
+    onClickPageLayout: () -> Unit,
+    onClickShiftPage: () -> Unit,
     onCropReOcr: (() -> Unit)?,
     // SY <--
     modifier: Modifier = Modifier,
@@ -146,6 +151,30 @@ fun ReaderBottomBar(
                     // KMK -->
                     tint = iconColor,
                     // KMK <--
+                )
+            }
+        }
+
+        if (
+            ReaderBottomButton.PageLayout.isIn(enabledButtons) &&
+            !dualPageSplitEnabled &&
+            ReadingMode.isPagerType(currentReadingMode.flagValue)
+        ) {
+            IconButton(onClick = onClickPageLayout) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_book_open_variant_24dp),
+                    contentDescription = stringResource(SYMR.strings.page_layout),
+                    tint = iconColor,
+                )
+            }
+        }
+
+        if (ReaderBottomButton.PageLayout.isIn(enabledButtons) && doublePages) {
+            IconButton(onClick = onClickShiftPage) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_page_next_outline_24dp),
+                    contentDescription = stringResource(SYMR.strings.shift_double_pages),
+                    tint = iconColor,
                 )
             }
         }

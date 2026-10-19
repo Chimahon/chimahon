@@ -1518,6 +1518,7 @@ class ReaderActivity : BaseActivity() {
         }
         val readerBottomButtons by readerPreferences.readerBottomButtons().changes().map { it.toImmutableSet() }
             .collectAsState(persistentSetOf())
+        val dualPageSplitPaged by readerPreferences.dualPageSplitPaged().collectAsState()
 
         val forceHorizontalSeekbar by readerPreferences.forceHorizontalSeekbar().collectAsState()
         val landscapeVerticalSeekbar by readerPreferences.landscapeVerticalSeekbar().collectAsState()
@@ -1607,6 +1608,19 @@ class ReaderActivity : BaseActivity() {
                 viewModel.getMangaReadingMode(resolveDefault = true),
             ),
             onClickChapterList = viewModel::openChapterListDialog,
+            dualPageSplitEnabled = dualPageSplitPaged,
+            doublePages = state.doublePages,
+            onClickPageLayout = {
+                if (readerPreferences.pageLayout().get() == PagerConfig.PageLayout.AUTOMATIC) {
+                    (viewModel.state.value.viewer as? PagerViewer)?.config?.let { config ->
+                        config.doublePages = !config.doublePages
+                        reloadChapters(config.doublePages, true)
+                    }
+                } else {
+                    readerPreferences.pageLayout().set(1 - readerPreferences.pageLayout().get())
+                }
+            },
+            onClickShiftPage = ::shiftDoublePages,
             onCropReOcr = ::startOcrRegionSelection.takeIf { viewModel.isOcrAllowedForCurrentManga() },
             // SY <--
         )
@@ -1762,6 +1776,26 @@ class ReaderActivity : BaseActivity() {
         val currentOrientation = resources.configuration.orientation
         viewer.config.doublePages = currentOrientation == Configuration.ORIENTATION_LANDSCAPE
         viewModel.setDoublePages(viewer.config.doublePages)
+    }
+
+    private fun shiftDoublePages() {
+        val viewer = viewModel.state.value.viewer as? PagerViewer ?: return
+        viewer.config.let { config ->
+            config.shiftDoublePage = !config.shiftDoublePage
+
+            viewModel.manga?.id?.let { mangaId ->
+                getSharedPreferences("reader_prefs", MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("shift_doublepage$mangaId", config.shiftDoublePage)
+                    .apply()
+            }
+
+            viewModel.state.value.viewerChapters?.let {
+                viewer.updateShifting()
+                viewer.setChaptersInternal(it)
+                invalidateOptionsMenu()
+            }
+        }
     }
 
     // EXH <--
