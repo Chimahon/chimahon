@@ -19,13 +19,16 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import java.io.Serializable
+import kotlinx.coroutines.withContext
 import tachiyomi.domain.library.service.LibraryPreferences
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.Serializable
 
 class BrowseNovelSourceScreenModel(
     val sourceId: Long,
@@ -35,6 +38,8 @@ class BrowseNovelSourceScreenModel(
 ) : StateScreenModel<BrowseNovelSourceScreenModel.State>(State()) {
 
     private var currentPage = 1
+    private var listingJob: Job? = null
+    private var listingGeneration = 0
 
     private val sourceManager: NovelSourceManager = Injekt.get()
     val source: NovelSource? get() = sourceManager.getNovelSource(sourceId)
@@ -84,9 +89,13 @@ class BrowseNovelSourceScreenModel(
         if (novel.url in coverFailed) return
         val src = source ?: return
         if (!coverRequested.add(novel.url)) return
+        val generation = listingGeneration
         screenModelScope.launch {
             try {
-                val cover = coverSemaphore.withPermit { src.getNovelDetails(novel).thumbnail_url }
+                val cover = coverSemaphore.withPermit {
+                    withContext(Dispatchers.IO) { src.getNovelDetails(novel).thumbnail_url }
+                }
+                if (generation != listingGeneration) return@launch
                 if (cover.isNullOrBlank()) {
                     coverFailed.add(novel.url)
                     return@launch
@@ -102,44 +111,70 @@ class BrowseNovelSourceScreenModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                coverRequested.remove(novel.url)
+                if (generation == listingGeneration) coverRequested.remove(novel.url)
             }
         }
     }
 
     fun loadListing(listing: Listing, reset: Boolean = false) {
+        val ps = pageSource ?: return
+        if (!reset && mutableState.value.isLoading) return
         if (reset) {
+            listingJob?.cancel()
+            listingGeneration++
             currentPage = 1
             coverRequested.clear()
             coverFailed.clear()
         }
-        val ps = pageSource ?: return
-        screenModelScope.launch {
-            mutableState.value = mutableState.value.copy(isLoading = true, error = null)
+        val generation = listingGeneration
+        val pageNumber = currentPage
+        val filters = currentFilters
+        mutableState.value = mutableState.value.copy(
+            novels = if (reset) persistentListOf() else mutableState.value.novels,
+            listing = listing,
+            isLoading = true,
+            loadedPage = if (reset) 0 else mutableState.value.loadedPage,
+            error = null,
+            hasNextPage = if (reset) true else mutableState.value.hasNextPage,
+        )
+        listingJob = screenModelScope.launch {
             try {
-                val page = when (listing) {
-                    Listing.Popular -> ps.getPopularNovels(currentPage)
-                    Listing.Latest -> if (ps.supportsLatest) ps.getLatestUpdates(currentPage) else ps.getPopularNovels(currentPage)
-                    is Listing.Search -> ps.getSearchNovels(currentPage, listing.query, currentFilters)
+                val page = withContext(Dispatchers.IO) {
+                    when (listing) {
+                        Listing.Popular -> ps.getPopularNovels(pageNumber)
+                        Listing.Latest -> if (ps.supportsLatest) {
+                            ps.getLatestUpdates(pageNumber)
+                        } else {
+                            ps.getPopularNovels(pageNumber)
+                        }
+                        is Listing.Search -> ps.getSearchNovels(pageNumber, listing.query, filters)
+                    }
                 }
-                val existingIds = mutableState.value.novels.map { it.url }.toSet()
-                val newNovels = if (reset) page.novels else mutableState.value.novels + page.novels.filter { it.url !in existingIds }
+                if (generation != listingGeneration) return@launch
                 mutableState.value = mutableState.value.copy(
-                    novels = newNovels.toImmutableList(),
+                    novels = (mutableState.value.novels + page.novels).distinctBy { it.url }.toImmutableList(),
                     isLoading = false,
                     hasNextPage = page.hasNextPage,
-                    listing = listing,
+                    loadedPage = pageNumber,
                 )
-                currentPage++
+                currentPage = pageNumber + 1
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                mutableState.value = mutableState.value.copy(isLoading = false, error = e.message)
+                if (generation == listingGeneration) {
+                    mutableState.value = mutableState.value.copy(isLoading = false, error = e.message ?: e.toString())
+                }
             }
         }
     }
 
+    fun retry() {
+        loadListing(mutableState.value.listing)
+    }
+
     fun loadNextPage() {
         val s = mutableState.value
-        if (!s.hasNextPage || s.isLoading) return
+        if (!s.hasNextPage || s.isLoading || s.error != null) return
         loadListing(s.listing)
     }
 
@@ -178,6 +213,7 @@ class BrowseNovelSourceScreenModel(
         val novels: ImmutableList<SNNovel> = persistentListOf(),
         val isLoading: Boolean = false,
         val hasNextPage: Boolean = true,
+        val loadedPage: Int = 0,
         val listing: Listing = Listing.Popular,
         val error: String? = null,
     )

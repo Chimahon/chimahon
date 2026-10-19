@@ -70,7 +70,7 @@ class OpdsBrowseScreen(private val catalogId: String? = null, private val feedUr
         Scaffold(topBar = {
             BrowseNovelSourceToolbar(
                 searchQuery = search,
-                onSearchQueryChange = { search = it; if (it == null) model.refresh() },
+                onSearchQueryChange = { search = it; if (it == null) model.search("") },
                 source = source,
                 displayMode = displayMode,
                 onDisplayModeChange = displayPreference::set,
@@ -124,6 +124,7 @@ class OpdsBrowseScreen(private val catalogId: String? = null, private val feedUr
                             novels = state.books,
                             isLoading = state.loading,
                             hasNextPage = state.feed?.next != null,
+                            loadedPage = state.loadedPage,
                             error = state.error ?: if (state.catalog == null) stringResource(R.string.opds_empty) else null,
                             columns = GridCells.Adaptive(120.dp),
                             displayMode = displayMode,
@@ -131,7 +132,7 @@ class OpdsBrowseScreen(private val catalogId: String? = null, private val feedUr
                             onNovelClick = { navigator.push(NovelDetailScreen(it, source.id)) },
                             onLoadMore = model::loadMore,
                             onRequestCover = model::requestCover,
-                            onRetryClick = model::refresh,
+                            onRetryClick = model::retry,
                         )
                     }
                 } else if (state.feed?.next != null) {
@@ -180,6 +181,10 @@ private class OpdsBrowseModel(
         load(catalog, state.feed?.next ?: return, append = true)
     }
 
+    fun retry() {
+        if (state.value.feed?.next != null) loadMore() else refresh()
+    }
+
     private fun load(catalog: OpdsCatalog, url: String, append: Boolean, searchQuery: String? = null) {
         job?.cancel()
         if (!append) requestedCovers.clear()
@@ -194,6 +199,7 @@ private class OpdsBrowseModel(
                     catalog = catalog,
                     feed = feed.copy(navigation = navigation),
                     books = (previous + feed.books.map(source::novel)).distinctBy { it.url },
+                    loadedPage = if (append) state.value.loadedPage + 1 else 1,
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -223,6 +229,7 @@ private class OpdsBrowseModel(
         val feed: OpdsFeed? = null,
         val books: List<SNNovel> = emptyList(),
         val loading: Boolean = false,
+        val loadedPage: Int = 0,
         val error: String? = null,
     )
 }

@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
@@ -32,8 +32,10 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,18 +55,15 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.ui.detail.NovelDetailScreen
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 import eu.kanade.presentation.library.components.CommonMangaItemDefaults
 import eu.kanade.presentation.library.components.MangaComfortableGridItem
 import eu.kanade.presentation.library.components.MangaCompactGridItem
 import eu.kanade.presentation.library.components.MangaListItem
 import eu.kanade.presentation.util.Screen
-import eu.kanade.tachiyomi.ui.browse.source.browse.SourceFilterDialog
-import java.security.MessageDigest
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
+import eu.kanade.tachiyomi.ui.browse.source.browse.SourceFilterDialog
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import tachiyomi.domain.library.model.LibraryDisplayMode
@@ -77,6 +76,9 @@ import tachiyomi.presentation.core.screens.EmptyScreen
 import tachiyomi.presentation.core.screens.EmptyScreenAction
 import tachiyomi.presentation.core.screens.LoadingScreen
 import tachiyomi.presentation.core.util.plus
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import java.security.MessageDigest
 
 data class BrowseNovelSourceScreen(
     private val serverId: String?,
@@ -102,6 +104,19 @@ data class BrowseNovelSourceScreen(
 
         val navigator = LocalNavigator.currentOrThrow
         val snackbarHostState = remember { SnackbarHostState() }
+        val retryLabel = stringResource(MR.strings.action_retry)
+        LaunchedEffect(state.error) {
+            val error = state.error ?: return@LaunchedEffect
+            if (state.novels.isNotEmpty() && snackbarHostState.showSnackbar(
+                    message = error,
+                    actionLabel = retryLabel,
+                    duration = SnackbarDuration.Indefinite,
+                    withDismissAction = true,
+                ) == SnackbarResult.ActionPerformed
+            ) {
+                screenModel.retry()
+            }
+        }
 
         // Manga parity: sources behind Cloudflare (e.g. hameln) come back
         // empty — opening the site in the WebView solves the challenge and
@@ -159,6 +174,7 @@ data class BrowseNovelSourceScreen(
                             FilterChip(
                                 selected = state.listing is BrowseNovelSourceScreenModel.Listing.Popular,
                                 onClick = {
+                                    searchQuery = null
                                     screenModel.resetFilters()
                                     screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Popular, reset = true)
                                 },
@@ -175,6 +191,7 @@ data class BrowseNovelSourceScreen(
                                 FilterChip(
                                     selected = state.listing is BrowseNovelSourceScreenModel.Listing.Latest,
                                     onClick = {
+                                        searchQuery = null
                                         screenModel.resetFilters()
                                         screenModel.loadListing(BrowseNovelSourceScreenModel.Listing.Latest, reset = true)
                                     },
@@ -241,6 +258,7 @@ data class BrowseNovelSourceScreen(
                 novels = state.novels,
                 isLoading = state.isLoading,
                 hasNextPage = state.hasNextPage,
+                loadedPage = state.loadedPage,
                 error = state.error,
                 columns = screenModel.getColumnsPreference(LocalConfiguration.current.orientation),
                 displayMode = screenModel.displayMode,
@@ -248,7 +266,7 @@ data class BrowseNovelSourceScreen(
                 onNovelClick = { navigator.push(NovelDetailScreen(it, sourceId)) },
                 onLoadMore = screenModel::loadNextPage,
                 onRequestCover = screenModel::requestCover,
-                onRetryClick = { screenModel.loadListing(state.listing, reset = true) },
+                onRetryClick = screenModel::retry,
                 onWebViewClick = openInWebView.takeIf { canOpenInWebView },
             )
         }
@@ -270,7 +288,24 @@ internal fun BrowseNovelSourceContent(
     onRequestCover: (SNNovel) -> Unit,
     onRetryClick: () -> Unit,
     onWebViewClick: (() -> Unit)? = null,
+    loadedPage: Int = 0,
 ) {
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(
+        gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index,
+        novels.size,
+        isLoading,
+        hasNextPage,
+        loadedPage,
+        error,
+        displayMode,
+    ) {
+        if ((displayMode == LibraryDisplayMode.List && novels.isNotEmpty()) || isLoading || !hasNextPage || error != null) {
+            return@LaunchedEffect
+        }
+        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        if (novels.isEmpty() || lastVisible >= novels.size - 3) onLoadMore()
+    }
     if (novels.isEmpty() && isLoading) {
         LoadingScreen(Modifier.padding(contentPadding))
         return
@@ -299,18 +334,6 @@ internal fun BrowseNovelSourceContent(
             ).toImmutableList(),
         )
         return
-    }
-
-    // The grid branches below share this state: without it, scroll position is
-    // unreadable and load-more never fires (a detached list state observes
-    // nothing). List mode keeps its own state, since a LazyGridState cannot
-    // drive a LazyColumn.
-    val gridState = rememberLazyGridState()
-    LaunchedEffect(gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index, novels.size) {
-        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
-        if (lastVisible >= novels.size - 3 && hasNextPage && !isLoading) {
-            onLoadMore()
-        }
     }
 
     when (displayMode) {
@@ -350,6 +373,8 @@ internal fun BrowseNovelSourceContent(
                 onNovelClick = onNovelClick,
                 onRequestCover = onRequestCover,
                 onLoadMore = onLoadMore,
+                loadedPage = loadedPage,
+                error = error,
             )
         }
         // CompactGrid and CoverOnlyGrid both render as the compact grid, matching
@@ -478,11 +503,20 @@ private fun BrowseNovelSourceList(
     onNovelClick: (SNNovel) -> Unit,
     onRequestCover: (SNNovel) -> Unit,
     onLoadMore: () -> Unit,
+    loadedPage: Int,
+    error: String?,
 ) {
     val listState = rememberLazyListState()
-    LaunchedEffect(listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index, novels.size) {
+    LaunchedEffect(
+        listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index,
+        novels.size,
+        isLoading,
+        hasNextPage,
+        loadedPage,
+        error,
+    ) {
         val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return@LaunchedEffect
-        if (lastVisible >= novels.size - 3 && hasNextPage && !isLoading) {
+        if (lastVisible >= novels.size - 3 && hasNextPage && !isLoading && error == null) {
             onLoadMore()
         }
     }
