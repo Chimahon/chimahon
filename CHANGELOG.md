@@ -4,6 +4,33 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.4.8]
+
+### Added
+
+- Crop and re-OCR of a selected area in the manga reader (two-finger tap, bottom bar button, or page actions)
+- Toggle to hide the blue OCR boxes in screen lookup
+- Retry actions for failed novel pages and global novel search
+
+### Changed
+
+- Removed the blue OCR overlay from novel images
+- Novel browse now shares its display mode with manga and anime
+- Reader bottom bar page layout and shift double pages buttons replaced by crop and re-OCR
+- Updated mpv/libass builds with native system-font discovery
+
+### Fixed
+
+- ScreenLookup multi-line lookup
+- ScreenLookup selection on rotated or scaled text
+- Novel browse pagination
+- Cover-only novel layouts showing titles
+- Novel global search duplicates, filtering, and source navigation
+- Downloaded novels not showing the Open action
+- OPDS covers in browse and downloaded books
+- Jellyfin authentication
+- Native subtitle font loading
+
 ## [v2.4.7]
 
 ### Added
