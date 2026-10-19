@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
+import chimahon.ocr.OcrCharacterLine
+import chimahon.ocr.OcrHitTester
 import chimahon.ocr.OcrResult
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLineGeometry
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
@@ -15,7 +17,7 @@ internal fun List<OcrResult>.toScreenLookupBlocks(language: String): List<OcrTex
         val ymax = (bbox.y + bbox.height).toFloat().coerceIn(0f, 1f)
         val lines = result.text.split("\n")
 
-        if (xmax <= xmin || ymax <= ymin || lines.isEmpty()) {
+        if (xmax <= xmin || ymax <= ymin || result.text.isBlank()) {
             null
         } else {
             OcrTextBlock(
@@ -40,37 +42,34 @@ internal fun List<OcrResult>.toScreenLookupBlocks(language: String): List<OcrTex
     }
 }
 
-internal fun OcrTextBlock.screenLookupCharOffset(tapX: Float, tapY: Float): Int {
-    val geometries = lineGeometries
-    if (geometries != null && geometries.size == lines.size) {
-        for (i in geometries.indices) {
-            val geo = geometries[i]
-            val line = lines[i]
-            val inLine = if (vertical) {
-                tapX >= geo.xmin && tapX <= geo.xmax
-            } else {
-                tapY >= geo.ymin && tapY <= geo.ymax
-            }
-            if (inLine) {
-                val lineLen = line.length.coerceAtLeast(1)
-                val localX = tapX - geo.xmin
-                val localY = tapY - geo.ymin
-                val geoWidth = (geo.xmax - geo.xmin).coerceAtLeast(0.001f)
-                val geoHeight = (geo.ymax - geo.ymin).coerceAtLeast(0.001f)
-                val charInLine = if (vertical) {
-                    (localY / (geoHeight / lineLen)).toInt().coerceIn(0, lineLen - 1)
-                } else {
-                    (localX / (geoWidth / lineLen)).toInt().coerceIn(0, lineLen - 1)
-                }
-                return lines.take(i).sumOf { it.length } + charInLine
-            }
+internal fun OcrTextBlock.screenLookupLineHit(tapX: Float, tapY: Float, width: Float, height: Float) =
+    lineGeometries?.takeIf { it.size == lines.size }?.let { geometries ->
+        var offset = 0
+        val characterLines = geometries.mapIndexed { index, geo ->
+            OcrCharacterLine(
+                value = index,
+                text = lines[index],
+                textOffset = offset,
+                left = geo.xmin * width,
+                top = geo.ymin * height,
+                right = geo.xmax * width,
+                bottom = geo.ymax * height,
+                rotation = geo.rotation,
+                vertical = OcrHitTester.isLineVertical(
+                    vertical, geo.xmin * width, geo.ymin * height, geo.xmax * width, geo.ymax * height,
+                ),
+            ).also { offset += lines[index].length }
         }
+        OcrHitTester.hitLines(characterLines, tapX * width, tapY * height)
     }
 
+internal fun OcrTextBlock.screenLookupCharOffset(tapX: Float, tapY: Float, width: Float = 1f, height: Float = 1f): Int {
+    if (fullText.isEmpty()) return 0
+    screenLookupLineHit(tapX, tapY, width, height)?.let { return it.textOffset }
     val blockWidth = (xmax - xmin).coerceAtLeast(0.001f)
     val blockHeight = (ymax - ymin).coerceAtLeast(0.001f)
     val localX = (tapX - xmin).coerceIn(0f, blockWidth)
     val localY = (tapY - ymin).coerceIn(0f, blockHeight)
-    return uniformCharOffset(this, localX, localY, blockWidth, blockHeight)
+    return uniformCharOffset(this, localX * width, localY * height, blockWidth * width, blockHeight * height)
         .coerceIn(0, fullText.lastIndex.coerceAtLeast(0))
 }

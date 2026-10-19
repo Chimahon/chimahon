@@ -94,7 +94,8 @@ val OcrTextBlock.orderedDisplayText: String
  * [orderedFullText].
  */
 fun OcrTextBlock.toOrderedOffset(rawOffset: Int): Int {
-    if (lines.isEmpty()) return 0
+    if (fullText.isEmpty()) return 0
+    if (rawOffset >= fullText.length) return orderedFullText.length
 
     val safeRawOffset = rawOffset.coerceIn(0, fullText.length)
     var rawLineStart = 0
@@ -104,7 +105,7 @@ fun OcrTextBlock.toOrderedOffset(rawOffset: Int): Int {
     for (i in lines.indices) {
         val lineLength = lines[i].length
         val rawLineEnd = rawLineStart + lineLength
-        if (safeRawOffset <= rawLineEnd) {
+        if (safeRawOffset < rawLineEnd) {
             rawLineIndex = i
             offsetInLine = (safeRawOffset - rawLineStart).coerceIn(0, lineLength)
             break
@@ -213,6 +214,7 @@ internal fun uniformCharOffset(
     val lineIndex = (localY / (screenH / lineCount))
         .toInt().coerceIn(0, lineCount - 1)
     val line = block.lines[lineIndex]
+    if (line.isEmpty()) return block.lines.take(lineIndex).sumOf { it.length }
     val charIndex = (localX / (screenW / line.length.coerceAtLeast(1)))
         .toInt().coerceIn(0, line.length - 1)
     return block.lines.take(lineIndex).sumOf { it.length } + charIndex

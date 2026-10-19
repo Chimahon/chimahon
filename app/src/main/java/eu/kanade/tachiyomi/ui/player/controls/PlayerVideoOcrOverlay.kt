@@ -45,13 +45,13 @@ import eu.kanade.tachiyomi.ui.reader.viewer.toOrderedOffset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import tachiyomi.core.common.i18n.stringResource as contextStringResource
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import kotlin.math.min
-import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
 private const val TAP_HINT_DURATION_MS = 1_200L
 
@@ -159,7 +159,7 @@ internal fun PlayerVideoOcrOverlay(
             activeMatchOffset = matchOffset,
             selection = selection,
             onBlockTapped = { tapped, tapX, tapY ->
-                val charOffset = tapped.screenLookupCharOffset(tapX, tapY)
+                val charOffset = tapped.screenLookupCharOffset(tapX, tapY, widthPx, heightPx)
                 val orderedCharOffset = tapped.toOrderedOffset(charOffset)
                 val text = tapped.orderedFullText
                 if (selection?.block == tapped && selection?.sentenceOffset == orderedCharOffset) {

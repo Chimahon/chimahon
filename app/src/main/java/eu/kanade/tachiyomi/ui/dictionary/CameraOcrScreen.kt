@@ -319,7 +319,7 @@ class CameraOcrScreen : Screen() {
                         activeMatchOffset = matchOffset,
                         selection = selection,
                         onBlockTapped = { tapped, tapX, tapY ->
-                            val charOffset = tapped.screenLookupCharOffset(tapX, tapY)
+                            val charOffset = tapped.screenLookupCharOffset(tapX, tapY, canvasWidth, canvasHeight)
                             val orderedCharOffset = tapped.toOrderedOffset(charOffset)
                             val text = tapped.orderedFullText
                             if (selection?.block == tapped && selection?.sentenceOffset == orderedCharOffset) {

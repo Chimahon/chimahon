@@ -13,6 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -20,8 +22,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import chimahon.ocr.OcrHitTester
+import chimahon.ocr.OcrNormalizedBounds
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
 import eu.kanade.tachiyomi.ui.reader.viewer.orderedLineIndices
 
@@ -50,26 +55,31 @@ fun OcrBlockCanvas(
     onBlockTapped: (OcrTextBlock, Float, Float) -> Unit,
     onEmptyTap: () -> Unit,
     modifier: Modifier = Modifier,
+    showBoxes: Boolean = true,
 ) {
     val highlightColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+    val currentOnBlockTapped by rememberUpdatedState(onBlockTapped)
+    val currentOnEmptyTap by rememberUpdatedState(onEmptyTap)
 
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(blocks) {
+            .pointerInput(blocks, boxScaleX, boxScaleY) {
                 detectTapGestures { offset ->
-                    val tapped = blocks.firstOrNull { block ->
-                        offset.x >= block.xmin * size.width &&
-                            offset.x <= block.xmax * size.width &&
-                            offset.y >= block.ymin * size.height &&
-                            offset.y <= block.ymax * size.height
+                    val x = offset.x / size.width
+                    val y = offset.y / size.height
+                    val tapped = blocks.mapNotNull { block ->
+                        block.screenLookupLineHit(x, y, size.width.toFloat(), size.height.toFloat())
+                            ?.let { block to it.distance }
+                    }.minByOrNull { it.second }?.first ?: OcrHitTester.findBlock(blocks, x, y, boxScaleX, boxScaleY) {
+                        OcrNormalizedBounds(it.xmin, it.ymin, it.xmax, it.ymax)
                     }
                     if (tapped == null) {
-                        onEmptyTap()
+                        currentOnEmptyTap()
                     } else {
                         val tapX = (offset.x / size.width).coerceIn(0f, 1f)
                         val tapY = (offset.y / size.height).coerceIn(0f, 1f)
-                        onBlockTapped(tapped, tapX, tapY)
+                        currentOnBlockTapped(tapped, tapX, tapY)
                     }
                 }
             },
@@ -80,30 +90,34 @@ fun OcrBlockCanvas(
 
             if (geometries != null && geometries.size == block.lines.size) {
                 geometries.forEachIndexed { geoIndex, geo ->
-                    drawBlockLine(block, geo, isActive, boxScaleX, boxScaleY)
-                    if (isActive && activeMatchCount > 0 && selection != null) {
-                        drawMatchHighlight(
-                            block = block,
-                            geo = geo,
-                            geoIndex = geoIndex,
-                            activeMatchCount = activeMatchCount,
-                            activeMatchOffset = activeMatchOffset,
-                            selection = selection,
-                            boxScaleX = boxScaleX,
-                            boxScaleY = boxScaleY,
-                            highlightColor = highlightColor,
-                        )
+                    rotate(
+                        geo.rotation,
+                        Offset((geo.xmin + geo.xmax) / 2f * size.width, (geo.ymin + geo.ymax) / 2f * size.height),
+                    ) {
+                        if (showBoxes) drawBlockLine(geo, isActive, boxScaleX, boxScaleY)
+                        if (isActive && activeMatchCount > 0 && selection != null) {
+                            drawMatchHighlight(
+                                block = block,
+                                geo = geo,
+                                geoIndex = geoIndex,
+                                activeMatchCount = activeMatchCount,
+                                activeMatchOffset = activeMatchOffset,
+                                selection = selection,
+                                boxScaleX = boxScaleX,
+                                boxScaleY = boxScaleY,
+                                highlightColor = highlightColor,
+                            )
+                        }
                     }
                 }
             } else {
-                drawBlockRect(block, isActive)
+                if (showBoxes) drawBlockRect(block, isActive)
             }
         }
     }
 }
 
 private fun DrawScope.drawBlockLine(
-    block: OcrTextBlock,
     geo: eu.kanade.tachiyomi.ui.reader.viewer.OcrLineGeometry,
     isActive: Boolean,
     boxScaleX: Float,
@@ -200,7 +214,14 @@ private fun DrawScope.drawMatchHighlight(
             val padX = (lW - origW) / 2f
             val padY = (lH - origH) / 2f
 
-            if (block.vertical) {
+            if (OcrHitTester.isLineVertical(
+                    block.vertical,
+                    geo.xmin * size.width,
+                    geo.ymin * size.height,
+                    geo.xmax * size.width,
+                    geo.ymax * size.height,
+                )
+            ) {
                 drawRect(
                     color = highlightColor,
                     topLeft = Offset(lLeft, lTop + padY + origH * startFrac),

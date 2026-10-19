@@ -48,14 +48,14 @@ import chimahon.ocr.OcrLanguage
 import eu.kanade.tachiyomi.data.ocr.recognizePage
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLookupPopup
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock
-import eu.kanade.tachiyomi.ui.reader.viewer.displayText
 import eu.kanade.tachiyomi.ui.reader.viewer.extractOcrLookupString
-import eu.kanade.tachiyomi.ui.reader.viewer.fullText
 import eu.kanade.tachiyomi.ui.reader.viewer.isLookupStartChar
+import eu.kanade.tachiyomi.ui.reader.viewer.orderedFullText
+import eu.kanade.tachiyomi.ui.reader.viewer.toOrderedOffset
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.view.setComposeContent
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -331,8 +331,8 @@ internal fun ScreenLookupOverlay(
             activeMatchOffset = matchOffset,
             selection = selection,
             onBlockTapped = { tapped, tapX, tapY ->
-                val charOffset = tapped.screenLookupCharOffset(tapX, tapY)
-                val text = tapped.fullText
+                val charOffset = tapped.toOrderedOffset(tapped.screenLookupCharOffset(tapX, tapY, widthPx, heightPx))
+                val text = tapped.orderedFullText
                 if (selection?.block == tapped && selection?.sentenceOffset == charOffset) {
                     selection = null
                     showTapHint = false
@@ -348,7 +348,7 @@ internal fun ScreenLookupOverlay(
                         selection = OcrSelection(
                             block = tapped,
                             lookupString = lookupString,
-                            sentence = tapped.displayText,
+                            sentence = text,
                             sentenceOffset = charOffset,
                             anchorX = tapped.xmin * widthPx,
                             anchorY = tapped.ymin * heightPx,
