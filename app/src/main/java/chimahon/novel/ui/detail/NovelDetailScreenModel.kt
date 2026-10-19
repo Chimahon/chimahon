@@ -16,31 +16,33 @@ import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.source.LocalNovelFiles
 import eu.kanade.presentation.entries.DownloadAction
 import eu.kanade.tachiyomi.network.NetworkHelper
-import logcat.LogPriority
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNChapter
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.ensureActive
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import logcat.LogPriority
 import tachiyomi.core.common.preference.CheckboxState
+import tachiyomi.core.common.util.lang.compareToWithCollator
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.category.model.Category
+import tachiyomi.domain.library.service.NovelLibraryPreferences
 import tachiyomi.domain.novel.model.Novel
 import tachiyomi.domain.novel.model.NovelChapter
 import tachiyomi.domain.novel.model.NovelChapterUpdate
-import tachiyomi.core.common.util.lang.compareToWithCollator
 import tachiyomi.domain.novel.model.NovelUpdate
 import tachiyomi.domain.novel.model.toSNNovel
-import tachiyomi.domain.library.service.NovelLibraryPreferences
 import tachiyomi.domain.novel.repository.NovelCategoryRepository
 import tachiyomi.domain.novel.repository.NovelChapterRepository
 import tachiyomi.domain.novel.repository.NovelRepository
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import tachiyomi.core.common.util.system.logcat
 
 data class NovelChapterItem(
     val index: Int,
@@ -150,20 +152,37 @@ class NovelDetailScreenModel(
     init {
         loadDetails()
         screenModelScope.launch {
+            restoreDownloadedBook()
             val downloadCapable =
                 (source as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource)?.hasDownloadSupport() == true
-            mutableState.value = mutableState.value.copy(
-                isDownloadSource = downloadCapable,
-            )
-            if (source is chimahon.novel.opds.OpdsSource) {
-                val book = runCatching { source.store.book(mutableState.value.novel.url) }.getOrNull()
-                if (book != null && (LocalNovelFiles.hasPublicBookEpub(app, book.folder) ||
-                    BookStorage.hasImportedBookContent(BookStorage.getBookDirectory(app, book.folder)))) {
-                    mutableState.value = mutableState.value.copy(
-                        fileDownload = FileDownloadState.Done(book.title, book.folder, book.folder),
-                    )
-                }
+            mutableState.update {
+                it.copy(isDownloadSource = downloadCapable || it.fileDownload is FileDownloadState.Done)
             }
+        }
+    }
+
+    private suspend fun restoreDownloadedBook() {
+        val fileSource = source as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource ?: return
+        val novel = mutableState.value.novel
+        try {
+            val folder = withContext(Dispatchers.IO) {
+                val dbNovel = novelRepository.getNovelByUrlAndSourceId(novel.url, source.id)
+                val linkedFolder = dbNovel?.id?.let { novelLibraryPreferences.downloadedBookFolder(it).get() }
+                val folder = linkedFolder?.takeIf { it.isNotBlank() }
+                    ?: fileSource.downloadFolderId(novel.url)
+                    ?: return@withContext null
+                folder.takeIf { BookStorage.hasReadableBookContent(app, it) }
+            } ?: return
+            mutableState.update {
+                if (it.fileDownload != FileDownloadState.Idle) it else it.copy(
+                    isDownloadSource = true,
+                    fileDownload = FileDownloadState.Done(it.novel.title, folder, folder),
+                )
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // An unavailable local file must not prevent the source details from opening.
         }
     }
 

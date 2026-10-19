@@ -560,7 +560,7 @@ data class NovelDetailScreen(
                                         download = state.fileDownload,
                                         onDownload = screenModel::downloadBookFile,
                                         onDelete = screenModel::deleteDownloadedBook,
-                                        onOpen = if (source is chimahon.novel.opds.OpdsSource) {
+                                        onOpen = if (state.fileDownload is FileDownloadState.Done) {
                                             {
                                                 val folder = (state.fileDownload as? FileDownloadState.Done)?.folder
                                                 if (folder != null) {
