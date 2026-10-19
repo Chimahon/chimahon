@@ -28,11 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import chimahon.novel.ui.browse.globalsearch.NovelSourceFilter
 import eu.kanade.presentation.components.SearchToolbar
+import tachiyomi.domain.history.model.SearchHistory
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
-
-import tachiyomi.domain.history.model.SearchHistory
 
 @Composable
 fun GlobalNovelSearchToolbar(
@@ -60,7 +59,7 @@ fun GlobalNovelSearchToolbar(
                 scrollBehavior = scrollBehavior,
                 searchHistoryScope = searchHistoryScope,
             )
-            if (progress in 1..<total) {
+            if (total > 0 && progress < total) {
                 LinearProgressIndicator(
                     progress = { progress / total.toFloat() },
                     modifier = Modifier

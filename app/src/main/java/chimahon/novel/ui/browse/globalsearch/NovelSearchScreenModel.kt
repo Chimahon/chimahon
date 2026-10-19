@@ -6,27 +6,26 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.plugin.isNovelLanguageEnabled
 import eu.kanade.domain.source.service.SourcePreferences
-import eu.kanade.presentation.util.ioCoroutineScope
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.collections.immutable.PersistentMap
-import kotlinx.collections.immutable.mutate
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toPersistentMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.novel.model.Novel
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.util.concurrent.Executors
 
 abstract class NovelSearchScreenModel(
     initialState: State = State(),
@@ -34,7 +33,9 @@ abstract class NovelSearchScreenModel(
     private val novelSourceManager: NovelSourceManager = Injekt.get(),
 ) : StateScreenModel<NovelSearchScreenModel.State>(initialState) {
 
-    private val coroutineDispatcher = Executors.newFixedThreadPool(5).asCoroutineDispatcher()
+    private val searchSemaphore = Semaphore(5)
+    @Volatile
+    private var searchGeneration = 0
     private var searchJob: Job? = null
 
     protected val pinnedSources = preferences.pinnedNovelSources().get()
@@ -51,6 +52,9 @@ abstract class NovelSearchScreenModel(
     }
 
     init {
+        if (pinnedSources.isEmpty()) {
+            mutableState.update { it.copy(sourceFilter = NovelSourceFilter.All) }
+        }
         screenModelScope.launch {
             preferences.globalSearchFilterState().changes().collectLatest { state ->
                 mutableState.update { it.copy(onlyShowHasResults = state) }
@@ -88,60 +92,52 @@ abstract class NovelSearchScreenModel(
         preferences.globalSearchFilterState().toggle()
     }
 
-    fun search() {
-        val query = state.value.searchQuery
+    fun search(force: Boolean = false) {
+        val query = state.value.searchQuery?.trim().orEmpty()
         val sourceFilter = state.value.sourceFilter
+        val sameQuery = lastQuery == query
+        if (!force && sameQuery && lastSourceFilter == sourceFilter) return
 
-        if (query.isNullOrBlank()) return
-        val sameQuery = this.lastQuery == query
-        if (sameQuery && this.lastSourceFilter == sourceFilter) return
-
-        this.lastQuery = query
-        this.lastSourceFilter = sourceFilter
-
-        val sources = getEnabledSources()
-
-        if (sameQuery) {
-            val existingResults = state.value.items
-            updateItems(
-                sources
-                    .associateWith { existingResults[it] ?: NovelSearchItemResult.Loading }
-                    .toPersistentMap(),
-            )
-        } else {
-            updateItems(
-                sources
-                    .associateWith { NovelSearchItemResult.Loading }
-                    .toPersistentMap(),
-            )
+        searchJob?.cancel()
+        val generation = ++searchGeneration
+        lastQuery = query
+        lastSourceFilter = sourceFilter
+        if (query.isBlank()) {
+            updateItems(persistentMapOf())
+            return
         }
 
-        searchJob = ioCoroutineScope.launch {
+        val sources = getEnabledSources().distinctBy { it.id }
+        val existingResults = state.value.items
+        val items = sources.associateWith { source ->
+            if (sameQuery && !force) {
+                existingResults[source] as? NovelSearchItemResult.Success ?: NovelSearchItemResult.Loading
+            } else {
+                NovelSearchItemResult.Loading
+            }
+        }
+        updateItems(items.toPersistentMap())
+
+        searchJob = screenModelScope.launch(Dispatchers.IO) {
             sources.map { source ->
                 async {
-                    if (state.value.items[source] !is NovelSearchItemResult.Loading) {
-                        return@async
-                    }
+                    if (items[source] !is NovelSearchItemResult.Loading) return@async
                     try {
-                        val page = withContext(coroutineDispatcher) {
+                        val page = searchSemaphore.withPermit {
                             source.getSearchNovels(1, query, source.getFilterList())
                         }
-
                         if (isActive) {
-                            updateItem(source, NovelSearchItemResult.Success(page.novels))
+                            updateItem(source, NovelSearchItemResult.Success(page.novels.distinctBy { it.url }), generation)
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        if (isActive) {
-                            updateItem(source, NovelSearchItemResult.Error(e))
-                        }
+                        if (isActive) updateItem(source, NovelSearchItemResult.Error(e), generation)
                     } catch (e: LinkageError) {
-                        if (isActive) {
-                            updateItem(source, NovelSearchItemResult.Error(e))
-                        }
+                        if (isActive) updateItem(source, NovelSearchItemResult.Error(e), generation)
                     }
                 }
-            }
-                .awaitAll()
+            }.awaitAll()
         }
     }
 
@@ -155,11 +151,12 @@ abstract class NovelSearchScreenModel(
         }
     }
 
-    private fun updateItem(source: NovelsPageSource, result: NovelSearchItemResult) {
-        val newItems = state.value.items.mutate {
-            it[source] = result
+    private fun updateItem(source: NovelsPageSource, result: NovelSearchItemResult, generation: Int) {
+        mutableState.update { current ->
+            if (generation != searchGeneration || source !in current.items) return@update current
+            val items = current.items.put(source, result)
+            current.copy(items = items.toSortedMap(sortComparator(items)).toPersistentMap())
         }
-        updateItems(newItems)
     }
 
     @Immutable
@@ -195,6 +192,6 @@ sealed interface NovelSearchItemResult {
     }
 
     fun isVisible(onlyShowHasResults: Boolean): Boolean {
-        return !onlyShowHasResults || (this is Success && !this.isEmpty)
+        return !onlyShowHasResults || this !is Success || !isEmpty
     }
 }

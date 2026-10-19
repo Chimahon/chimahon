@@ -88,7 +88,7 @@ data class BrowseNovelSourceScreen(
 
     @Composable
     override fun Content() {
-        if (sourceId == chimahon.novel.opds.OpdsSource.ID) {
+        if (sourceId == chimahon.novel.opds.OpdsSource.ID && initialListing !is BrowseNovelSourceScreenModel.Listing.Search) {
             chimahon.novel.opds.OpdsBrowseScreen().Content()
             return
         }
