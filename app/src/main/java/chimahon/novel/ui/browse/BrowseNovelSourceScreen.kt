@@ -377,8 +377,6 @@ internal fun BrowseNovelSourceContent(
                 error = error,
             )
         }
-        // CompactGrid and CoverOnlyGrid both render as the compact grid, matching
-        // BrowseSourceScreen.kt:196.
         else -> {
             BrowseNovelSourceCompactGrid(
                 novels = novels,
@@ -389,6 +387,7 @@ internal fun BrowseNovelSourceContent(
                 isLoading = isLoading,
                 onNovelClick = onNovelClick,
                 onRequestCover = onRequestCover,
+                showTitle = displayMode != LibraryDisplayMode.CoverOnlyGrid,
             )
         }
     }
@@ -404,6 +403,7 @@ private fun BrowseNovelSourceCompactGrid(
     isLoading: Boolean,
     onNovelClick: (SNNovel) -> Unit,
     onRequestCover: (SNNovel) -> Unit,
+    showTitle: Boolean,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -415,7 +415,7 @@ private fun BrowseNovelSourceCompactGrid(
         items(novels, key = { it.url }) { novel ->
             LaunchedEffect(novel.url) { onRequestCover(novel) }
             MangaCompactGridItem(
-                title = novel.title,
+                title = novel.title.takeIf { showTitle },
                 coverData = MangaCover(
                     mangaId = stableStringHash(novel.url),
                     sourceId = sourceId,
