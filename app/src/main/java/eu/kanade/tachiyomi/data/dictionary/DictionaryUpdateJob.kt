@@ -13,7 +13,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkerParameters
 import chimahon.HoshiDicts
+import chimahon.dictionary.DictionaryCommitter
 import chimahon.dictionary.checkDictionaryUpdates
+import chimahon.dictionary.detectedTypes
+import chimahon.dictionary.findDictionaryFolder
 import chimahon.dictionary.readDictionaryIndex
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
@@ -132,33 +135,26 @@ class DictionaryUpdateJob(context: Context, workerParams: WorkerParameters) :
                 return@withContext UpdateResult(false, null, null)
             }
 
-            val types = buildList {
-                if (hoshiResult.termCount > 0) add("term")
-                if (hoshiResult.freqCount > 0) add("frequency")
-                if (hoshiResult.pitchCount > 0) add("pitch")
+            val types = hoshiResult.detectedTypes()
+            if (types.isEmpty()) {
+                Log.e(TAG, "Import produced no recognizable entries for $dictName")
+                notifier.showError(dictName, "Import produced no recognizable entries")
+                return@withContext UpdateResult(false, null, null)
             }
 
-            // Read old revision before cleanup
-            val oldRevision = readOldRevision(dictionariesDir, dictName)
+            val oldRevision = readCurrentRevision(dictionariesDir, dictName)
 
-            // Clean stale type subdirs from previous version before writing new ones
-            for (type in listOf("term", "frequency", "pitch")) {
-                val staleDir = File(File(dictionariesDir, type), dictName)
-                if (staleDir.exists()) staleDir.deleteRecursively()
-            }
-
-            for (type in types) {
-                val typeDir = File(dictionariesDir, type)
-                typeDir.mkdirs()
-                val targetDir = File(typeDir, dictName)
-                importedSubdir.copyRecursively(targetDir)
-            }
-
-            // Read new revision from the just-written index.json
-            val newRevision = readNewRevision(dictionariesDir, dictName)
+            // One folder, with every kind it serves recorded inside it, replaced by renaming the
+            // folder that is there so a failed update leaves the old dictionary usable.
+            val report = DictionaryCommitter.commit(importedSubdir, dictionariesDir, dictName, types)
+            val newRevision = readDictionaryIndex(report.writtenDir)?.revision
 
             val resolvedName = if (hoshiResult.title.isNotBlank()) hoshiResult.title else dictName
-            Log.d(TAG, "Successfully updated $resolvedName in $types (${oldRevision ?: "?"} → ${newRevision ?: "?"})")
+            Log.d(
+                TAG,
+                "Successfully updated $resolvedName (${report.types.joinToString(", ") { it.dirName }}) " +
+                    "in ${report.writtenDir.parentFile?.name}/ (${oldRevision ?: "?"} → ${newRevision ?: "?"})",
+            )
             UpdateResult(true, oldRevision, newRevision)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update $dictName", e)
@@ -170,26 +166,9 @@ class DictionaryUpdateJob(context: Context, workerParams: WorkerParameters) :
         }
     }
 
-    private fun readOldRevision(dictionariesDir: File, dictName: String): String? {
-        for (type in listOf("term", "frequency", "pitch")) {
-            val dir = File(File(dictionariesDir, type), dictName)
-            if (dir.isDirectory) {
-                val index = readDictionaryIndex(dir)
-                if (index?.revision != null) return index.revision
-            }
-        }
-        return null
-    }
-
-    private fun readNewRevision(dictionariesDir: File, dictName: String): String? {
-        for (type in listOf("term", "frequency", "pitch")) {
-            val dir = File(File(dictionariesDir, type), dictName)
-            if (dir.isDirectory) {
-                val index = readDictionaryIndex(dir)
-                if (index?.revision != null) return index.revision
-            }
-        }
-        return null
+    private fun readCurrentRevision(dictionariesDir: File, dictName: String): String? {
+        val dictDir = findDictionaryFolder(dictionariesDir, dictName) ?: return null
+        return readDictionaryIndex(dictDir)?.revision
     }
 
     private fun downloadFile(url: String, output: File) {

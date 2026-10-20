@@ -85,6 +85,7 @@ import exh.log.xLogD
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import logcat.AndroidLogcatLogger
 import logcat.LogPriority
 import logcat.LogcatLogger
@@ -229,7 +230,13 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         chimahon.novel.data.NovelMigration.migrateOldBooks(this)
         // Public local-novels root (manga <base>/local/ mirror); readers resolve it.
         BookStorage.localBooksRoot = LocalNovelFiles.publicRoot(this)
-        chimahon.DictionaryRepository.migrateFlatDictionaries(File(getExternalFilesDir(null), "dictionaries"))
+        val dictionariesDir = File(getExternalFilesDir(null), "dictionaries")
+        chimahon.DictionaryRepository.migrateFlatDictionaries(dictionariesDir)
+        // One-time, off the main thread: record the kinds of entries each dictionary serves and drop
+        // the duplicate folder copies older builds made. It writes a marker and never runs again.
+        scope.launch(Dispatchers.IO) {
+            chimahon.DictionaryRepository.ensureDictionaryTypes(dictionariesDir)
+        }
         // Chimahon <--
     }
 

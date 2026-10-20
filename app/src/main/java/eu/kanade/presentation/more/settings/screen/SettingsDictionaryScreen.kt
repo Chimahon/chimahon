@@ -86,7 +86,11 @@ import chimahon.anki.AnkiProfile
 import chimahon.anki.AnkiScreenshotMode
 import chimahon.anki.LapisPreset
 import chimahon.anki.Marker
+import chimahon.dictionary.DictionaryCommitter
+import chimahon.dictionary.detectedTypes
 import chimahon.dictionary.readDictionaryIndex
+import chimahon.dictionary.scanDictionaryFolders
+import chimahon.dictionary.scanDictionaryNames
 import chimahon.ocr.CropPresets
 import chimahon.novel.data.FontManager
 import com.hippo.unifile.UniFile
@@ -316,19 +320,17 @@ private fun loadDictionaryList(context: Context) {
     Log.d(TAG, "loadDictionaryList: called")
     val dictionariesDir = File(context.getExternalFilesDir(null), "dictionaries")
     val names = if (dictionariesDir.exists()) {
-        val typed = listOf("term", "frequency", "pitch", "kanji")
-            .flatMap { type ->
-                val typeDir = File(dictionariesDir, type)
-                if (!typeDir.isDirectory) emptyList()
-                else typeDir.listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()
-            }
-            .distinct()
+        val typed = scanDictionaryNames(dictionariesDir)
         if (typed.isNotEmpty()) {
             typed
         } else {
             // Fallback for flat layout (pre-migration or probe failure) - minimal clean fix
             val typeSet = setOf("term", "frequency", "pitch", "kanji")
-            dictionariesDir.listFiles()?.filter { it.isDirectory && it.name !in typeSet }?.map { it.name }.orEmpty().distinct()
+            dictionariesDir.listFiles()
+                ?.filter { it.isDirectory && it.name !in typeSet && !it.name.startsWith(".") }
+                ?.map { it.name }
+                .orEmpty()
+                .distinct()
         }
     } else {
         emptyList()
@@ -1271,11 +1273,7 @@ object SettingsDictionaryScreen : SearchableSettings {
 
         val dictTypes = remember(dictionaries) {
             val dir = File(context.getExternalFilesDir(null), "dictionaries")
-            dictionaries.map { name ->
-                name to listOf("term", "frequency", "pitch", "kanji").filter { type ->
-                    File(dir, "$type/$name").isDirectory
-                }
-            }.toMap()
+            scanDictionaryFolders(dir).associate { folder -> folder.name to folder.types.map { it.dirName } }
         }
 
         val orderedDicts = remember(dictionaries, currentOrder) {
@@ -2803,26 +2801,27 @@ private suspend fun importDictionaryFromStream(
             val title = if (result.title.isNotBlank()) result.title else importedDir.name
             Log.d(TAG, "importDictionaryFromStream: imported dict title=$title")
 
-            data class CopyTarget(val type: String, val count: Long)
-            val targets = buildList {
-                if (result.termCount > 0) add(CopyTarget("term", result.termCount))
-                if (result.freqCount > 0) add(CopyTarget("frequency", result.freqCount))
-                if (result.pitchCount > 0) add(CopyTarget("pitch", result.pitchCount))
-                if (result.kanjiCount > 0) add(CopyTarget("kanji", result.kanjiCount))
-            }
-
-            if (targets.isEmpty()) {
+            val types = result.detectedTypes()
+            if (types.isEmpty()) {
                 Log.e(TAG, "importDictionaryFromStream: no entries found")
                 return@withContext Pair("Dictionary has no recognizable entries", false)
             }
 
-            for (target in targets) {
-                val typeDir = File(dictionariesDir, target.type)
-                if (!typeDir.exists()) typeDir.mkdirs()
-                val destDir = File(typeDir, title)
-                if (destDir.exists()) destDir.deleteRecursively()
-                importedDir.copyRecursively(destDir, overwrite = true)
-                Log.d(TAG, "importDictionaryFromStream: copied to ${target.type}/$title")
+            // One folder, written once, with the kinds it serves recorded inside it. A folder
+            // already there for this dictionary is replaced by renaming, never deleted first.
+            val report = try {
+                DictionaryCommitter.commit(importedDir, dictionariesDir, title, types)
+            } catch (e: Exception) {
+                Log.e(TAG, "importDictionaryFromStream: commit failed", e)
+                return@withContext Pair(e.message ?: context.stringResource(MR.strings.unknown_error), false)
+            }
+            Log.d(
+                TAG,
+                "importDictionaryFromStream: wrote $title as ${report.types.joinToString(", ") { it.dirName }} " +
+                    "to ${report.writtenDir.absolutePath}",
+            )
+            for (removed in report.removedDuplicates) {
+                Log.d(TAG, "importDictionaryFromStream: removed duplicate ${removed.absolutePath}")
             }
 
             // Auto-download kanji stroke font if any kanji dicts were imported
@@ -2861,7 +2860,6 @@ private suspend fun importDictionaryFromStream(
                 )
             }
 
-            val typeHints = targets.joinToString(", ") { it.type }
             Pair(
                 context.stringResource(
                     MR.strings.pref_import_dictionary_success,

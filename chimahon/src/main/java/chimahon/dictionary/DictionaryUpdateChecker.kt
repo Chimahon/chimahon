@@ -21,7 +21,7 @@ private data class RemoteIndex(
     val downloadUrl: String? = null,
 )
 
-private val DICT_TYPE_SUBDIRS = listOf("term", "frequency", "pitch", "kanji")
+private val DICT_TYPE_SUBDIRS = DictionaryType.all.map { it.dirName }
 
 fun checkDictionaryUpdates(dictionariesDir: File): List<DictionaryUpdateInfo> {
     if (!dictionariesDir.isDirectory) return emptyList()
@@ -29,7 +29,7 @@ fun checkDictionaryUpdates(dictionariesDir: File): List<DictionaryUpdateInfo> {
     val dictDirs = DICT_TYPE_SUBDIRS
         .map { File(dictionariesDir, it) }
         .filter { it.isDirectory }
-        .flatMap { it.listFiles()?.filter { f -> f.isDirectory }.orEmpty() }
+        .flatMap { it.listFiles()?.filter { f -> f.isDirectory && !f.name.startsWith(".") }.orEmpty() }
         .distinctBy { it.name }
 
     return dictDirs.map { dir -> checkSingleDictionary(dir) }

@@ -3,6 +3,13 @@ package chimahon
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
+import chimahon.dictionary.DICTIONARY_TYPES_MARKER
+import chimahon.dictionary.DictionaryCommitter
+import chimahon.dictionary.DictionaryType
+import chimahon.dictionary.probeDictionaryTypes
+import chimahon.dictionary.readDictionaryTypes
+import chimahon.dictionary.touchDictionariesDir
+import chimahon.dictionary.writeDictionaryTypes
 import chimahon.dictionary.ko.KoreanAnalyzerDeinflector
 import chimahon.dictionary.ko.KoreanParserMode
 import org.json.JSONArray
@@ -274,7 +281,8 @@ class DictionaryRepository(
         private const val MAX_PRELOADED_MEDIA_ITEMS = 20
         private const val MAX_PRELOADED_MEDIA_BYTES = 256 * 1024
 
-        private val TYPE_SUBDIRS = listOf("term", "frequency", "pitch", "kanji")
+        /** Type directories a dictionary folder can live in, in primary order. */
+        private val TYPE_SUBDIRS = DictionaryType.all.map { it.dirName }
 
         @Synchronized
         fun migrateFlatDictionaries(dictionariesDir: File) {
@@ -282,7 +290,7 @@ class DictionaryRepository(
 
             val typeSubdirSet = TYPE_SUBDIRS.toSet()
             val flatDirs = dictionariesDir.listFiles()
-                ?.filter { it.isDirectory && it.name !in typeSubdirSet }
+                ?.filter { it.isDirectory && it.name !in typeSubdirSet && !it.name.startsWith(".") }
                 .orEmpty()
 
             if (flatDirs.isEmpty()) return
@@ -292,6 +300,11 @@ class DictionaryRepository(
             }
         }
 
+        /**
+         * Moves a dictionary written by an older build, which sat directly in the dictionaries
+         * directory, into its type directory. The folder is moved as one folder and its types are
+         * recorded inside it, instead of being copied once per type.
+         */
         private fun migrateSingleFlatDictionary(flatDir: File, dictionariesDir: File) {
             val dictName = flatDir.name
             if (!File(flatDir, "hash.table").isFile) {
@@ -299,26 +312,67 @@ class DictionaryRepository(
                 return
             }
             try {
-                val counts = HoshiDicts.probeEntryTypes(flatDir.absolutePath)
-                val types = buildList {
-                    if (counts[0] > 0) add("term")
-                    if (counts[1] > 0) add("frequency")
-                    if (counts[2] > 0) add("pitch")
-                    if (counts.size > 3 && counts[3] > 0) add("kanji")
-                }.ifEmpty { TYPE_SUBDIRS }
-
-                for (type in types) {
-                    val typeDir = File(dictionariesDir, type)
-                    typeDir.mkdirs()
-                    val targetDir = File(typeDir, dictName)
-                    if (targetDir.exists()) targetDir.deleteRecursively()
-                    flatDir.copyRecursively(targetDir, overwrite = true)
+                val types = probeDictionaryTypes(flatDir)
+                if (types.isEmpty()) {
+                    Log.w("DictMigration", "Skipping '$dictName' — no recognizable entries")
+                    return
                 }
-
+                DictionaryCommitter.commit(flatDir, dictionariesDir, dictName, types)
                 flatDir.deleteRecursively()
-                Log.i("DictMigration", "Migrated '$dictName' into ${types.joinToString(", ")}")
+                Log.i("DictMigration", "Migrated '$dictName' into ${types.joinToString(", ") { it.dirName }}")
             } catch (e: Exception) {
                 Log.e("DictMigration", "Failed to migrate '$dictName': ${e.message}")
+            }
+        }
+
+        /**
+         * One-time pass over dictionaries that were written before a folder recorded the types it
+         * serves: it writes that record, and removes the duplicate folder copies earlier builds made.
+         *
+         * Nothing is copied, so this cannot fail for lack of space. The record is what the folder's
+         * contents report, and the committed folder is a dictionary's only copy, so a leftover in
+         * another type directory is removed with it. The marker is written only after the whole pass
+         * succeeded, so an interrupted pass runs again on the next launch.
+         */
+        @Synchronized
+        fun ensureDictionaryTypes(
+            dictionariesDir: File,
+            probe: (String) -> LongArray = HoshiDicts::probeEntryTypes,
+        ) {
+            if (!dictionariesDir.isDirectory) return
+            val marker = File(dictionariesDir, DICTIONARY_TYPES_MARKER)
+            if (marker.exists()) return
+
+            try {
+                val copiesByName = LinkedHashMap<String, MutableList<Pair<DictionaryType, File>>>()
+                for (type in DictionaryType.all) {
+                    val typeDir = File(dictionariesDir, type.dirName)
+                    for (folder in typeDir.listFiles().orEmpty()) {
+                        if (!folder.isDirectory || folder.name.startsWith(".")) continue
+                        copiesByName.getOrPut(folder.name) { mutableListOf() } += type to folder
+                    }
+                }
+
+                for ((name, copies) in copiesByName) {
+                    val (primaryType, primaryDir) = copies.first()
+                    val servedTypes = probeDictionaryTypes(primaryDir, probe)
+                        .ifEmpty { readDictionaryTypes(primaryDir) ?: listOf(primaryType) }
+                    writeDictionaryTypes(primaryDir, servedTypes)
+
+                    for ((type, copy) in copies.drop(1)) {
+                        if (copy.deleteRecursively()) {
+                            Log.i("DictTypes", "Removed duplicate copy of '$name' from ${type.dirName}/")
+                        } else {
+                            Log.w("DictTypes", "Could not remove duplicate copy at ${copy.absolutePath}")
+                        }
+                    }
+                }
+
+                marker.writeText("1")
+                touchDictionariesDir(dictionariesDir)
+                Log.i("DictTypes", "Type pass done for ${copiesByName.size} dictionaries")
+            } catch (e: Exception) {
+                Log.e("DictTypes", "Type pass failed", e)
             }
         }
     }

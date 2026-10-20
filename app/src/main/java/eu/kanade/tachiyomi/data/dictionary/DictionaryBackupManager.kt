@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.data.dictionary
 
+import chimahon.DictionaryRepository
+import chimahon.dictionary.DICTIONARY_TYPES_MARKER
 import chimahon.dictionary.readDictionaryIndex
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -109,7 +111,17 @@ object DictionaryBackupManager {
                 entry.name to decideAction(dictionariesDir, entry)
             }
 
-            return ImportResult.Success(extractZip(tempZip, dictionariesDir, decisions))
+            return ImportResult.Success(
+                extractZip(tempZip, dictionariesDir, decisions).also { report ->
+                    if (report.imported.isNotEmpty() || report.updated.isNotEmpty()) {
+                        // A folder restored from a backup made before dictionaries recorded the
+                        // types they serve carries no record, and the one-time pass has already run
+                        // on this install, so it is allowed to look at the restored folders again.
+                        File(dictionariesDir, DICTIONARY_TYPES_MARKER).delete()
+                        DictionaryRepository.ensureDictionaryTypes(dictionariesDir)
+                    }
+                },
+            )
         } catch (e: Exception) {
             return ImportResult.Failure(e.message ?: "Unknown error")
         } finally {

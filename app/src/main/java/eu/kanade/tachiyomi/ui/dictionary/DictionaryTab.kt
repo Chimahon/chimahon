@@ -54,6 +54,8 @@ import chimahon.LookupResult
 import chimahon.anki.AnkiCardCreator
 import chimahon.anki.AnkiDroidBridge
 import chimahon.anki.AnkiResult
+import chimahon.dictionary.DictionaryType
+import chimahon.dictionary.scanDictionaryFolders
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.components.SearchHistoryRow
 import eu.kanade.presentation.util.Tab
@@ -131,31 +133,30 @@ fun getDictionaryPaths(context: android.content.Context, activeProfileOverride: 
         }
     }
 
-    val typeDirs = mapOf(
-        "term" to File(dictionariesDir, "term"),
-        "frequency" to File(dictionariesDir, "frequency"),
-        "pitch" to File(dictionariesDir, "pitch"),
-        "kanji" to File(dictionariesDir, "kanji"),
-    )
-
-    val allDictNames = typeDirs.values.flatMap { dir ->
-        if (!dir.isDirectory) {
-            emptyList()
-        } else {
-            dir.listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()
-        }
-    }.distinct()
+    // A dictionary is one folder and may serve several lookup kinds at once, so the kinds it
+    // records decide which lists its single path goes into. A folder written before records
+    // existed has no record and is read as serving the directory it sits in.
+    val folders = scanDictionaryFolders(dictionariesDir)
+    val allDictNames = folders.map { it.name }
 
     if (allDictNames.isEmpty()) return chimahon.DictionaryPaths()
+
+    val folderByName = folders.associateBy { it.name }
+    val typesByName = folders.associate { it.name to it.types }
+
+    fun pathsFor(names: List<String>, type: DictionaryType): List<String> = names
+        .filter { name -> typesByName[name]?.contains(type) == true }
+        .mapNotNull { name -> folderByName[name]?.dir?.absolutePath }
 
     val prefs = try {
         DictionaryPreferences(Injekt.get())
     } catch (_: Exception) {
+        val sortedNames = allDictNames.sorted()
         return chimahon.DictionaryPaths(
-            termPaths = allDictNames.filter { name -> File(typeDirs["term"]!!, name).isDirectory }.map { File(typeDirs["term"]!!, it).absolutePath }.sorted(),
-            freqPaths = allDictNames.filter { name -> File(typeDirs["frequency"]!!, name).isDirectory }.map { File(typeDirs["frequency"]!!, it).absolutePath }.sorted(),
-            pitchPaths = allDictNames.filter { name -> File(typeDirs["pitch"]!!, name).isDirectory }.map { File(typeDirs["pitch"]!!, it).absolutePath }.sorted(),
-            kanjiPaths = allDictNames.filter { name -> File(typeDirs["kanji"]!!, name).isDirectory }.map { File(typeDirs["kanji"]!!, it).absolutePath }.sorted(),
+            termPaths = pathsFor(sortedNames, DictionaryType.TERM),
+            freqPaths = pathsFor(sortedNames, DictionaryType.FREQUENCY),
+            pitchPaths = pathsFor(sortedNames, DictionaryType.PITCH),
+            kanjiPaths = pathsFor(sortedNames, DictionaryType.KANJI),
         )
     }
 
@@ -184,18 +185,11 @@ fun getDictionaryPaths(context: android.content.Context, activeProfileOverride: 
     val enabled = activeProfile.enabledDictionaries
     val finalNames = if (enabled.isEmpty()) orderedNames else orderedNames.filter { it in enabled }
 
-    fun pathsForType(type: String): List<String> {
-        val typeDir = typeDirs[type] ?: return emptyList()
-        return finalNames
-            .filter { name -> File(typeDir, name).isDirectory }
-            .map { name -> File(typeDir, name).absolutePath }
-    }
-
     val result = chimahon.DictionaryPaths(
-        termPaths = pathsForType("term"),
-        freqPaths = pathsForType("frequency"),
-        pitchPaths = pathsForType("pitch"),
-        kanjiPaths = pathsForType("kanji"),
+        termPaths = pathsFor(finalNames, DictionaryType.TERM),
+        freqPaths = pathsFor(finalNames, DictionaryType.FREQUENCY),
+        pitchPaths = pathsFor(finalNames, DictionaryType.PITCH),
+        kanjiPaths = pathsFor(finalNames, DictionaryType.KANJI),
     )
     val currentProfileHash = activeProfile.hashCode()
 
