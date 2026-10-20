@@ -1965,6 +1965,7 @@
     volume_up: '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
     add_circle: '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v5h-2v-5H7v-2h4V7h2v4h4v2z"/></svg>',
     check_circle: '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>',
+    content_copy: '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path d="M19 21H8c-1.1 0-2-.9-2-2V7h2v12h11v2zM16 3H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12H4V5h12v10z"/></svg>',
     expand_more: '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>',
     menu_book: '<svg viewBox="0 0 24 24" width="20" height="24" fill="currentColor"><path transform="translate(0, 24) scale(0.025)" d="M260-320q47 0 91.5 10.5T440-278v-394q-41-24-87-36t-93-12q-36 0-71.5 7T120-692v396q35-12 69.5-18t70.5-6Zm260 42q44-21 88.5-31.5T700-320q36 0 70.5 6t69.5 18v-396q-33-14-68.5-21t-71.5-7q-47 0-93 12t-87 36v394Zm-40 118q-48-38-104-59t-116-21q-42 0-82.5 11T100-198q-21 11-40.5-1T40-234v-482q0-11 5.5-21T62-752q46-24 96-36t102-12q58 0 113.5 15T480-740q51-30 106.5-45T700-800q52 0 102 12t96 36q11 5 16.5 15t5.5 21v482q0 23-19.5 35t-40.5 1q-37-20-77.5-31T700-240q-60 0-116 21t-104 59ZM280-494Z"/></svg>',
     arrow_upward: '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></svg>',
@@ -2127,6 +2128,31 @@
       const cancelPress = () => { clearTimeout(_pressTimer); };
       dictHeader.addEventListener('pointerup', cancelPress);
       dictHeader.addEventListener('pointercancel', cancelPress);
+
+      const copyButton = document.createElement('button');
+      copyButton.className = 'dictionary-copy-btn';
+      copyButton.innerHTML = ICONS.content_copy;
+      copyButton.title = 'Copy translations';
+      copyButton.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        cancelPress();
+      });
+      copyButton.onclick = (e) => {
+        e.stopPropagation();
+        const translations = Array.from(ol.querySelectorAll('.gloss-content'))
+          .flatMap((content) => {
+            const glossaryNodes = content.querySelectorAll('[data-sc-content="glossary"]');
+            const textNodes = glossaryNodes.length > 0 ? glossaryNodes : [content];
+            return Array.from(textNodes, (node) => node.innerText.trim());
+          })
+          .filter(Boolean)
+          .join('\n');
+        if (!translations || !window.DictionaryClipboard) return;
+        window.DictionaryClipboard.copyTranslation(translations);
+        copyButton.innerHTML = ICONS.check_circle;
+        setTimeout(() => { copyButton.innerHTML = ICONS.content_copy; }, 1000);
+      };
+      dictHeader.appendChild(copyButton);
       
       dictSection.appendChild(dictHeader);
 

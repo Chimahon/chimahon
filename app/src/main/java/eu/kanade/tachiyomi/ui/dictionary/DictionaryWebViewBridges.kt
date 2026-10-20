@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import eu.kanade.tachiyomi.util.system.copyToClipboard
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
@@ -96,6 +97,20 @@ internal class AnkiJsBridge(
         val gloss = glossary.toIntOrNull()
         scope.launch {
             onAnkiLookup?.invoke(idx, gloss, selectedDict, popupSelection, true)
+        }
+    }
+}
+
+/** JavaScript bridge for copying a rendered dictionary translation. */
+internal class DictionaryClipboardBridge(
+    private val context: Context,
+) {
+    private val scope = CoroutineScope(Dispatchers.Main + Job())
+
+    @JavascriptInterface
+    fun copyTranslation(content: String) {
+        scope.launch {
+            context.copyToClipboard("Dictionary translation", content)
         }
     }
 }
