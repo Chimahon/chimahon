@@ -4,11 +4,15 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
-## [Unreleased]
+## [v2.4.9]
+
+### Changed
+
+- Single stored copy of each dictionary, including mixed term and kanji dictionaries
 
 ### Fixed
 
-- Dictionary folders that hold kanji entries as well as terms now serve kanji lookup, and each dictionary is stored once instead of once per kind of entry
+- Kanji lookup in dictionaries that contain both terms and kanji
 
 ## [v2.4.8]
 
