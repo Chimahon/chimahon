@@ -3,6 +3,7 @@ import mihon.buildlogic.Config
 import mihon.buildlogic.getBuildTime
 import mihon.buildlogic.getCommitCount
 import mihon.buildlogic.getGitSha
+import java.security.MessageDigest
 
 plugins {
     id("mihon.android.application")
@@ -19,6 +20,26 @@ val hasLocalOcr = file("../chimahon-local-ocr/build.gradle.kts").exists()
 val releaseVersionName = providers.gradleProperty("releaseVersionName").orNull
 val releaseVersionCode = providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()
 
+// ABI-specific APKs must identify the same renderer/host sources before replay calibration.
+val replayDigest = MessageDigest.getInstance("SHA-256")
+val replaySources = listOf(
+    "app/src/main/java/eu/kanade/tachiyomi/ui/dictionary",
+    "app/src/main/java/eu/kanade/presentation/theme",
+    "app/src/debug/java/eu/kanade/tachiyomi/ui/dictionary/bench",
+    "dictionary-renderer/src/main", "gradle",
+).flatMap { rootProject.fileTree(it).matching { include("**/*.kt", "**/*.toml") }.files } + listOf(
+    rootProject.file("app/build.gradle.kts"), rootProject.file("dictionary-renderer/build.gradle.kts"),
+    rootProject.file("chimahon/src/main/java/chimahon/HoshiDicts.kt"),
+    rootProject.file("chimahon/src/main/java/chimahon/anki/AnkiProfile.kt"),
+    rootProject.file("chimahon/src/main/java/chimahon/diagnostics/LookupProfiler.kt"),
+)
+replaySources.distinct().sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }.forEach {
+    replayDigest.update(it.relativeTo(rootDir).invariantSeparatorsPath.toByteArray())
+    replayDigest.update(0.toByte())
+    replayDigest.update(it.readBytes())
+}
+val replaySourceHash = replayDigest.digest().joinToString("") { "%02x".format(it) }
+
 android {
     namespace = "eu.kanade.tachiyomi"
 
@@ -33,6 +54,7 @@ android {
         buildConfigField("String", "BUILD_TIME", "\"${getBuildTime(useLastCommitTime = false)}\"")
         buildConfigField("boolean", "UPDATER_ENABLED", enableUpdater.toString())
         buildConfigField("boolean", "HAS_LOCAL_OCR", hasLocalOcr.toString())
+        buildConfigField("String", "DICTIONARY_REPLAY_SOURCE_SHA256", "\"$replaySourceHash\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -108,6 +130,14 @@ android {
     sourceSets {
         getByName("preview").res.srcDirs("src/beta/res")
         getByName("benchmark").res.srcDirs("src/debug/res")
+        // The profileable, non-debuggable `benchmark` build is what profiling wants for accurate
+        // numbers, so it needs the debug-only renderer harness too: DictionaryBenchActivity mounts
+        // the real renderer under a controlled key. Its `-e modes/-e cases/-e iters/-e stages`
+        // extras let a single short Compose sweep be requested instead of the full minute-long one.
+        getByName("benchmark").java.srcDirs("src/debug/java")
+        getByName("benchmark").assets.srcDirs("src/debug/assets")
+        // ... and its manifest, which is what declares DictionaryBenchActivity as launchable.
+        getByName("benchmark").manifest.srcFile("src/debug/AndroidManifest.xml")
     }
 
     splits {
@@ -219,6 +249,7 @@ kotlin {
 
 dependencies {
     implementation(projects.chimahon)
+    implementation(projects.dictionaryRenderer)
 
     if (hasLocalOcr) {
         implementation(project(":chimahon-local-ocr"))
@@ -255,6 +286,21 @@ dependencies {
     implementation(compose.ui.tooling.preview)
     implementation(compose.ui.util)
     implementation(compose.constraintlayout)
+
+    // Compose composition tracing: with runtime-tracing on the classpath the Compose compiler's
+    // trace markers turn every recompose / measure / layout into a named slice, so a Perfetto
+    // capture attributes frame time to individual composables instead of guessing. It embeds
+    // unobfuscated tracing strings in the APK, so it is deliberately absent from release-facing
+    // variants. tracing-perfetto is the SDK that lets a capture be enabled from adb rather than
+    // only from Android Studio; -binary is the packaged Perfetto it falls back to.
+    debugImplementation(compose.runtime.tracing)
+    debugImplementation(androidx.tracing.perfetto)
+    debugImplementation(androidx.tracing.perfetto.binary)
+    // "benchmark" is a custom build type, so Gradle generates no typed accessor for it. Invoke the
+    // configuration by name instead of relying on a benchmarkImplementation shorthand.
+    "benchmarkImplementation"(compose.runtime.tracing)
+    "benchmarkImplementation"(androidx.tracing.perfetto)
+    "benchmarkImplementation"(androidx.tracing.perfetto.binary)
 
     implementation(androidx.interpolator)
 
@@ -412,12 +458,16 @@ dependencies {
 }
 
 androidComponents {
+    // Debug outputs are limited to the ABIs named by -Pchimahon.debugAbi (default arm64-v8a).
+    // A universal APK has no ABI filter at all, so it is only enabled when the property asks for it.
+    val debugAbis = (findProperty("chimahon.debugAbi") as String? ?: "arm64-v8a")
+        .split(",").map(String::trim).toSet()
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.outputs.forEach { output ->
             output.enabled.set(
                 output.filters.any {
-                    it.filterType == FilterConfiguration.FilterType.ABI && it.identifier == "arm64-v8a"
-                },
+                    it.filterType == FilterConfiguration.FilterType.ABI && it.identifier in debugAbis
+                } || (output.filters.isEmpty() && debugAbis.contains("universal")),
             )
         }
     }

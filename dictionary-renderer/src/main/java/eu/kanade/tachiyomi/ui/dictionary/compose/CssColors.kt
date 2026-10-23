@@ -9,10 +9,16 @@ import kotlin.math.roundToInt
  * Handles #hex (3/4/6/8 digits, CSS RRGGBBAA order), named colors, var() hex
  * fallbacks, and full `color-mix(in srgb, C1 P%, C2)` blending (percentages
  * honored — a 5% tint renders as a tint, not a solid color).
+ *
+ * The functional `rgb()`/`rgba()` notation is handled too. A COMPUTED colour is
+ * always reported in that form - `getComputedStyle().color` gives
+ * "rgb(31, 31, 31)" - and the glossary body inherits it, so without this the
+ * whole corpus was drawn in black where the reference uses rgb(31, 31, 31): a
+ * 31/255 difference on every text pixel, well past the comparison tolerance.
  */
 
 /** Best-effort #hex / named color → Color. */
-internal fun parseCssColor2(raw: String?): Color? {
+public fun parseCssColor2(raw: String?): Color? {
     if (raw.isNullOrBlank()) return null
     val v = raw.trim()
     if (v.startsWith("#")) {
@@ -34,10 +40,44 @@ internal fun parseCssColor2(raw: String?): Color? {
             else -> null
         }
     }
+    parseFunctionalColor(v)?.let { return it }
     return namedCssColor[v.lowercase()]
 }
 
-internal val namedCssColor = mapOf(
+/**
+ * The `rgb()`/`rgba()` notation, in both the comma-separated CSS3 form
+ * ("rgb(31, 31, 31)", "rgba(0, 0, 0, 0.5)") and the CSS4 space-separated form
+ * ("rgb(31 31 31 / 50%)"). Channels may be numbers or percentages.
+ */
+private fun parseFunctionalColor(value: String): Color? {
+    val open = value.indexOf('(')
+    if (open < 0 || !value.endsWith(")")) return null
+    val name = value.substring(0, open).trim().lowercase()
+    if (name != "rgb" && name != "rgba") return null
+    val parts = value.substring(open + 1, value.length - 1)
+        .split(',', '/', ' ', '\t', '\n')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+    if (parts.size < 3) return null
+    // Colour channels are 0..255 or a percentage; the alpha is 0..1 or a percentage.
+    fun channel(token: String): Float? = if (token.endsWith("%")) {
+        token.dropLast(1).toFloatOrNull()?.div(100f)
+    } else {
+        token.toFloatOrNull()?.div(255f)
+    }
+    fun alpha(token: String): Float = if (token.endsWith("%")) {
+        (token.dropLast(1).toFloatOrNull()?.div(100f) ?: 1f)
+    } else {
+        token.toFloatOrNull() ?: 1f
+    }.coerceIn(0f, 1f)
+    val red = channel(parts[0])?.coerceIn(0f, 1f) ?: return null
+    val green = channel(parts[1])?.coerceIn(0f, 1f) ?: return null
+    val blue = channel(parts[2])?.coerceIn(0f, 1f) ?: return null
+    val opacity = if (parts.size >= 4) alpha(parts[3]) else 1f
+    return Color(red, green, blue, opacity)
+}
+
+public val namedCssColor = mapOf(
     "green" to Color(0xFF008000),
     "purple" to Color(0xFF800080),
     "orange" to Color(0xFFFFA500),
@@ -53,7 +93,7 @@ internal val namedCssColor = mapOf(
 )
 
 /** Compose Color → CSS `#RRGGBBAA` string (round-trips through [parseCssColor2]). */
-internal fun Color.toCssHex(): String {
+public fun Color.toCssHex(): String {
     fun v(f: Float) = (f.coerceIn(0f, 1f) * 255f + 0.5f).toInt().coerceIn(0, 255)
     return "#%02X%02X%02X%02X".format(v(red), v(green), v(blue), v(alpha))
 }
@@ -77,7 +117,7 @@ private fun resolveToken(token: String): Color? {
  * Missing percentages default to 50/50 (CSS behavior). Returns `#RRGGBBAA` or null
  * when either side is unresolvable (caller falls back to first-color extraction).
  */
-internal fun blendColorMix(value: String): String? {
+public fun blendColorMix(value: String): String? {
     val lower = value.lowercase()
     val mixIndex = lower.indexOf("color-mix")
     if (mixIndex == -1) return null
@@ -146,7 +186,7 @@ private fun lerpSrbg(c2: Color, c1: Color, t: Float): Color = Color(
 )
 
 /** Resolve any CSS color-ish string to a `#RRGGBBAA` hex, blending color-mix properly. */
-internal fun resolveCssColorHex(value: String): String? {
+public fun resolveCssColorHex(value: String): String? {
     val trimmed = value.trim()
     if (trimmed.contains("color-mix", ignoreCase = true)) {
         blendColorMix(trimmed)?.let { return it }
@@ -159,7 +199,7 @@ internal fun resolveCssColorHex(value: String): String? {
  * `var(--a, var(--b, #333))` survives). The legacy paren-blind regex failed on
  * exactly that shape, turning Jitendex form badges gray instead of near-black.
  */
-internal fun extractRadialFirstSegment(value: String): String? {
+public fun extractRadialFirstSegment(value: String): String? {
     val start = value.indexOf("radial-gradient", ignoreCase = true)
     if (start == -1) return null
     val open = value.indexOf('(', start)

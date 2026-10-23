@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".ui.dictionary.bench.LookupReplayActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Tachiyomi"
+            android:label="Lookup Replay" />
+        <!-- Debug-only harness that times all three dictionary renderers. Launched with:
+             adb shell am start -n app.chimahon.dev/eu.kanade.tachiyomi.ui.dictionary.bench.DictionaryBenchActivity
+             Results go to logcat under the tag "DictBench". -->
+        <activity
+            android:name=".ui.dictionary.bench.DictionaryBenchActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Tachiyomi"
+            android:label="DictBench" />
+    </application>
+
+</manifest>

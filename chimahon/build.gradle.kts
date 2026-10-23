@@ -27,7 +27,13 @@ android {
         getByName("debug") {
             externalNativeBuild {
                 cmake {
-                    abiFilters("arm64-v8a")
+                    // Default is unchanged (arm64-v8a only). The dictionary-fidelity harness runs on
+                    // an x86_64 PC emulator, which cannot load arm64 libs, so that run passes
+                    // -Pchimahon.debugAbi=x86_64 and must build native code for the host ABI.
+                    abiFilters(
+                        *(project.findProperty("chimahon.debugAbi") as String? ?: "arm64-v8a")
+                            .split(",").map(String::trim).toTypedArray(),
+                    )
                 }
             }
         }

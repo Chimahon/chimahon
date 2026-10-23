@@ -84,7 +84,7 @@ enum class StructuredTag {
             ListItem -> "li"
             Details -> "details"
             Summary -> "summary"
-            Link -> "a"
+            Link -> "span"
             Image -> "img"
             Break -> "br"
             Bold -> "b"
@@ -107,6 +107,8 @@ data class StructuredAttributes(
     val style: Map<String, String> = emptyMap(),
     val properties: Map<String, String> = emptyMap(),
 ) {
+    internal val cssKeys = cssAttributeKeys(data)
+
     /** `data-sc-content` and `data-sc-class` values carried by this node. */
     val dataValues: List<String>
         get() {

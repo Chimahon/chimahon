@@ -12,6 +12,14 @@ add_library(hoshidicts_jni SHARED
 )
 target_link_libraries(hoshidicts_jni PRIVATE hoshidicts)
 
+# DICT_PROFILE: remove this block with the temporary profiling header/call sites.
+target_include_directories(hoshidicts PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(ANDROID)
+    find_library(profile-android-lib android REQUIRED)
+    find_library(profile-log-lib log REQUIRED)
+    target_link_libraries(hoshidicts PUBLIC ${profile-android-lib} ${profile-log-lib})
+endif()
+
 # ─── SQLite amalgamation as a private static lib ─────────────────────────
 add_library(sqlite_amalgamation STATIC
     sqlite/sqlite3.c

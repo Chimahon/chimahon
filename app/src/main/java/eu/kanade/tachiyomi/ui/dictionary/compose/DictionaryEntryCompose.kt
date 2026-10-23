@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -23,8 +23,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,12 +36,15 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -61,8 +67,17 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import java.util.IdentityHashMap
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import chimahon.DictionaryStyle
@@ -77,12 +92,19 @@ import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.toImmutableMap
 import kotlin.math.roundToInt
 
 private val WHITESPACE_REGEX = Regex("\\s+")
@@ -111,6 +133,13 @@ internal data class DictionaryGroup(
     val dictName: String,
     val title: String,
     val glosses: List<GlossaryEntry>,
+    /**
+     * Glossary texts parsed during card preparation, off Main, aligned
+     * by index with [glosses]. [GlossRow] consumes these instead of parsing on Main, where every
+     * lazy pass (layout, prefetch, measure) runs its own composition with a cold `remember`
+     * cache and would otherwise pay the full parse again.
+     */
+    val parsedGlosses: List<List<StructuredNode>> = emptyList(),
 )
 
 /** A parsed kanji result, mirroring the WebView's `kanji-renderer.js` model. */
@@ -165,11 +194,76 @@ private fun parseKanjiEntryJson(json: String): KanjiCard? {
 /** One entry in the recursive-lookup tab strip. */
 data class GlossTab(val label: String, val active: Boolean)
 
+private val glossaryPreparationDispatcher = Dispatchers.Default.limitedParallelism(4)
+
+private class GlossaryLayoutWork(
+    val nodes: List<StructuredNode>,
+    val dictionary: String,
+    val sourceLength: Int,
+    val css: ParsedCss,
+    val width: Int,
+    val index: Int,
+)
+
+/**
+ * Prepares glosses drawn from the shared queue on the calling worker.
+ *
+ * Owns its [NativeGlossaryResources] so font and style resources are never touched by two
+ * threads at once. `checkCancellation` is bound to the caller's
+ * coroutine context so a cancelled lookup stops the work in flight.
+ */
+private suspend fun prepareGlossaryBatch(
+    profilingId: Long,
+    nextWork: () -> GlossaryLayoutWork?,
+    fontResolver: FontFamily.Resolver,
+    density: Density,
+    layoutDirection: LayoutDirection,
+    secondary: Color,
+    border: Color,
+    baseStyle: TextStyle,
+): IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument> {
+    val preparation = chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.worker.context") {
+        NativeGlossaryResources(density, layoutDirection, fontResolver)
+    }
+    val caller = currentCoroutineContext()
+    val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+    var firstIndex = -1
+    if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.worker.begin",
+        "scheduling=largest-source-first")
+    chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.worker.prepare") { while (true) {
+        caller.ensureActive()
+        val item = nextWork() ?: break
+        if (firstIndex == -1) firstIndex = item.index
+        val compiler = chimahon.diagnostics.LookupProfiler.section(profilingId, "document.compiler.create") {
+            NativeGlossaryCompiler(item.css, density, layoutDirection,
+                fontResolver, secondary, border, checkCancellation = { caller.ensureActive() },
+                profilingId = profilingId, resources = preparation)
+        }
+        val paragraphStart = preparation.paragraphs
+        val rubyStart = preparation.rubyPairs
+        val start = if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.timestamp() else 0L
+        val doc = chimahon.diagnostics.LookupProfiler.section(profilingId, "document.prepare") {
+            compiler.prepare(item.nodes, baseStyle, emptyList(), item.width)
+        }
+        out[item.nodes] = doc
+        if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.document",
+            JSONObject().put("index", item.index).put("dictionary", item.dictionary)
+                .put("start_ns", start).put("end_ns", chimahon.diagnostics.LookupProfiler.timestamp())
+                .put("width", item.width).put("height", doc.height)
+                .put("paragraphs", preparation.paragraphs - paragraphStart)
+                .put("rubyPairs", preparation.rubyPairs - rubyStart).toString())
+    } }
+    if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.worker",
+        "documents=${out.size} first=$firstIndex " + preparation.summary())
+    return out
+}
+
 /**
  * Native Compose dictionary renderer for the reader popup — a drop-in for
  * [eu.kanade.tachiyomi.ui.dictionary.DictionaryEntryWebView]. Renders the same
  * underlying [chimahon.LookupResult] model directly, without the JSON/JS round-trip.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DictionaryEntryCompose(
     results: List<LookupResult>,
@@ -205,24 +299,39 @@ fun DictionaryEntryCompose(
     onTabSelect: ((Int) -> Unit)? = null,
     onBack: (() -> Unit)? = null,
     onContentReadyChange: ((Boolean) -> Unit)? = null,
+    /**
+     * Fired once the [RenderPlan] exists, i.e. after the gloss parse, stylesheet parse and card
+     * build have finished. Distinct from [onContentReadyChange], which only reports that the
+     * composable ran and so fires while the plan is still being built.
+     */
+    onPlanReady: (() -> Unit)? = null,
+    /**
+     * True when the caller already ran [orderLookupResultsForDisplay] with the same profile and
+     * context. Ordering is idempotent, so this only skips redundant work; callers passing true must
+     * not hand the renderer a differently sorted list.
+     */
+    resultsAreOrdered: Boolean = false,
     isLoading: Boolean = false,
     usePlainTextBody: Boolean = false,
+    profilingId: Long = 0,
 ) {
     val context = LocalContext.current
+    val renderEnvironment = LocalDictionaryRenderEnvironment.current
     val prefs = remember { Injekt.get<DictionaryPreferences>() }
     val themeMode by prefs.themeMode().collectAsState()
     val customColor by prefs.customColor().collectAsState()
-    val seedColor = if (customColor != 0) customColor else Injekt.get<UiPreferences>().colorTheme().get()
+    val seedColor = renderEnvironment?.seedColor
+        ?: if (customColor != 0) customColor else Injekt.get<UiPreferences>().colorTheme().get()
 
     val systemIsDark = isSystemInDarkTheme()
-    val isAmoled = themeMode == "pure_black"
-    val isDark = when (themeMode) {
+    val isAmoled = renderEnvironment?.amoled ?: (themeMode == "pure_black")
+    val isDark = renderEnvironment?.dark ?: when (themeMode) {
         "dark", "pure_black" -> true
         "light" -> false
         else -> if (customColor != 0) Color(seedColor).luminance() < 0.5f else systemIsDark
     }
     val colorScheme = remember(isDark, isAmoled, seedColor) {
-        getDictionaryColorScheme(isDark, isAmoled, seedColor)
+        chimahon.diagnostics.LookupProfiler.section(profilingId, "theme.colors") { getDictionaryColorScheme(isDark, isAmoled, seedColor) }
     }
     val bgColor = if (eInkMode) (if (isDark) Color.Black else Color.White) else if (isAmoled && isDark) Color.Black else colorScheme.surface
     val onBg = if (eInkMode) (if (isDark) Color.White else Color.Black) else colorScheme.onSurface
@@ -235,10 +344,31 @@ fun DictionaryEntryCompose(
         onContentReadyChange?.invoke(!isLoading)
     }
 
-    val resolveTitle: (String) -> String = remember(context) { { name -> getDictionaryTitle(context, name) } }
+    val resolveTitle: (String) -> String = remember(context, renderEnvironment) { { name ->
+        if (renderEnvironment == null) getDictionaryTitle(context, name)
+        else renderEnvironment.dictionaryTitles[name] ?: name
+    } }
     val priority = remember(activeProfile, resolveTitle) {
         activeProfile.dictionaryOrder.map { resolveTitle(it) }.withIndex().associate { it.value to it.index }
     }
+    // Theme variable values for CSS `var()` resolution: byte-identical formulas to the WebView's
+    // `dynamicThemeCss` injection ([DictionaryBootstrapHtml]), so both engines resolve the same
+    // names to the same colors in every mode and seed. Remembered: the map is rebuilt only when
+    // the theme actually changes, and it joins the plan keys below for the same reason.
+    val themeVars = remember(colorScheme, isDark, isAmoled) {
+        dictionaryThemeVars(colorScheme, isDark, isAmoled)
+    }
+    BoxWithConstraints(modifier) {
+    val popupWidthPx = constraints.maxWidth
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val fontResolver = LocalFontFamilyResolver.current
+    val rubyRenderer = remember(density, layoutDirection, fontResolver) {
+        RubyTextRenderer(density, layoutDirection, fontResolver)
+    }
+    rubyRenderer.profilingId = profilingId
+    // Shared by worker document preparation and the drawing host.
+    val baseStyle = remember(onBg, fontSize) { dictionaryBaseStyle(onBg, fontSize, null) }
 
     val plan by produceState(
         initialValue = if (isLoading) RenderPlan.Empty else null,
@@ -249,6 +379,16 @@ fun DictionaryEntryCompose(
         groupTerms,
         isLoading,
         entryJsons,
+        resultsAreOrdered,
+        themeVars,
+        onBg,
+        secondary,
+        border,
+        fontSize,
+        density,
+        layoutDirection,
+        fontResolver,
+        popupWidthPx,
     ) {
         if (isLoading) {
             value = RenderPlan.Empty
@@ -262,22 +402,110 @@ fun DictionaryEntryCompose(
         val snapshotGroupTerms = groupTerms
         val snapshotPriority = priority
         val snapshotResolveTitle = resolveTitle
-        value = withContext(Dispatchers.Default) {
-            val shown = orderLookupResultsForDisplay(snapshot, snapshotProfile, context)
+        val snapshotThemeVars = themeVars
+        chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.queued")
+        if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.config",
+            "schema=native-flow-v1 widthPolicy=assigned tablePolicy=allocated-grid rubyLookup=base-only workerLimit=4 popupWidth=$popupWidthPx fontSize=$fontSize density=${density.density} " +
+                "fontScale=${density.fontScale} direction=$layoutDirection results=${snapshot.size}")
+        value = withContext(Dispatchers.Default) { chimahon.diagnostics.LookupProfiler.elapsedSection(profilingId, "plan.prepare") {
+            val shown = if (resultsAreOrdered) snapshot else {
+                orderLookupResultsForDisplay(snapshot, snapshotProfile, context)
+            }
+            val planCssMap = chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.css") { buildParsedCssMap(snapshotStyles, snapshotCustomCss, context, snapshotThemeVars) }
+            val planCards = chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.cards_parse") {
+                buildCards(shown, snapshotGroupTerms, snapshotResolveTitle, snapshotPriority)
+            }
+            val documents = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+            val work = ArrayList<GlossaryLayoutWork>()
+            val seen = IdentityHashMap<List<StructuredNode>, Boolean>()
+            for (card in planCards) {
+                val customOpen = customOpenDictionaryNames(card, snapshotProfile)
+                for ((groupIndex, group) in card.dictGroups.withIndex()) {
+                    val expanded = dictionaryInitiallyExpanded(group, groupIndex, snapshotProfile.dictionaryCollapseMode, customOpen)
+                    if (!expanded || popupWidthPx == androidx.compose.ui.unit.Constraints.Infinity) continue
+                    val groupCss = planCssMap[group.dictName]
+                        ?: planCssMap[group.dictName.lowercase()]
+                        ?: ParsedCss.EMPTY
+                    // One width per group, not per gloss: it depends only on the popup width and on
+                    // whether the group holds a single gloss.
+                    val width = run {
+                        val inset = with(density) {
+                            4.dp.roundToPx() + 12.dp.roundToPx() + 12.dp.roundToPx() +
+                                if (group.glosses.size == 1) 0 else 16.dp.roundToPx()
+                        }
+                        (popupWidthPx - inset).coerceAtLeast(0)
+                    }
+                    for ((index, nodes) in group.parsedGlosses.withIndex()) {
+                        if (seen.put(nodes, true) != null) continue
+                        work.add(GlossaryLayoutWork(nodes, group.dictName, group.glosses[index].glossary.length,
+                            groupCss, width, work.size))
+                    }
+                }
+            }
+            // Start larger documents before the queue drains; display order stays in planCards.
+            // The source size is already known, so scheduling adds no tree traversal.
+            work.sortByDescending { it.sourceLength }
+            val next = java.util.concurrent.atomic.AtomicInteger()
+            val nextWork = { work.getOrNull(next.getAndIncrement()) }
+            val batches = if (work.size <= 1) {
+                // Single gloss is the common case and cannot parallelise; skip the fan-out entirely.
+                listOf(prepareGlossaryBatch(profilingId, nextWork, fontResolver, density, layoutDirection,
+                    secondary, border, baseStyle))
+            } else {
+                val workers = Runtime.getRuntime().availableProcessors().coerceIn(1, minOf(4, work.size))
+                coroutineScope {
+                    List(workers) {
+                        async(glossaryPreparationDispatcher) {
+                            prepareGlossaryBatch(profilingId,
+                                nextWork,
+                                fontResolver, density, layoutDirection, secondary, border, baseStyle)
+                        }
+                    }.awaitAll()
+                }
+            }
+            for (batch in batches) documents.putAll(batch)
+            chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.work",
+                "documents=${documents.size} glosses=${work.size} batches=${batches.size} scheduling=largest-source-first")
             RenderPlan(
                 kanjiCards = snapshotEntryJsons?.mapNotNull { parseKanjiEntryJson(it) } ?: emptyList(),
-                parsedCssMap = buildParsedCssMap(snapshotStyles, snapshotCustomCss, context),
-                cards = buildCards(shown, snapshotGroupTerms, snapshotResolveTitle, snapshotPriority),
+                parsedCssMap = planCssMap,
+                cards = planCards,
+                documents = documents,
             )
-        }
+        } }
+        chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.ready")
+        onPlanReady?.invoke()
     }
     val effectivePlan = plan ?: RenderPlan.Empty
+
+    // Structural-equality maps for the card subtree. Plain Map parameters are unstable-typed, so
+    // under strong skipping they compare by instance: every plan rebuild or media commit (new
+    // instance, often equal content) would recompose the whole card tree. ImmutableMap compares
+    // structurally, so equal-content passes skip. Recomputed only when the source instance
+    // changes, i.e. exactly when content may have changed.
+    val stableCssMap = remember(effectivePlan.parsedCssMap) { effectivePlan.parsedCssMap.toImmutableMap() }
+    val stableMedia = remember(mediaDataUris) { mediaDataUris.toImmutableMap() }
 
     // `popup` is handled by the host, which opens a child popup instead of pushing a frame here.
     val showTabStrip = recursiveNavMode == "tabs" && tabs.size > 1
     val showBackChip = recursiveNavMode == "stack" && tabs.size > 1
 
-    Column(modifier = modifier.background(bgColor)) {
+    CompositionLocalProvider(
+        LocalLookupProfilingId provides profilingId,
+        LocalRubyTextRenderer provides rubyRenderer,
+        // Phase 3b: decoded media, read ONLY by the image leaf (StructuredImage) and the table
+        // intrinsic memo key. Providing it here (not threading it as a param) means a late media
+        // arrival recomposes just the images, not every card - same idea as LocalExistingExpressions.
+        LocalMediaDataUris provides stableMedia,
+        // Complete worker-prepared document geometry; the glossary host only paints and handles taps.
+        LocalNativeGlossaryDocuments provides effectivePlan.documents,
+        // Read ONLY by the per-card Anki button leaf ([TermCardAnkiActions]). Providing the set
+        // here instead of threading it through TermCardView means an Anki add (which swaps the
+        // set instance) recomposes just the two IconButtons: every card body skips, because none
+        // of TermCardView's parameters changed.
+        LocalExistingExpressions provides existingExpressions,
+    ) {
+    Column(modifier = Modifier.background(bgColor)) {
         if (showTabStrip || showBackChip) {
             RecursiveNavBar(
                 tabs = tabs,
@@ -292,16 +520,23 @@ fun DictionaryEntryCompose(
                 onBack = onBack,
             )
         }
+        // Bounded popup, opens at top: no item ahead to prefetch. Zero window removes the 2.1-2.3s
+        // of off-screen card composition the default did on open (compose:lazy:prefetch:idle_frame).
+        val popupListState = rememberLazyListState(
+            cacheWindow = LazyLayoutCacheWindow(ahead = 0.dp, behind = 0.dp),
+        )
         Box(Modifier.fillMaxSize()) {
             when {
                 isLoading || effectivePlan == RenderPlan.Empty -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = accent)
+                        if (isLoading) CircularProgressIndicator(color = accent)
+                        else Icon(Icons.Outlined.MenuBook, contentDescription = null, tint = secondary, modifier = Modifier.size(32.dp))
                     }
                 }
                 effectivePlan.kanjiCards.isNotEmpty() -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = popupListState,
                         contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                     ) {
                         itemsIndexed(effectivePlan.kanjiCards, key = { i, kanji -> "kanji-${kanji.character}-$i" }, contentType = { _, _ -> "kanji" }) { i, kanji ->
@@ -329,11 +564,18 @@ fun DictionaryEntryCompose(
                     }
                 }
                 else -> {
+                    val cardStates = remember(effectivePlan.cards) {
+                        effectivePlan.cards.map { TermCardUiState() }
+                    }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = popupListState,
                         contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                     ) {
-                        itemsIndexed(effectivePlan.cards, key = { i, card -> "$i-${card.expression}\u0000${card.reading}" }, contentType = { _, _ -> "term" }) { i, card ->
+                        effectivePlan.cards.forEachIndexed { i, card ->
+                            val cardKey = "$i-${card.expression}\u0000${card.reading}"
+                            val cardState = cardStates[i]
+                            item(key = "$cardKey-header", contentType = "term-header") {
                             TermCardView(
                                 card = card,
                                 index = i,
@@ -344,7 +586,7 @@ fun DictionaryEntryCompose(
                                 hoverBg = hoverBg,
                                 onBg = onBg,
                                 eInkMode = eInkMode,
-                                parsedCssMap = effectivePlan.parsedCssMap,
+                                parsedCssMap = stableCssMap,
                                 showFrequencyHarmonic = showFrequencyHarmonic,
                                 showFrequencyAverage = showFrequencyAverage,
                                 showPitchDiagram = showPitchDiagram,
@@ -352,20 +594,50 @@ fun DictionaryEntryCompose(
                                 showPitchText = showPitchText,
                                 groupPitches = groupPitches,
                                 activeProfile = activeProfile,
-                                mediaDataUris = mediaDataUris,
-                                existingExpressions = existingExpressions,
                                 onAnkiLookup = onAnkiLookup,
                                 onRecursiveLookup = onRecursiveLookup,
                                 wordAudioEnabled = wordAudioEnabled,
                                 autoplay = wordAudioAutoplayOverride == true,
                                 modifier = Modifier.fillMaxWidth(),
                                 usePlainTextBody = usePlainTextBody,
+                                uiState = cardState,
+                                showDictionaryGroups = false,
                             )
+                            }
+                            val customOpen = customOpenDictionaryNames(card, activeProfile)
+                            card.dictGroups.forEachIndexed { groupIndex, group ->
+                                val groupKey = "$cardKey-dict-$groupIndex"
+                                val initial = dictionaryInitiallyExpanded(group, groupIndex,
+                                    activeProfile.dictionaryCollapseMode, customOpen)
+                                item(key = "$groupKey-header", contentType = "dictionary-header") {
+                                    DictGroupView(
+                                        group, groupIndex, activeProfile.dictionaryCollapseMode, customOpen,
+                                        cardState.overrides, cardState.selectedDict, { cardState.selectedDict = it },
+                                        fontSize, accent, secondary, hoverBg, onBg, border, eInkMode,
+                                        stableCssMap, onRecursiveLookup, usePlainTextBody, showGlosses = false,
+                                    )
+                                }
+                                if (cardState.overrides[group.title] ?: initial) {
+                                    itemsIndexed(group.glosses, key = { glossIndex, _ -> "$groupKey-gloss-$glossIndex" },
+                                        contentType = { _, _ -> "gloss" }) { glossIndex, _ ->
+                                        DictGroupView(
+                                            group, groupIndex, activeProfile.dictionaryCollapseMode, customOpen,
+                                            cardState.overrides, cardState.selectedDict, { cardState.selectedDict = it },
+                                            fontSize, accent, secondary, hoverBg, onBg, border, eInkMode,
+                                            stableCssMap, onRecursiveLookup, usePlainTextBody,
+                                            showHeader = false, glossIndex = glossIndex,
+                                        )
+                                    }
+                                }
+                            }
+                            item(key = "$cardKey-footer", contentType = "term-footer") { Spacer(Modifier.height(8.dp)) }
                         }
                     }
                 }
         }
         }
+    }
+    }
     }
 }
 
@@ -379,6 +651,7 @@ internal class RenderPlan(
     val kanjiCards: List<KanjiCard>,
     val parsedCssMap: Map<String, ParsedCss>,
     val cards: List<TermCard>,
+    val documents: Map<List<StructuredNode>, NativeGlossaryDocument> = emptyMap(),
 ) {
     companion object {
         val Empty = RenderPlan(emptyList(), emptyMap(), emptyList())
@@ -386,17 +659,46 @@ internal class RenderPlan(
 }
 
 /**
- * Parses every dictionary stylesheet once, merging the user's custom CSS on top. Pure function of
- * its arguments apart from [context], which is only used to resolve a dictionary's display title.
+ * Theme-driven CSS variable values for `var()` resolution, computed with byte-identical formulas
+ * to the WebView's `dynamicThemeCss` injection ([DictionaryBootstrapHtml.getDictionaryColorScheme]
+ * inputs → same hexes) from the same color scheme - so both engines resolve the same names to
+ * the same colors in every mode, seed and AMOLED setting. Keys omit the `--` prefix, matching
+ * [parseCssVariables]. 8-digit hexes are RRGGBBAA order, which is what [parseCssColor2] reads.
  */
+internal fun dictionaryThemeVars(
+    colorScheme: ColorScheme,
+    isDark: Boolean,
+    isAmoled: Boolean,
+): Map<String, String> {
+    // `#RRGGBB` from float channels (avoids `Color.toArgb`, which the render harness's
+    // desktop Compose build does not resolve).
+    fun hex(color: Color): String {
+        fun v(f: Float) = (f.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        return "#%06X".format((v(color.red) shl 16) or (v(color.green) shl 8) or v(color.blue))
+    }
+    // RRGGBBAA order, matching what [parseCssColor2] reads; 0.10 -> 0x1A, 0.07 -> 0x12.
+    val fgHex = hex(colorScheme.onSurface)
+    return mapOf(
+        "accent" to hex(colorScheme.primary),
+        "on-accent" to hex(colorScheme.onPrimary),
+        "fg" to fgHex,
+        "bg" to if (isAmoled && isDark) "#000000" else hex(colorScheme.surface),
+        "secondary" to hex(colorScheme.onSurfaceVariant),
+        "border" to if (isAmoled && isDark) "#FFFFFF1A" else hex(colorScheme.outlineVariant),
+        "hover-bg" to if (isAmoled && isDark) "#FFFFFF12" else hex(colorScheme.surfaceVariant),
+        "tab-bg" to if (isAmoled && isDark) "#0d0d0d" else hex(colorScheme.surfaceContainer),
+        "pronunciation-annotation-color" to fgHex,
+    )
+}
+/** Parses dictionary styles with theme variables and the user's custom CSS. */
 internal fun buildParsedCssMap(
     styles: List<DictionaryStyle>,
     customCss: String,
     context: Context,
+    themeVars: Map<String, String> = emptyMap(),
 ): Map<String, ParsedCss> {
     val map = mutableMapOf<String, ParsedCss>()
-    // customCss (from DictionaryPreferences) should also apply to all dicts like WebView does
-    val customParsed = if (customCss.isNotBlank()) parseDictionaryCss(customCss) else null
+    val customParsed = if (customCss.isNotBlank()) parseDictionaryCss(customCss, themeVars) else null
 
     fun merge(base: ParsedCss, extra: ParsedCss?): ParsedCss {
         if (extra == null || extra == ParsedCss.EMPTY) return base
@@ -409,11 +711,13 @@ internal fun buildParsedCssMap(
             selectorStyles = mergedStyles,
             presenceRules = base.presenceRules + extra.presenceRules,
             nestedTagRules = base.nestedTagRules + extra.nestedTagRules,
+            weakValueKeys = base.weakValueKeys + extra.weakValueKeys,
+            variables = base.variables + extra.variables,
         )
     }
 
     for (s in styles) {
-        val parsed = merge(parseDictionaryCss(s.styles), customParsed)
+        val parsed = merge(parseDictionaryCss(s.styles, themeVars), customParsed)
         map[s.dictName] = parsed
         // dictName may be dirName or display title; index by both so lookup never misses
         val title = runCatching { getDictionaryTitle(context, s.dictName) }.getOrNull()
@@ -438,6 +742,7 @@ internal fun buildCards(
     if (results.isEmpty()) return emptyList()
 
     fun rank(title: String): Int = priority[title] ?: Int.MAX_VALUE
+    val parsed = HashMap<Triple<String, String, Boolean>, List<StructuredNode>>()
 
     class Acc {
         var expression = ""
@@ -448,21 +753,30 @@ internal fun buildCards(
         var rules = ""
         val process = LinkedHashSet<ProcessStep>()
         val glosses = LinkedHashMap<String, DictionaryGroup>()
+        val seenGlosses = HashMap<String, MutableSet<Pair<String, String>>>()
         val frequencies = LinkedHashMap<String, FrequencyEntry>()
         val pitches = LinkedHashMap<String, PitchEntry>()
 
-        fun finish(): TermCard = TermCard(
-            expression = expression,
-            reading = reading,
-            matched = matched,
-            deinflected = deinflected,
-            termTags = termTags,
-            rules = rules,
-            process = process.toList(),
-            dictGroups = glosses.values.sortedBy { rank(it.title) },
-            frequencies = frequencies.values.toList(),
-            pitches = pitches.values.toList(),
-        )
+        fun finish(): TermCard {
+            val groups = glosses.values.sortedBy { rank(it.title) }.map { group ->
+                group.copy(parsedGlosses = group.glosses.map { gloss ->
+                    val source = Triple(group.dictName, gloss.glossary, group.glosses.size == 1)
+                    parsed.getOrPut(source) { parseGlossaryNodes(gloss.glossary) }
+                })
+            }
+            return TermCard(
+                expression = expression,
+                reading = reading,
+                matched = matched,
+                deinflected = deinflected,
+                termTags = termTags,
+                rules = rules,
+                process = process.toList(),
+                dictGroups = groups,
+                frequencies = frequencies.values.toList(),
+                pitches = pitches.values.toList(),
+            )
+        }
     }
 
     val out = mutableListOf<Acc>()
@@ -493,7 +807,7 @@ internal fun buildCards(
             val group = acc.glosses.getOrPut(g.dictName) { DictionaryGroup(g.dictName, resolveTitle(g.dictName), mutableListOf()) }
             @Suppress("UNCHECKED_CAST")
             val list = group.glosses as MutableList<GlossaryEntry>
-            if (list.none { it.glossary == g.glossary && it.definitionTags == g.definitionTags }) {
+            if (acc.seenGlosses.getOrPut(g.dictName) { HashSet() }.add(g.glossary to g.definitionTags)) {
                 list.add(g)
             }
         }
@@ -504,6 +818,72 @@ internal fun buildCards(
         for (p in result.term.pitches) acc.pitches[p.dictName] = p
     }
     return out.map { it.finish() }
+}
+
+/**
+ * Glossary text to render nodes. Pure function of the text (including throw behavior: no
+ * catch here, matching [GlossRow]'s structured path), so parsing once per plan source is
+ * output-identical to parsing per composition.
+ */
+internal fun parseGlossaryNodes(glossary: String): List<StructuredNode> =
+    when (val parsed = parseStructuredGlossary(glossary)) {
+        is StructuredEntry.Tree -> parsed.nodes
+        is StructuredEntry.PlainText -> plainTextNodes(glossary)
+    }
+
+/**
+ * Expressions already in Anki, provided at the [DictionaryEntryCompose] root and read ONLY by
+ * [TermCardAnkiActions]. See the provider for why this is a local instead of a parameter.
+ */
+private val LocalExistingExpressions = compositionLocalOf { emptySet<String>() }
+
+/**
+ * The per-card Anki add/view buttons in their own recomposition scope.
+ *
+ * `alreadyAdded` is read HERE — not in [TermCardView] — so when an Anki add swaps the
+ * `existingExpressions` set, only these two IconButtons recompose. The card body (gloss, ruby,
+ * tables) keeps identical parameters and is skipped. [selectedDict] stays owned by the card (the
+ * group headers write it on long-press); it is only *passed* here.
+ */
+@Composable
+private fun TermCardAnkiActions(
+    index: Int,
+    expression: String,
+    firstDictTitle: String?,
+    selectedDict: String?,
+    dupAction: String,
+    onAnkiLookup: (Int, Int?, String?, String?, Boolean) -> Unit,
+    onBg: Color,
+) {
+    val alreadyAdded = expression in LocalExistingExpressions.current
+    val showAdd = !alreadyAdded || dupAction != "prevent"
+    val targetDict = selectedDict ?: firstDictTitle
+    if (showAdd) {
+        IconButton(
+            onClick = { onAnkiLookup(index, null, targetDict, null, false) },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
+                contentDescription = null,
+                tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+    if (alreadyAdded) {
+        IconButton(
+            onClick = { onAnkiLookup(index, null, targetDict, null, true) },
+            modifier = Modifier.size(28.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.MenuBook,
+                contentDescription = null,
+                tint = onBg.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -518,7 +898,7 @@ internal fun TermCardView(
     hoverBg: Color,
     onBg: Color,
     eInkMode: Boolean,
-    parsedCssMap: Map<String, ParsedCss>,
+    parsedCssMap: ImmutableMap<String, ParsedCss>,
     showFrequencyHarmonic: Boolean,
     showFrequencyAverage: Boolean,
     showPitchDiagram: Boolean,
@@ -526,19 +906,22 @@ internal fun TermCardView(
     showPitchText: Boolean,
     groupPitches: Boolean,
     activeProfile: AnkiProfile,
-    mediaDataUris: Map<String, String>,
-    existingExpressions: Set<String>,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)?,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     wordAudioEnabled: Boolean,
     autoplay: Boolean,
     modifier: Modifier,
     usePlainTextBody: Boolean = false,
+    uiState: TermCardUiState? = null,
+    showDictionaryGroups: Boolean = true,
 ) {
-    val overrideState = remember(card) { CollapseOverrideState(emptyMap()) }
+    val cardState = uiState ?: remember(card) { TermCardUiState() }
+    val overrideState = cardState.overrides
     val collapseMode = activeProfile.dictionaryCollapseMode
-    val alreadyAdded = card.expression in existingExpressions
-    var selectedDict by remember(card) { mutableStateOf<String?>(null) }
+    // Stays here (not in the Anki leaf): the dict-group headers below read AND write it
+    // (long-press picks the add target + highlight), so a change must recompose the card.
+    // An Anki add only swaps the `existingExpressions` local, which this scope never reads.
+    val selectedDict = cardState.selectedDict
 
     val termTagList = remember(card.termTags) {
         card.termTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
@@ -566,7 +949,7 @@ internal fun TermCardView(
                     Modifier
                 },
             )
-            .padding(top = 10.dp, bottom = 8.dp),
+            .padding(top = 10.dp, bottom = if (showDictionaryGroups) 8.dp else 0.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -604,35 +987,15 @@ internal fun TermCardView(
                 )
             }
             if (onAnkiLookup != null) {
-                val dupAction = activeProfile.ankiDupAction
-                val showAdd = !alreadyAdded || dupAction != "prevent"
-                val targetDict = selectedDict ?: card.dictGroups.firstOrNull()?.title
-                if (showAdd) {
-                    IconButton(
-                        onClick = { onAnkiLookup(index, null, targetDict, null, false) },
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (alreadyAdded) Icons.Outlined.Check else Icons.Outlined.Add,
-                            contentDescription = null,
-                            tint = if (alreadyAdded) Color(0xFF4CAF50) else onBg.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-                if (alreadyAdded) {
-                    IconButton(
-                        onClick = { onAnkiLookup(index, null, targetDict, null, true) },
-                        modifier = Modifier.size(28.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.MenuBook,
-                            contentDescription = null,
-                            tint = onBg.copy(alpha = 0.6f),
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
+                TermCardAnkiActions(
+                    index = index,
+                    expression = card.expression,
+                    firstDictTitle = card.dictGroups.firstOrNull()?.title,
+                    selectedDict = selectedDict,
+                    dupAction = activeProfile.ankiDupAction,
+                    onAnkiLookup = onAnkiLookup,
+                    onBg = onBg,
+                )
             }
         }
 
@@ -673,7 +1036,11 @@ internal fun TermCardView(
                     fontSize = (fontSize - 4).sp,
                 )
             }
-            AnimatedVisibility(visible = showDetails) {
+            // Plain `if`, not AnimatedVisibility: every card put an
+            // AnimatedEnterExitMeasurePolicy + BlockGraphicsLayerModifier in the measure chain
+            // (traces showed them nesting inside the LazyColumn item), for a disclosure that
+            // cannot be seen animating while scrolling anyway.
+            if (showDetails) {
                 Column(Modifier.padding(top = 2.dp)) {
                     val ruleSet = remember(card.rules) { card.rules.split(WHITESPACE_REGEX).filter { it.isNotBlank() } }
                     if (ruleSet.isNotEmpty()) {
@@ -799,91 +1166,176 @@ internal fun TermCardView(
             }
         }
 
-        for ((i, group) in card.dictGroups.withIndex()) {
-            val override = overrideState[group.title]
-            val initial = when (collapseMode) {
-                AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_ALL -> true
-                AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE -> i == 0
-                AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM -> customOpenNames.contains(group.dictName)
-                else -> false
-            }
-            val expanded = override ?: initial
+        if (showDictionaryGroups) for ((i, group) in card.dictGroups.withIndex()) {
+            DictGroupView(
+                group = group,
+                groupIndex = i,
+                collapseMode = collapseMode,
+                customOpenNames = customOpenNames,
+                overrideState = overrideState,
+                selectedDict = selectedDict,
+                onSelectDict = { cardState.selectedDict = it },
+                fontSize = fontSize,
+                accent = accent,
+                secondary = secondary,
+                hoverBg = hoverBg,
+                onBg = onBg,
+                border = border,
+                eInkMode = eInkMode,
+                parsedCssMap = parsedCssMap,
+                onRecursiveLookup = onRecursiveLookup,
+                usePlainTextBody = usePlainTextBody,
+            )
+        }
+    }
+}
 
-            Column(modifier = Modifier.padding(top = if (i == 0) 2.dp else 4.dp)) {
-                val isSelected = selectedDict == group.title
-                val headerBg = when {
-                    eInkMode && isSelected -> accent
-                    isSelected -> hoverBg
-                    else -> Color.Transparent
-                }
-                val borderColor = when {
-                    isSelected -> accent
-                    else -> Color.Transparent
-                }
-                val headerLabelColor = when {
-                    eInkMode && isSelected -> hoverBg
-                    isSelected -> accent
-                    else -> secondary
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(headerBg)
-                        .pointerInput(group.title) {
-                            detectTapGestures(
-                                onLongPress = { selectedDict = if (isSelected) null else group.title },
-                                onTap = { overrideState.toggle(initial, group.title) },
-                            )
-                        }
-                        .padding(vertical = 4.dp)
-                        .drawBehind {
-                            drawRect(
-                                color = borderColor,
-                                topLeft = Offset.Zero,
-                                size = Size(4.dp.toPx(), size.height),
-                            )
-                        }
-                        .padding(start = 12.dp),
-                ) {
-                    val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "caret")
-                    Text("▸", color = secondary.copy(alpha = 0.7f), fontSize = (fontSize - 2).sp, modifier = Modifier.rotate(rotation))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = group.title,
-                        color = headerLabelColor,
-                        fontSize = (fontSize - 1).sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
+/**
+ * One collapsible dictionary group: header plus, when expanded, its gloss rows.
+ *
+ * The collapse override for THIS title is read here — not in [TermCardView] — so tapping a
+ * group header recomposes only that group: sibling groups keep identical parameters and skip,
+ * and the card's ruby/table measurement is not re-walked. [CollapseOverrideState] itself is a
+ * stable holder (its identity never changes); only the per-title read subscribes.
+ */
+@Composable
+private fun DictGroupView(
+    group: DictionaryGroup,
+    groupIndex: Int,
+    collapseMode: String,
+    customOpenNames: Set<String>,
+    overrideState: CollapseOverrideState,
+    selectedDict: String?,
+    onSelectDict: (String?) -> Unit,
+    fontSize: Int,
+    accent: Color,
+    secondary: Color,
+    hoverBg: Color,
+    onBg: Color,
+    border: Color,
+    eInkMode: Boolean,
+    parsedCssMap: ImmutableMap<String, ParsedCss>,
+    onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
+    usePlainTextBody: Boolean,
+    showHeader: Boolean = true,
+    glossIndex: Int? = null,
+    showGlosses: Boolean = true,
+) {
+    val override = overrideState[group.title]
+    val initial = dictionaryInitiallyExpanded(group, groupIndex, collapseMode, customOpenNames)
+    val expanded = override ?: initial
+
+    Column(modifier = Modifier.padding(top = if (!showHeader) 0.dp else if (groupIndex == 0) 2.dp else 4.dp)) {
+        if (showHeader) {
+        val isSelected = selectedDict == group.title
+        val headerBg = when {
+            eInkMode && isSelected -> accent
+            isSelected -> hoverBg
+            else -> Color.Transparent
+        }
+        val borderColor = when {
+            isSelected -> accent
+            else -> Color.Transparent
+        }
+        val headerLabelColor = when {
+            eInkMode && isSelected -> hoverBg
+            isSelected -> accent
+            else -> secondary
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(headerBg)
+                .pointerInput(group.title) {
+                    detectTapGestures(
+                        onLongPress = { onSelectDict(if (isSelected) null else group.title) },
+                        onTap = { overrideState.toggle(initial, group.title) },
                     )
                 }
-                AnimatedVisibility(visible = expanded) {
-                    Column(Modifier.padding(start = if (group.glosses.size == 1) 0.dp else 16.dp, end = 12.dp)) {
-                        group.glosses.forEach { gloss ->
-                            GlossRow(
-                                glossary = gloss.glossary,
-                                definitionTags = gloss.definitionTags,
-                                dictName = gloss.dictName,
-                                fontSize = fontSize,
-                                onBg = onBg,
-                                secondary = secondary,
-                                border = border,
-                                eInkMode = eInkMode,
-                                mediaDataUris = mediaDataUris,
-                                parsedCssMap = parsedCssMap,
-                                onRecursiveLookup = onRecursiveLookup,
-                                usePlainTextBody = usePlainTextBody,
-                            )
-                        }
-                    }
+                .padding(vertical = 4.dp)
+                .drawBehind {
+                    drawRect(
+                        color = borderColor,
+                        topLeft = Offset.Zero,
+                        size = Size(4.dp.toPx(), size.height),
+                    )
+                }
+                .padding(start = 12.dp),
+        ) {
+            GroupCaret(expanded = expanded, secondary = secondary, fontSize = fontSize)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = group.title,
+                color = headerLabelColor,
+                fontSize = (fontSize - 1).sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        }
+        if (expanded && showGlosses) {
+            Column(Modifier.padding(start = if (group.glosses.size == 1) 0.dp else 16.dp, end = 12.dp)) {
+                group.glosses.forEachIndexed { i, gloss ->
+                    if (glossIndex != null && i != glossIndex) return@forEachIndexed
+                    GlossRow(
+                        glossary = gloss.glossary,
+                        definitionTags = gloss.definitionTags,
+                        dictName = gloss.dictName,
+                        fontSize = fontSize,
+                        onBg = onBg,
+                        secondary = secondary,
+                        border = border,
+                        eInkMode = eInkMode,
+                        parsedCssMap = parsedCssMap,
+                        onRecursiveLookup = onRecursiveLookup,
+                        usePlainTextBody = usePlainTextBody,
+                        parsedNodes = group.parsedGlosses.getOrNull(i).orEmpty(),
+                    )
                 }
             }
         }
     }
 }
 
-private class CollapseOverrideState(initialByTitle: Map<String, Boolean>) {
+/**
+ * The `▸` collapse caret on its own scope: the expand/collapse rotation animates over several
+ * frames, and reading the animated value here keeps those frames off the group body (which would
+ * otherwise recompose — re-resolving styles — 60×/s for the animation duration).
+ */
+@Composable
+private fun GroupCaret(expanded: Boolean, secondary: Color, fontSize: Int) {
+    val rotation by animateFloatAsState(if (expanded) 90f else 0f, label = "caret")
+    Text("▸", color = secondary.copy(alpha = 0.7f), fontSize = (fontSize - 2).sp, modifier = Modifier.rotate(rotation))
+}
+
+internal class TermCardUiState {
+    val overrides = CollapseOverrideState(emptyMap())
+    var selectedDict by mutableStateOf<String?>(null)
+}
+
+private fun dictionaryInitiallyExpanded(group: DictionaryGroup, index: Int, mode: String, custom: Set<String>) =
+    when (mode) {
+        AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_ALL -> true
+        AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE -> index == 0
+        AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM -> group.dictName in custom
+        else -> false
+    }
+
+private fun customOpenDictionaryNames(card: TermCard, profile: AnkiProfile): Set<String> {
+    if (profile.dictionaryCollapseMode != AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM) return emptySet()
+    val open = mutableSetOf<String>()
+    var contentOpened = false
+    for (group in card.dictGroups) {
+        val mode = profile.dictionaryDisplayModes[group.dictName] ?: "fallback"
+        if (mode == "always_collapsed") continue
+        if (mode == "always_expanded" || !contentOpened) { open.add(group.dictName); contentOpened = true }
+    }
+    return open
+}
+
+internal class CollapseOverrideState(initialByTitle: Map<String, Boolean>) {
     var enabled by mutableStateOf(initialByTitle)
         private set
 
@@ -1064,10 +1516,15 @@ internal fun GlossRow(
     secondary: Color,
     border: Color,
     eInkMode: Boolean,
-    mediaDataUris: Map<String, String>,
-    parsedCssMap: Map<String, ParsedCss>,
+    parsedCssMap: ImmutableMap<String, ParsedCss>,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     usePlainTextBody: Boolean = false,
+    /**
+     * Pre-parsed nodes from the plan phase ([DictionaryGroup.parsedGlosses]). When present the
+     * structured path below costs a lookup instead of a parse; the `remember` still keys on
+     * both so a plan rebuild with new nodes re-resolves correctly.
+     */
+    parsedNodes: List<StructuredNode> = emptyList(),
 ) {
     if (usePlainTextBody) {
         val plain = remember(glossary) {
@@ -1104,12 +1561,10 @@ internal fun GlossRow(
         parsedCssMap[dictName] ?: parsedCssMap[dictName.lowercase()] ?: ParsedCss.EMPTY
     }
     // The Compose renderer is a user option, so every gloss goes through it. A gloss that is not
-    // structured content is just a text node. Parsing runs once per gloss via remember.
-    val structuredNodes: List<StructuredNode> = remember(glossary) {
-        when (val parsed = parseStructuredGlossary(glossary)) {
-            is StructuredEntry.Tree -> parsed.nodes
-            is StructuredEntry.PlainText -> listOf(StructuredNode.Text(glossary))
-        }
+    // structured content is just a text node. Parsing runs once per gloss in the plan phase; this
+    // remember only covers producers that bypass the plan (none in production).
+    val structuredNodes: List<StructuredNode> = remember(glossary, parsedNodes) {
+        parsedNodes.ifEmpty { parseGlossaryNodes(glossary) }
     }
     // definitionTags (part-of-speech / field / archaic chips) must render for BOTH paths —
     // the structured branch previously returned before them, hiding half the entry info.
@@ -1135,7 +1590,6 @@ internal fun GlossRow(
             nodes = structuredNodes,
             parsedCss = glossCss,
             dictName = dictName,
-            mediaDataUris = mediaDataUris,
             fontSize = fontSize,
             onBg = onBg,
             secondary = secondary,

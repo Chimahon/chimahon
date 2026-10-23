@@ -46,13 +46,10 @@ private val SAMPLE_FLAT_GLOSS = """[{"tag":"span","style":{"fontWeight":"bold"},
 @Composable
 fun PreviewJitendexStructured() {
     val css = parseDictionaryCss(SAMPLE_JITENDEX_CSS)
-    // debug: log parsed keys in preview (visible in logcat if you add Log.d)
-    // parsedCss.selectorStyles.keys -> ["sense", "glossary", "tag", "test-box"]
     StructuredGlossaryContent(
         nodes = (parseStructuredGlossary(SAMPLE_JITENDEX_GLOSS) as? StructuredEntry.Tree)?.nodes ?: emptyList(),
         parsedCss = css,
         dictName = "Jitendex.org",
-        mediaDataUris = emptyMap(),
         fontSize = 14,
         onBg = Color(0xFF1F1F1F),
         secondary = Color(0xFF757575),
@@ -71,18 +68,5 @@ fun PreviewPlainText() {
     Column(Modifier.padding(12.dp)) {
         androidx.compose.material3.Text(text, color = Color.Black, fontSize = 13.sp, lineHeight = 17.sp)
         androidx.compose.material3.Text("— collapsed whitespace, single newline —", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-/**
- * Quick CSS debug helper: call from anywhere (e.g. DictionaryEntryCompose) to log
- * whether dict CSS is actually reaching the renderer without needing a device.
- * Example: Log.d("CssDebug", debugCssStats(styles))
- */
-fun debugCssStats(styles: List<chimahon.DictionaryStyle>): String = buildString {
-    append("styles.size=${styles.size} ")
-    styles.forEach { s ->
-        val parsed = parseDictionaryCss(s.styles)
-        append("[${s.dictName}: selectors=${parsed.selectorStyles.size}, boxSelectors=${parsed.boxSelectors.size}, presence=${parsed.presenceRules.size}, cssLen=${s.styles.length}] ")
     }
 }
