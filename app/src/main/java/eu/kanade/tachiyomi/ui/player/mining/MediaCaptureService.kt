@@ -10,6 +10,7 @@ import chimahon.anki.LazyAnkiSentenceAudioProvider
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
 import eu.kanade.tachiyomi.torrentServer.TorrentServerUtils
 import eu.kanade.tachiyomi.util.storage.toFFmpegReadString
 import `is`.xyz.mpv.MPVLib
@@ -33,6 +34,7 @@ internal class MediaCaptureService(
     private val getSource: () -> AnimeSource?,
     private val getTimeSeconds: () -> Double,
     private val getOcrPaddingSeconds: () -> Double,
+    private val getSubtitleAudioPaddingMillis: () -> Pair<Int, Int>,
     private val readMpvSnapshot: () -> SentenceAudioMpvSnapshot,
     private val prepareSentenceAudioOverride: (suspend (SentenceAudioCaptureRequest) -> AnkiSentenceAudioPreparation)? = null,
 ) {
@@ -132,8 +134,18 @@ internal class MediaCaptureService(
         }
     }
 
-    fun createSubtitleAudioMediaRequest(startSeconds: Double?, endSeconds: Double?): AnkiMediaRequest =
-        createSentenceAudioMediaRequest(startSeconds, endSeconds)
+    fun createSubtitleAudioMediaRequest(startSeconds: Double?, endSeconds: Double?): AnkiMediaRequest {
+        // Padding must not turn missing or invalid cue timings into a usable range.
+        if (startSeconds == null || endSeconds == null || !startSeconds.isFinite() || !endSeconds.isFinite() ||
+            startSeconds < 0.0 || endSeconds <= startSeconds
+        ) {
+            return createSentenceAudioMediaRequest(startSeconds, endSeconds)
+        }
+        val (beforeMillis, afterMillis) = getSubtitleAudioPaddingMillis()
+        val before = beforeMillis.coerceIn(0, SubtitlePreferences.AUDIO_PADDING_MAX_MILLIS) / 1000.0
+        val after = afterMillis.coerceIn(0, SubtitlePreferences.AUDIO_PADDING_MAX_MILLIS) / 1000.0
+        return createSentenceAudioMediaRequest((startSeconds - before).coerceAtLeast(0.0), endSeconds + after)
+    }
 
     fun createVideoOcrAudioMediaRequest(): AnkiMediaRequest {
         val center = getTimeSeconds()

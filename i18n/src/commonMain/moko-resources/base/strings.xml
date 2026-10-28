@@ -1499,6 +1499,10 @@
     <!-- Player -->
     <string name="pref_player_subtitle">Subtitles</string>
     <string name="pref_player_subtitle_summary">Preferred languages, whitelist, blacklist</string>
+    <string name="pref_subtitle_audio_padding">Subtitle audio padding</string>
+    <string name="pref_subtitle_audio_padding_summary">Extra audio before and after subtitle cues</string>
+    <string name="subtitle_audio_padding_before">Before %1$d ms</string>
+    <string name="subtitle_audio_padding_after">After %1$d ms</string>
     <string name="pref_player_subtitle_lang">Preferred languages</string>
     <string name="pref_player_subtitle_lang_info">Subtitle language(s) to be selected by default on a video with multiple subtitles. Two- or three-letter language codes work. Multiple values can be delimited by a comma.</string>
     <string name="pref_player_subtitle_whitelist">Whitelist</string>

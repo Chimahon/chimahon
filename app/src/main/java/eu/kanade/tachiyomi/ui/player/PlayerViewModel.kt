@@ -362,6 +362,10 @@ class PlayerViewModel @JvmOverloads constructor(
         getSource = { currentSource.value },
         getTimeSeconds = { activity.player.timePosSeconds ?: pos.value.toDouble() },
         getOcrPaddingSeconds = { dictionaryPreferences.videoOcrSentenceAudioPaddingSeconds().get().toDouble() },
+        getSubtitleAudioPaddingMillis = {
+            subtitlePreferences.subtitleAudioPaddingBeforeMillis().get() to
+                subtitlePreferences.subtitleAudioPaddingAfterMillis().get()
+        },
         readMpvSnapshot = {
             SentenceAudioMpvSnapshotReader(object : SentenceAudioMpvPropertyReader {
                 override fun string(name: String): String? = MPVLib.getPropertyString(name)
