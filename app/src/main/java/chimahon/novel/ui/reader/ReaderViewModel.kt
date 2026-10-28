@@ -211,6 +211,7 @@ class ReaderViewModel(
     private val scope: CoroutineScope,
     private val openNovelId: Long? = null,
     private val openChapterIndex: Int? = null,
+    private val incognitoMode: Boolean = Injekt.get<eu.kanade.domain.source.interactor.GetIncognitoState>().await(null),
 ) {
     var index by mutableIntStateOf(0)
     var currentProgress by mutableDoubleStateOf(0.0)
@@ -510,7 +511,7 @@ class ReaderViewModel(
             val sync = ttuSyncManager
             while (sync != null) {
                 delay(sync.autoSyncIntervalMins.coerceAtLeast(1) * 60 * 1000L)
-                if (sync.isEnabled && sync.autoSyncPeriodic && !trackingLocked && !appBackgrounded) {
+                if (!incognitoMode && sync.isEnabled && sync.autoSyncPeriodic && !trackingLocked && !appBackgrounded) {
                     runCatching { persistChapterRow(index, currentProgress, totalExploredCharCount) }
                     runCatching { sync.syncBook(ttuBookRef()) }
                 }
@@ -798,6 +799,7 @@ class ReaderViewModel(
     }
 
     fun flushReaderState() {
+        if (incognitoMode) return
         if (progressChangedInSession) {
             persistBookmark(currentProgress, force = true)
         }
@@ -837,6 +839,7 @@ class ReaderViewModel(
 
     /** Import-only sync after returning from background (activity-gated). */
     fun syncAfterForeground() {
+        if (incognitoMode) return
         val sync = ttuSyncManager?.takeIf { it.isEnabled && it.autoSyncEnabled } ?: return
         if (isSyncing) return
         isSyncing = true
@@ -857,6 +860,7 @@ class ReaderViewModel(
 
     /** Export-on-close: persist position first, then push. */
     fun flushSyncExport() {
+        if (incognitoMode) return
         val sync = ttuSyncManager ?: return
         if (!sync.isEnabled || !sync.autoSyncOnClose) return
         if (totalExploredCharCount <= 0 && currentProgress <= 0.0 && index == 0) return
@@ -972,6 +976,7 @@ class ReaderViewModel(
 
     /** Manga per-page `updateChapter`: chapter row only, never history. */
     private suspend fun persistChapterRow(chapterIndex: Int, progress: Double, characterCount: Int) {
+        if (incognitoMode) return
         val repos = novelRepos ?: return
         val chapterId = resolveOwnNovelChapters()?.second?.getOrNull(chapterIndex) ?: return
         if (progress.isNovelReadComplete() || characterCount > 0) {
@@ -994,6 +999,7 @@ class ReaderViewModel(
 
     /** Manga per-visit `updateHistory`: when + how-long only, never position. */
     private suspend fun persistHistoryVisit(chapterIndex: Int, durationMs: Long) {
+        if (incognitoMode) return
         val repos = novelRepos ?: return
         val chapterId = resolveOwnNovelChapters()?.second?.getOrNull(chapterIndex) ?: return
         repos.third.upsertHistory(
@@ -1361,6 +1367,7 @@ class ReaderViewModel(
         if (isCurrentChapterImageOnly && progress < 1.0) return
         val characterCount = calculateExploredCharCount(progress)
         totalExploredCharCount = characterCount
+        if (incognitoMode) return
 
         val hasMoved = index != lastSavedChapterIndex ||
             characterCount != lastSavedCharacterCount ||
@@ -1434,6 +1441,7 @@ class ReaderViewModel(
     }
 
     private fun persistToDisk() {
+        if (incognitoMode) return
         val stats = statisticsTracker.statisticsForPersistence()
         runCatching { BookStorage.saveStatistics(stats, rootUrl) }
         persistStatsToDb(stats)
@@ -1455,6 +1463,7 @@ class ReaderViewModel(
 
     /** Additive per-day upsert (deltas against the last flush); suspends for the close path. */
     private suspend fun flushStatsToDb(stats: List<Statistics>) {
+        if (incognitoMode) return
         val novelId = openNovel?.id ?: return
         val repo = runCatching {
             Injekt.get<tachiyomi.domain.novel.repository.NovelReadingStatsRepository>()
