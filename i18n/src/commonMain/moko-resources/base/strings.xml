@@ -1856,4 +1856,8 @@
     <string name="extensionRepo_settings">Extension repo</string>
     <string name="pref_disable_long_press_screenshot">Disable long-press screenshot</string>
     <string name="pref_single_tap_to_pause">Single tap to pause</string>
+    <string name="import_subtitle_font">Import font</string>
+    <string name="import_subtitle_font_summary">Add a TTF or OTF subtitle font</string>
+    <string name="subtitle_font_imported">Font imported. Select it in the player subtitle settings.</string>
+    <string name="subtitle_font_import_failed">Could not import font. Choose a valid TTF or OTF file.</string>
 </resources>
