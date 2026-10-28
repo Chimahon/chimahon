@@ -37,6 +37,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.ui.browse.BrowseNovelSourceContent
 import chimahon.novel.ui.browse.BrowseNovelSourceToolbar
+import chimahon.novel.ui.browse.novelBrowseLibraryActions
 import chimahon.novel.ui.detail.NovelDetailScreen
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.util.Screen
@@ -63,6 +64,7 @@ class OpdsBrowseScreen(private val catalogId: String? = null, private val feedUr
         val displayPreference = remember { Injekt.get<SourcePreferences>().sourceDisplayMode() }
         val displayMode by displayPreference.collectAsState()
         var catalogsExpanded by remember { mutableStateOf(false) }
+        val libraryAction = novelBrowseLibraryActions()
         LaunchedEffect(source) {
             source.store.catalogChanges.collect { model.refresh() }
         }
@@ -130,6 +132,7 @@ class OpdsBrowseScreen(private val catalogId: String? = null, private val feedUr
                             displayMode = displayMode,
                             contentPadding = PaddingValues(),
                             onNovelClick = { navigator.push(NovelDetailScreen(it, source.id)) },
+                            onNovelLongClick = { libraryAction(it, source) },
                             onLoadMore = model::loadMore,
                             onRequestCover = model::requestCover,
                             onRetryClick = model::retry,

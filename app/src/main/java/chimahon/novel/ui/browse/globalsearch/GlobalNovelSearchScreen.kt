@@ -10,6 +10,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.ui.browse.BrowseNovelSourceScreen
 import chimahon.novel.ui.browse.BrowseNovelSourceScreenModel
+import chimahon.novel.ui.browse.novelBrowseLibraryActions
 import chimahon.novel.ui.detail.NovelDetailScreen
 import eu.kanade.presentation.browse.novel.GlobalNovelSearchScreen
 import eu.kanade.presentation.util.Screen
@@ -37,6 +38,7 @@ class GlobalNovelSearchScreen(
             )
         }
         val state by screenModel.state.collectAsState()
+        val libraryAction = novelBrowseLibraryActions()
 
         GlobalNovelSearchScreen(
             state = state,
@@ -46,7 +48,7 @@ class GlobalNovelSearchScreen(
                 screenModel.updateSearchQuery(it)
                 screenModel.search(force = true)
             },
-            onRetry = { screenModel.search(force = true) },
+            onRetry = screenModel::retry,
             onChangeSearchFilter = screenModel::setSourceFilter,
             onToggleResults = screenModel::toggleFilterResults,
             onClickSource = {
@@ -54,12 +56,14 @@ class GlobalNovelSearchScreen(
                     BrowseNovelSourceScreen(
                         null,
                         it.id,
-                        BrowseNovelSourceScreenModel.Listing.Search(state.searchQuery.orEmpty()),
+                        BrowseNovelSourceScreenModel.Listing.Search(state.submittedQuery),
                     ),
                 )
             },
             onClickItem = { novel, sourceId -> navigator.push(NovelDetailScreen(novel, sourceId)) },
-            onLongClickItem = { novel, sourceId -> navigator.push(NovelDetailScreen(novel, sourceId)) },
+            onLongClickItem = { novel, sourceId ->
+                Injekt.get<NovelSourceManager>().getNovelSource(sourceId)?.let { libraryAction(novel, it) }
+            },
         )
     }
 }

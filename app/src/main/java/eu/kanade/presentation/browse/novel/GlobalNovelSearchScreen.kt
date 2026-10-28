@@ -29,7 +29,7 @@ fun GlobalNovelSearchScreen(
     navigateUp: () -> Unit,
     onChangeSearchQuery: (String?) -> Unit,
     onSearch: (String) -> Unit,
-    onRetry: () -> Unit,
+    onRetry: (NovelsPageSource) -> Unit,
     onChangeSearchFilter: (NovelSourceFilter) -> Unit,
     onToggleResults: () -> Unit,
     onClickSource: (NovelsPageSource) -> Unit,
@@ -63,6 +63,7 @@ fun GlobalNovelSearchScreen(
                 onClickItem = onClickItem,
                 onLongClickItem = onLongClickItem,
                 onRetry = onRetry,
+                libraryUrls = state.libraryUrls,
             )
         }
     }
@@ -72,10 +73,11 @@ fun GlobalNovelSearchScreen(
 private fun GlobalNovelSearchContent(
     items: Map<NovelsPageSource, NovelSearchItemResult>,
     contentPadding: PaddingValues,
-    onRetry: () -> Unit,
+    onRetry: (NovelsPageSource) -> Unit,
     onClickSource: (NovelsPageSource) -> Unit,
     onClickItem: (SNNovel, Long) -> Unit,
     onLongClickItem: (SNNovel, Long) -> Unit,
+    libraryUrls: Map<Long, Set<String>>,
 ) {
     LazyColumn(
         contentPadding = contentPadding,
@@ -98,11 +100,12 @@ private fun GlobalNovelSearchContent(
                                 sourceId = source.id,
                                 onClick = { onClickItem(it, source.id) },
                                 onLongClick = { onLongClickItem(it, source.id) },
+                                libraryUrls = libraryUrls[source.id].orEmpty(),
                             )
                         }
                         is NovelSearchItemResult.Error -> {
                             GlobalSearchErrorResultItem(message = result.throwable.message)
-                            TextButton(onClick = onRetry) {
+                            TextButton(onClick = { onRetry(source) }) {
                                 Text(stringResource(MR.strings.action_retry))
                             }
                         }

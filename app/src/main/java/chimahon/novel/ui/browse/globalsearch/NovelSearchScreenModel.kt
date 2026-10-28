@@ -8,8 +8,10 @@ import chimahon.novel.plugin.isNovelLanguageEnabled
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -22,8 +24,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.domain.novel.model.Novel
+import tachiyomi.domain.novel.repository.NovelRepository
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -31,12 +35,14 @@ abstract class NovelSearchScreenModel(
     initialState: State = State(),
     private val preferences: SourcePreferences = Injekt.get(),
     private val novelSourceManager: NovelSourceManager = Injekt.get(),
+    private val novelRepository: NovelRepository = Injekt.get(),
 ) : StateScreenModel<NovelSearchScreenModel.State>(initialState) {
 
     private val searchSemaphore = Semaphore(5)
     @Volatile
     private var searchGeneration = 0
     private var searchJob: Job? = null
+    private val retryJobs = mutableMapOf<Long, Job>()
 
     protected val pinnedSources = preferences.pinnedNovelSources().get()
 
@@ -48,12 +54,21 @@ abstract class NovelSearchScreenModel(
             { (map[it] as? NovelSearchItemResult.Success)?.isEmpty ?: true },
             { "${it.id}" !in pinnedSources },
             { "${it.name.lowercase()} (${it.lang})" },
+            { it.id },
         )
     }
 
     init {
         if (pinnedSources.isEmpty()) {
             mutableState.update { it.copy(sourceFilter = NovelSourceFilter.All) }
+        }
+        screenModelScope.launch {
+            novelRepository.getFavoritesAsFlow().collectLatest { novels ->
+                val libraryUrls = novels.groupBy { it.source }
+                    .mapValues { (_, entries) -> entries.map { it.url }.toImmutableSet() }
+                    .toPersistentMap()
+                mutableState.update { it.copy(libraryUrls = libraryUrls) }
+            }
         }
         screenModelScope.launch {
             preferences.globalSearchFilterState().changes().collectLatest { state ->
@@ -99,9 +114,12 @@ abstract class NovelSearchScreenModel(
         if (!force && sameQuery && lastSourceFilter == sourceFilter) return
 
         searchJob?.cancel()
+        retryJobs.values.forEach { it.cancel() }
+        retryJobs.clear()
         val generation = ++searchGeneration
         lastQuery = query
         lastSourceFilter = sourceFilter
+        mutableState.update { it.copy(submittedQuery = query) }
         if (query.isBlank()) {
             updateItems(persistentMapOf())
             return
@@ -122,22 +140,40 @@ abstract class NovelSearchScreenModel(
             sources.map { source ->
                 async {
                     if (items[source] !is NovelSearchItemResult.Loading) return@async
-                    try {
-                        val page = searchSemaphore.withPermit {
-                            source.getSearchNovels(1, query, source.getFilterList())
-                        }
-                        if (isActive) {
-                            updateItem(source, NovelSearchItemResult.Success(page.novels.distinctBy { it.url }), generation)
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        if (isActive) updateItem(source, NovelSearchItemResult.Error(e), generation)
-                    } catch (e: LinkageError) {
-                        if (isActive) updateItem(source, NovelSearchItemResult.Error(e), generation)
-                    }
+                    searchSource(source, query, generation)
                 }
             }.awaitAll()
+        }
+    }
+
+    fun retry(source: NovelsPageSource) {
+        val query = lastQuery?.takeIf { it.isNotBlank() } ?: return
+        if (state.value.items[source] !is NovelSearchItemResult.Error) return
+        val generation = searchGeneration
+        updateItem(source, NovelSearchItemResult.Loading, generation)
+        retryJobs[source.id] = screenModelScope.launch {
+            try {
+                searchSource(source, query, generation)
+            } finally {
+                if (generation == searchGeneration) retryJobs.remove(source.id)
+            }
+        }
+    }
+
+    private suspend fun searchSource(source: NovelsPageSource, query: String, generation: Int) = withContext(Dispatchers.IO) {
+        try {
+            val page = searchSemaphore.withPermit {
+                source.getSearchNovels(1, query, source.getFilterList())
+            }
+            if (isActive) {
+                updateItem(source, NovelSearchItemResult.Success(page.novels.distinctBy { it.url }), generation)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (isActive) updateItem(source, NovelSearchItemResult.Error(e), generation)
+        } catch (e: LinkageError) {
+            if (isActive) updateItem(source, NovelSearchItemResult.Error(e), generation)
         }
     }
 
@@ -162,9 +198,11 @@ abstract class NovelSearchScreenModel(
     @Immutable
     data class State(
         val searchQuery: String? = null,
+        val submittedQuery: String = "",
         val sourceFilter: NovelSourceFilter = NovelSourceFilter.PinnedOnly,
         val onlyShowHasResults: Boolean = false,
         val items: PersistentMap<NovelsPageSource, NovelSearchItemResult> = persistentMapOf(),
+        val libraryUrls: PersistentMap<Long, ImmutableSet<String>> = persistentMapOf(),
     ) {
         val progress: Int = items.count { it.value !is NovelSearchItemResult.Loading }
         val total: Int = items.size
