@@ -467,9 +467,17 @@ class NovelDetailScreenModel(
         }
     }
 
-    fun downloadChapter(chapter: NovelChapterItem) {
+    fun downloadChapter(chapter: NovelChapterItem, startNow: Boolean = false) {
         val dbNovel = cachedDbNovel ?: return
-        downloadManager.downloadChapters(dbNovel, listOf(chapter.snChapter), source, mutableState.value.novel)
+        if (startNow && downloadManager.getDownloadState(chapter.id) == chimahon.novel.download.NovelDownload.State.QUEUED) {
+            downloadManager.startNow(chapter.id)
+            return
+        }
+        downloadManager.downloadChapters(dbNovel, listOf(chapter.snChapter), source, mutableState.value.novel, startNow)
+    }
+
+    fun cancelChapterDownload(chapter: NovelChapterItem) {
+        downloadManager.cancelChapter(chapter.id)
     }
 
     fun deleteChapterDownload(chapter: NovelChapterItem) {
