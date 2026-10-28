@@ -475,13 +475,43 @@ window.hoshiReader = {
     registerCopyText: function() {
         if (window._hoshiCopy) return;
         window._hoshiCopy = true;
+        const reader = this;
         document.addEventListener('copy', function(e) {
-            var text = window.getSelection() ? window.getSelection().toString() : '';
-            if (text) {
-                e.preventDefault();
-                e.clipboardData.setData('text/plain', text);
-            }
+            const selection = window.getSelection();
+            if (!selection || !selection.toString() || !e.clipboardData) return;
+            e.preventDefault();
+            e.clipboardData.setData('text/plain', reader.copySelectionText(selection));
         }, true);
+    },
+
+    copySelectionText: function(selection) {
+        const fragments = [];
+        let hasRuby = false;
+        for (let i = 0; i < selection.rangeCount; i++) {
+            const range = selection.getRangeAt(i);
+            if (this.isFurigana(range.commonAncestorContainer)) {
+                hasRuby = true;
+                continue;
+            }
+            const fragment = range.cloneContents();
+            if (fragment.querySelector('rt, rp')) hasRuby = true;
+            fragment.querySelectorAll('rt, rp').forEach(node => node.remove());
+            fragments.push(fragment);
+        }
+        if (!hasRuby) return selection.toString();
+
+        const blocks = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'LI', 'BLOCKQUOTE',
+            'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR']);
+        const plainText = node => {
+            if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.tagName === 'BR') return '\n';
+                if (['SCRIPT', 'STYLE'].includes(node.tagName)) return '';
+            }
+            const text = Array.from(node.childNodes, plainText).join('');
+            return text + (blocks.has(node.tagName) ? '\n' : '');
+        };
+        return fragments.map(plainText).join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/, '');
     },
 
     scanDelimiters: '。、！？…‥「」『』（）()【】〈〉《》〔〕｛｝{}［］[]・：；:;，,.─\n\r',
