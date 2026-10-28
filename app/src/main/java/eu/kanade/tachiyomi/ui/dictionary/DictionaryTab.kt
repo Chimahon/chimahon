@@ -446,12 +446,14 @@ data object DictionaryTab : Tab {
                     scope.launch {
                         if (forceOpen) {
                             val cachedNoteId = lookupStack.getOrNull(frameIndex)?.existingCardIds?.get(expression)
-                            val noteId = cachedNoteId ?: AnkiCardCreator.findExistingCardId(
+                            val noteIds = AnkiCardCreator.findExistingCardIds(
                                 context = context,
                                 expression = expression,
                                 deckName = ankiDeck,
                                 dupScope = ankiDupScope,
-                            ) ?: return@launch
+                            ).ifEmpty { listOfNotNull(cachedNoteId) }
+                            if (noteIds.isEmpty()) return@launch
+                            val noteId = noteIds.first()
                             val frame = lookupStack.getOrNull(frameIndex)
                             if (frame?.results?.getOrNull(resultIndex)?.term?.expression == expression) {
                                 lookupStack[frameIndex] = frame.copy(
@@ -459,7 +461,7 @@ data object DictionaryTab : Tab {
                                     existingCardIds = frame.existingCardIds + (expression to noteId),
                                 )
                             }
-                            AnkiDroidBridge(context).guiEditNote(noteId)
+                            AnkiDroidBridge(context).guiBrowseNotes(noteIds)
                             return@launch
                         }
 
@@ -499,7 +501,7 @@ data object DictionaryTab : Tab {
                         when (ankiResult) {
                             is AnkiResult.Success -> context.toast(MR.strings.anki_card_added)
                             is AnkiResult.CardExists -> context.toast(MR.strings.anki_card_exists)
-                            is AnkiResult.OpenCard -> AnkiDroidBridge(context).guiEditNote(ankiResult.noteId)
+                            is AnkiResult.OpenCard -> AnkiDroidBridge(context).guiBrowseNotes(ankiResult.noteIds)
                             is AnkiResult.PermissionDenied -> context.toast(MR.strings.pref_anki_permission_denied)
                             is AnkiResult.Error -> context.toast(
                                 context.stringResource(MR.strings.anki_card_error, ankiResult.message),

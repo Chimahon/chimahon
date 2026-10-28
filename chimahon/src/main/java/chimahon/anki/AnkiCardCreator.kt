@@ -203,7 +203,7 @@ sealed class AnkiResult {
         val mediaWarnings: List<AnkiMediaWarning> = emptyList(),
     ) : AnkiResult()
     data class CardExists(val noteId: Long) : AnkiResult()
-    data class OpenCard(val noteId: Long) : AnkiResult()
+    data class OpenCard(val noteId: Long, val noteIds: List<Long> = listOf(noteId)) : AnkiResult()
     data class Error(val message: String) : AnkiResult()
     data object PermissionDenied : AnkiResult()
     data object NotConfigured : AnkiResult()
@@ -349,9 +349,9 @@ object AnkiCardCreator {
                 if (existing.isEmpty()) return AnkiDuplicateDecision.Insert
                 val noteId = existing.first()
                 return when {
-                    forceOpen -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId))
+                    forceOpen -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId, existing))
                     dupAction == "prevent" -> AnkiDuplicateDecision.Return(AnkiResult.CardExists(noteId))
-                    dupAction == "open" -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId))
+                    dupAction == "open" -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId, existing))
                     dupAction == "overwrite" -> AnkiDuplicateDecision.Overwrite(noteId)
                     else -> AnkiDuplicateDecision.Insert
                 }
@@ -523,9 +523,16 @@ object AnkiCardCreator {
         expression: String,
         deckName: String = "",
         dupScope: String = "collection",
-    ): Long? {
+    ): Long? = findExistingCardIds(context, expression, deckName, dupScope).firstOrNull()
+
+    suspend fun findExistingCardIds(
+        context: Context,
+        expression: String,
+        deckName: String = "",
+        dupScope: String = "collection",
+    ): List<Long> {
         val bridge = bridgeFactory(context)
-        if (!bridge.hasPermission()) return null
+        if (!bridge.hasPermission()) return emptyList()
 
         val targetDeckId = if (dupScope == "deck" && deckName.isNotBlank()) {
             try {
@@ -538,10 +545,10 @@ object AnkiCardCreator {
         }
 
         return try {
-            bridge.findNotes(expression, null, targetDeckId).firstOrNull()
+            bridge.findNotes(expression, null, targetDeckId)
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "findExistingCardId failed for expr=$expression", e)
-            null
+            android.util.Log.w(TAG, "findExistingCardIds failed for expr=$expression", e)
+            emptyList()
         }
     }
 

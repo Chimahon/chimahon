@@ -580,21 +580,18 @@ fun OcrLookupPopup(
 
         if (forceOpen) {
             val expression = result.term.expression
-            val noteId = currentFrame?.existingCardIds?.get(expression)
-            if (noteId != null) {
-                chimahon.anki.AnkiDroidBridge(context).guiEditNote(noteId)
-                return
-            }
+            val cachedNoteId = currentFrame?.existingCardIds?.get(expression)
             miningScope.launch {
-                val fallbackNoteId = AnkiCardCreator.findExistingCardId(
+                val noteIds = AnkiCardCreator.findExistingCardIds(
                     context = context,
                     expression = expression,
                     deckName = ankiDeck,
                     dupScope = ankiDupScope,
-                ) ?: return@launch
+                ).ifEmpty { listOfNotNull(cachedNoteId) }
+                if (noteIds.isEmpty()) return@launch
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    updateStatus(expression, fallbackNoteId)
-                    chimahon.anki.AnkiDroidBridge(context).guiEditNote(fallbackNoteId)
+                    updateStatus(expression, noteIds.first())
+                    chimahon.anki.AnkiDroidBridge(context).guiBrowseNotes(noteIds)
                 }
             }
             return
@@ -650,7 +647,7 @@ fun OcrLookupPopup(
                             }
                             is AnkiResult.OpenCard -> {
                                 updateStatus(result.term.expression, ankiResult.noteId)
-                                chimahon.anki.AnkiDroidBridge(context).guiEditNote(ankiResult.noteId)
+                                chimahon.anki.AnkiDroidBridge(context).guiBrowseNotes(ankiResult.noteIds)
                             }
                             else -> {}
                         }
@@ -728,7 +725,7 @@ fun OcrLookupPopup(
                         }
                         is AnkiResult.OpenCard -> {
                             updateStatus(result.term.expression, ankiResult.noteId)
-                            chimahon.anki.AnkiDroidBridge(context).guiEditNote(ankiResult.noteId)
+                            chimahon.anki.AnkiDroidBridge(context).guiBrowseNotes(ankiResult.noteIds)
                         }
                         is AnkiResult.PermissionDenied -> context.toast(MR.strings.pref_anki_permission_denied)
                         is AnkiResult.Error -> context.toast(

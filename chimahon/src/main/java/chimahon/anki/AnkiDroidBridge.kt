@@ -319,6 +319,11 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         guiBrowse("nid:$noteId")
     }
 
+    fun guiBrowseNotes(noteIds: List<Long>) {
+        val ids = noteIds.filter { it > 0 }.distinct()
+        if (ids.isNotEmpty()) guiBrowse(ids.joinToString(" or ") { "nid:$it" })
+    }
+
     override suspend fun storeMedia(filename: String, data: ByteArray): String =
         withContext(Dispatchers.IO) {
             saveMediaBytes(filename, data)
