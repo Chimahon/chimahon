@@ -59,7 +59,11 @@ internal class MediaCaptureService(
     }
 
     /** Input FFmpeg reads plus the HTTP headers to forward for the video mpv is currently playing. */
-    private class FfmpegSource(val input: String, val headers: List<Pair<String, String>>)
+    private class FfmpegSource(
+        val input: String,
+        val headers: List<Pair<String, String>>,
+        val forceMpegTs: Boolean,
+    )
 
     private fun ffmpegInput(): FfmpegSource? {
         val video = getVideo() ?: return null
@@ -73,7 +77,11 @@ internal class MediaCaptureService(
         }
         val source = getSource() as? AnimeHttpSource
         val headers = (video.headers ?: source?.headers)?.toList().orEmpty()
-        return FfmpegSource(input, if (input.startsWith("http")) headers else emptyList())
+        return FfmpegSource(
+            input,
+            if (input.startsWith("http")) headers else emptyList(),
+            video.ffmpegStreamArgs.orEmpty().any { it.first == "force_mpegts" && it.second == "1" },
+        )
     }
 
     private fun MutableList<String>.addInputOptions(source: FfmpegSource) {
@@ -81,10 +89,13 @@ internal class MediaCaptureService(
             add("-headers"); add(source.headers.joinToString("") { "${it.first}: ${it.second}\r\n" })
         }
         // HLS-only (see isHlsLikeInput): ffmpeg aborts other inputs if these are present.
-        if (isHlsLikeInput(source.input)) {
+        if (isHlsLikeInput(source.input) || source.forceMpegTs) {
             add("-allowed_extensions"); add("ALL")
             add("-allowed_segment_extensions"); add("ALL")
             add("-extension_picky"); add("0")
+        }
+        if (source.forceMpegTs) {
+            add("-force_mpegts"); add("1")
         }
     }
 
