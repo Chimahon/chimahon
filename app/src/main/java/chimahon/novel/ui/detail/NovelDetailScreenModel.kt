@@ -101,7 +101,10 @@ data class NovelDetailState(
     val sortDescending: Boolean = true,
     val unreadOnly: Boolean = false,
     val bookmarkedOnly: Boolean = false,
-)
+) {
+    val visibleChapters: List<NovelChapterItem>
+        get() = chapters.filter { (!unreadOnly || !it.isRead) && (!bookmarkedOnly || it.isBookmarked) }
+}
 
 class NovelDetailScreenModel(
     private val novel: SNNovel,
@@ -806,9 +809,25 @@ class NovelDetailScreenModel(
         markPreviousAsRead(first)
     }
 
-    fun toggleChapterSelection(chapterId: Long) {
+    fun toggleChapterSelection(chapterId: Long, fromLongPress: Boolean = false) {
         val current = mutableState.value.selectedChapters.toMutableSet()
-        if (chapterId in current) current.remove(chapterId) else current.add(chapterId)
+        if (chapterId in current) {
+            current.remove(chapterId)
+        } else {
+            val visible = mutableState.value.visibleChapters
+            val index = visible.indexOfFirst { it.id == chapterId }
+            val selected = visible.indices.filter { visible[it].id in current }
+            if (fromLongPress && index >= 0 && selected.isNotEmpty()) {
+                val range = when {
+                    index < selected.first() -> index..selected.first()
+                    index > selected.last() -> selected.last()..index
+                    else -> index..index
+                }
+                current.addAll(range.map { visible[it].id })
+            } else {
+                current.add(chapterId)
+            }
+        }
         mutableState.value = mutableState.value.copy(
             selectedChapters = current,
             selectionMode = current.isNotEmpty(),
@@ -824,13 +843,13 @@ class NovelDetailScreenModel(
 
     fun selectAll() {
         mutableState.value = mutableState.value.copy(
-            selectedChapters = mutableState.value.chapters.map { it.id }.toSet(),
-            selectionMode = true,
+            selectedChapters = mutableState.value.visibleChapters.map { it.id }.toSet(),
+            selectionMode = mutableState.value.visibleChapters.isNotEmpty(),
         )
     }
 
     fun invertSelection() {
-        val all = mutableState.value.chapters.map { it.id }.toSet()
+        val all = mutableState.value.visibleChapters.map { it.id }.toSet()
         val current = mutableState.value.selectedChapters
         val inverted = all - current
         mutableState.value = mutableState.value.copy(

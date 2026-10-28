@@ -199,7 +199,7 @@ data class NovelDetailScreen(
         val downloadManager = remember { Injekt.get<NovelDownloadManager>() }
         val downloadQueue by downloadManager.queueState.collectAsState()
         val visibleChapters = remember(chapters, state.unreadOnly, state.bookmarkedOnly) {
-            chapters.filter { (!state.unreadOnly || !it.isRead) && (!state.bookmarkedOnly || it.isBookmarked) }
+            state.visibleChapters
         }
         val uiPreferences = remember { Injekt.get<UiPreferences>() }
         var layoutSize by remember { mutableStateOf(IntSize.Zero) }
@@ -296,6 +296,13 @@ data class NovelDetailScreen(
             )
         }
 
+        if (state.dialog is Dialog.DeleteChapters) {
+            eu.kanade.presentation.manga.components.DeleteChaptersDialog(
+                onDismissRequest = screenModel::dismissDialog,
+                onConfirm = screenModel::deleteSelectedDownloads,
+            )
+        }
+
         if (state.dialog is Dialog.SetDictionaryProfile) {
             val prefs = remember { Injekt.get<eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences>() }
             val profiles = remember { prefs.profileStore.getProfiles() }
@@ -389,10 +396,10 @@ data class NovelDetailScreen(
                     },
                     onDownloadClicked = {
                         screenModel.downloadSelectedChapters()
-                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource },
+                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { !downloadManager.isDownloaded(it.id) } },
                     onDeleteClicked = {
-                        screenModel.deleteSelectedDownloads()
-                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { it.novelChapter != null } },
+                        screenModel.showDialog(Dialog.DeleteChapters)
+                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { downloadManager.isDownloaded(it.id) } },
                 )
             },
             floatingActionButton = {
@@ -657,10 +664,8 @@ data class NovelDetailScreen(
                                         chapterSwipeStartAction = swipeStartAction,
                                         chapterSwipeEndAction = swipeEndAction,
                                         onLongClick = {
-                                            if (state.isFavorite) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                screenModel.toggleChapterSelection(item.id)
-                                            }
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            screenModel.toggleChapterSelection(item.id, fromLongPress = true)
                                         },
                                         onClick = {
                                             if (state.selectionMode) {
