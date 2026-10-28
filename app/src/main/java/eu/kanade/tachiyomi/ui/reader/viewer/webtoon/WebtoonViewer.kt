@@ -32,6 +32,8 @@ import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation.NavigationRegion
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -142,6 +144,14 @@ class WebtoonViewer(
         recycler.useConfirmedSingleTap = isContinuous
         recycler.layoutManager = layoutManager
         recycler.adapter = adapter
+        scope.launch {
+            activity.viewModel.webtoonOcrUpdates.collectLatest { (chapterId, index) ->
+                for (childIndex in 0 until recycler.childCount) {
+                    (recycler.getChildViewHolder(recycler.getChildAt(childIndex)) as? WebtoonPageHolder)
+                        ?.refreshOcr(chapterId, index)
+                }
+            }
+        }
         recycler.addOnScrollListener(
             object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -495,6 +505,27 @@ class WebtoonViewer(
     fun refreshOcr() {
         setOcrEnabled(false)
         setOcrEnabled(activity.viewModel.isOcrEnabled())
+    }
+
+    fun syncOcrSelection(origin: WebtoonPageHolder, sharedId: String?, charOffset: Int) {
+        for (index in 0 until recycler.childCount) {
+            val holder = recycler.getChildViewHolder(recycler.getChildAt(index)) as? WebtoonPageHolder
+            if (holder !== origin) holder?.syncOcrSelection(sharedId, charOffset)
+        }
+    }
+
+    fun refineActiveOcrBlock(charCount: Int): RectF? {
+        var rect: RectF? = null
+        for (index in 0 until recycler.childCount) {
+            val holder = recycler.getChildViewHolder(recycler.getChildAt(index)) as? WebtoonPageHolder
+            if (holder?.hasActiveOcrBlock == true) {
+                val matched = holder.refineActiveOcrBlock(charCount)
+                if (matched != null) {
+                    if (rect == null) rect = matched else rect.union(matched)
+                }
+            }
+        }
+        return rect
     }
 
     fun setOcrEnabled(enabled: Boolean) {

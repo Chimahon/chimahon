@@ -120,9 +120,15 @@ class OcrSubsamplingImageView(
 
         // Draw passive OCR text boxes at the configured opacity. The active tapped
         // box keeps the old transparent-background feel and paints only the OCR text.
+        // Seam OCR keeps full line geometry; clip at the image edge without shrinking it.
+        val imageTopLeft = sourceToViewCoord(0f, 0f) ?: return
+        val imageBottomRight = sourceToViewCoord(sWidth.toFloat(), sHeight.toFloat()) ?: return
+        canvas.save()
+        canvas.clipRect(imageTopLeft.x, imageTopLeft.y, imageBottomRight.x, imageBottomRight.y)
         for (block in host.ocrBlocks) {
             drawOcrBlock(canvas, block, host)
         }
+        canvas.restore()
     }
 
     /**
@@ -383,6 +389,11 @@ class OcrSubsamplingImageView(
         for (i in 1 until rects.size) {
             result.union(rects[i])
         }
+        if (block.sharedId != null) {
+            val topLeft = sourceToViewCoord(0f, 0f) ?: return null
+            val bottomRight = sourceToViewCoord(sWidth.toFloat(), sHeight.toFloat()) ?: return null
+            if (!result.intersect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y)) return null
+        }
 
         // Convert view-relative to screen-relative coordinates
         val location = IntArray(2)
@@ -631,6 +642,7 @@ class OcrSubsamplingImageView(
         // Convert source coordinates to normalized coordinates
         val nx = sourcePoint.x / sWidth
         val ny = sourcePoint.y / sHeight
+        if (nx !in 0f..1f || ny !in 0f..1f) return null
 
         // Keep OCR hit testing precise but allow tiny edge tolerance for side taps.
         val edgePaddingViewPx = 2f * context.resources.displayMetrics.density

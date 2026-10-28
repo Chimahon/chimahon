@@ -7,7 +7,8 @@ import chimahon.ocr.isOcrLookupStartChar
 /**
  * Represents an OCR-detected text block (normalized coordinates, pre-processed offline).
  *
- * Coordinates are normalized to 0.0–1.0 relative to image dimensions.
+ * Coordinates are normalized relative to image dimensions. Seam OCR boxes may
+ * extend past 1.0 so their text keeps its original size at a page boundary.
  * This format is produced by the Chrome Lens OCR pipeline and avoids
  * dependency on original image pixel dimensions at render time.
  *
@@ -27,6 +28,8 @@ data class OcrTextBlock(
     val vertical: Boolean = false,
     val lineGeometries: List<OcrLineGeometry>? = null,
     val language: String = "",
+    // Viewer-only identity for two projections of the same boundary-crossing block.
+    val sharedId: String? = null,
 )
 
 /**

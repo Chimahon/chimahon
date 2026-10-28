@@ -917,11 +917,7 @@ class ReaderActivity : BaseActivity() {
 
                             val rect = withContext(Dispatchers.Main) {
                                 if (charCount != null) {
-                                    val recycler = viewer.recycler
-                                    for (i in 0 until recycler.childCount) {
-                                        val h = recycler.getChildViewHolder(recycler.getChildAt(i)) as? WebtoonPageHolder
-                                        if (h?.hasActiveOcrBlock == true) return@withContext h.refineActiveOcrBlock(charCount)
-                                    }
+                                    return@withContext viewer.refineActiveOcrBlock(charCount)
                                 }
                                 null as android.graphics.RectF?
                             }
