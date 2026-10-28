@@ -113,6 +113,7 @@ public class RubyMetrics(
     val baseLayout: PreparedRubyText,
     val readingLayout: PreparedRubyText,
     val readingStyle: TextStyle? = null,
+    val inlineOffsetPx: Float = 0f,
 )
 
 public fun measureRubyInline(
@@ -207,7 +208,7 @@ public fun tableCellStyle(style: TextStyle, css: Map<String, String>, header: Bo
 }
 
 /** Inheritable text properties a `tr` passes to its cells (CSS inheritance). */
-private val inheritedTableKeys = setOf(
+internal val inheritedTableKeys = setOf(
     "fontSize", "color", "textAlign", "fontStyle", "fontWeight", "lineHeight",
 )
 
@@ -351,9 +352,18 @@ public fun collectTableRowsFlat(
     out: MutableList<List<StructuredTableCell>>,
     run: MutableList<StructuredTableCell>,
     gridItems: Boolean = false,
+): Boolean = collectTableRows(node, out, run, gridItems) { trDisplaysContents(it, parsedCss, tableScope) }
+
+/** One structural walk; callers supply their native or independent reference row cascade. */
+internal fun collectTableRows(
+    node: StructuredNode.Element,
+    out: MutableList<List<StructuredTableCell>>,
+    run: MutableList<StructuredTableCell>,
+    gridItems: Boolean,
+    rowDisplaysContents: (StructuredNode.Element) -> Boolean,
 ): Boolean {
     if (node.tag == StructuredTag.Tr) {
-        if (!gridItems && trDisplaysContents(node, parsedCss, tableScope)) {
+        if (!gridItems && rowDisplaysContents(node)) {
             val own = node.children.filterIsInstance<StructuredNode.Element>()
                 .filter { it.tag == StructuredTag.Td || it.tag == StructuredTag.Th }
             own.forEachIndexed { i, child ->
@@ -399,7 +409,7 @@ public fun collectTableRowsFlat(
     }
     var saw = false
     node.children.forEach { child ->
-        if (child is StructuredNode.Element && collectTableRowsFlat(child, parsedCss, tableScope, out, run, gridItems)) {
+        if (child is StructuredNode.Element && collectTableRows(child, out, run, gridItems, rowDisplaysContents)) {
             saw = true
         }
     }

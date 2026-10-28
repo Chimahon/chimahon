@@ -7,11 +7,11 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.os.Build
 import android.os.Debug
+import android.text.Layout
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.SpannedString
-import android.text.StaticLayout
 import android.text.TextPaint
+import android.text.style.CharacterStyle
 import android.text.style.ForegroundColorSpan
 import android.text.style.MetricAffectingSpan
 import androidx.compose.ui.graphics.Color
@@ -30,6 +30,16 @@ import org.json.JSONObject
 internal fun nativeGlossaryChecks(resolver: FontFamily.Resolver): String {
     var checks = 0
     fun verify(value: Boolean, message: String) { check(value) { "Native glossary: $message" }; checks++ }
+    fun parsedContent(raw: String): StructuredNode.Element =
+        GlossaryJsonReader("""{"tag":"span","content":$raw}""").read().single() as StructuredNode.Element
+    verify(parsedContent("\" a \"").children == listOf(StructuredNode.Text(" a ")), "scalar whitespace changed")
+    verify(parsedContent("\"\"").children.isEmpty(), "empty scalar content changed")
+    verify(parsedContent("true").children == listOf(StructuredNode.Text("true")), "boolean scalar content changed")
+    verify(parsedContent("12").children == listOf(StructuredNode.Text("12")), "numeric scalar content changed")
+    verify(parsedContent("null").children.isEmpty(), "null scalar content changed")
+    verify(parsedContent("[\"a\",[\"b\",null],2]").children ==
+        listOf(StructuredNode.Text("a"), StructuredNode.Text("b"), StructuredNode.Text("2")), "nested content changed")
+    verify(parsedContent("\"a\"").attributes === StructuredAttributes.Empty, "empty parser attributes not shared")
     val style = dictionaryBaseStyle(Color.White, 16, FontFamily.Default)
     fun element(tag: StructuredTag, children: List<StructuredNode>, properties: Map<String, String> = emptyMap(),
         css: Map<String, String> = emptyMap()) = StructuredNode.Element(tag, children, StructuredAttributes(style = css, properties = properties))
@@ -64,12 +74,33 @@ internal fun nativeGlossaryChecks(resolver: FontFamily.Resolver): String {
 
     val spanResources = NativeGlossaryResources(Density(1f), LayoutDirection.Ltr, resolver)
     val paragraphProfile = spanResources.profile(style)
+    verify(paragraphProfile.spanFor(paragraphProfile) == null, "paragraph paint still emits a redundant span")
+    verify(spanResources.profile(style.copy(background = Color.Red)).spanFor(paragraphProfile) is NativePaintStyleSpan,
+        "background difference lost its span")
+    val backgroundProfile = spanResources.profile(style.copy(background = Color.Red))
+    verify(backgroundProfile.spanFor(backgroundProfile) is NativePaintStyleSpan,
+        "paragraph background was mistaken for an existing paint background")
+    val plain = render(listOf(element(StructuredTag.Div, listOf(text("first"))),
+        element(StructuredTag.Div, listOf(text("second"))))).items.filterIsInstance<NativeTextFlow>()
+    verify(plain.size == 2 && plain[0].layout.text.toString() == "first" && plain[1].layout.text.toString() == "second",
+        "later paragraph mutated the completed text")
+    verify(plain.all { it.layout.text is SpannableStringBuilder } && plain[0].layout.text !== plain[1].layout.text,
+        "paragraphs lost or shared their owned span index")
+    verify(plain.all { (it.layout.text as Spanned).getSpans(0, it.layout.text.length, CharacterStyle::class.java).isEmpty() },
+        "ordinary paragraphs still contain redundant style spans")
+    val parsed = GlossaryJsonReader("""{"tag":"span","data":{"headword":"","count":2,"flag":true,"skip":{"nested":[1]},"nil":null},"style":{"marginTop":0.5,"fontSize":"99em","color":"red","textDecorationLine":["underline","line-through"],"padding":{"invalid":true}},"content":"after"}""")
+        .read().single() as StructuredNode.Element
+    verify(parsed.attributes.data == mapOf("headword" to "", "count" to "2", "flag" to "true"),
+        "streamed metadata lost scalar/presence attributes or retained containers")
+    verify(parsed.attributes.style == mapOf("marginTop" to "0.5em", "color" to "red", "textDecoration" to "underline line-through"),
+        "streamed styles changed whitelist or decoration semantics")
+    verify(parsed.children == listOf(text("after")), "skipping metadata/style containers consumed following content")
     val redStyle = style.copy(color = Color(0xFFD32F2F))
     val redProfile = spanResources.profile(redStyle)
     val paintSpan = redProfile.spanFor(paragraphProfile)
     verify(paintSpan is NativePaintStyleSpan, "same font and zero shift did not use a paint-only span")
     val paint = TextPaint(paragraphProfile.resource.paint).apply { wordSpacing = 3.25f }
-    paintSpan.updateDrawState(paint)
+    checkNotNull(paintSpan).updateDrawState(paint)
     verify(paint.color == redStyle.color.toArgb(), "paint-only span lost its colour")
     verify(paint.typeface === redProfile.resource.font.paint.typeface, "paint-only span lost its font resource")
     verify(paint.wordSpacing == 3.25f, "paint-only span overwrote layout-provided word spacing")
@@ -83,7 +114,7 @@ internal fun nativeGlossaryChecks(resolver: FontFamily.Resolver): String {
     val shiftSpan = shiftProfile.spanFor(paragraphProfile)
     verify(shiftSpan is NativeStyleSpan, "nonzero baseline shift became paint-only")
     val shiftPaint = TextPaint()
-    shiftSpan.updateDrawState(shiftPaint)
+    checkNotNull(shiftSpan).updateDrawState(shiftPaint)
     verify(shiftPaint.baselineShift != 0, "baseline shift span lost its shift")
 
     val ruby = element(StructuredTag.Ruby, listOf(text("\u6606\u866b"), element(StructuredTag.Rt, listOf(text("\u3053\u3093\u3061\u3085\u3046")))))
@@ -94,14 +125,22 @@ internal fun nativeGlossaryChecks(resolver: FontFamily.Resolver): String {
     val rubyStart = rubyText.getSpanStart(rubySpan)
     val rubyLine = rubyFlow.layout.getLineForOffset(rubyStart)
     verify(rubyFlow.layout.getLineBaseline(rubyLine) - rubySpan.metrics.heightPx >= rubyFlow.layout.getLineTop(rubyLine), "annotation escapes its line box")
-    val rubyBounds = bounds(rubyFlow, rubyStart, rubyText.getSpanEnd(rubySpan))
-    verify(rubyDoc.hit(rubyBounds.centerX(), rubyBounds.centerY()) == null, "ruby base is clickable")
+    val rubyBase = rubySpan.metrics.baseLayout
+    val rubyX = rubyFlow.x + rubyFlow.layout.getPrimaryHorizontal(rubyStart) + rubySpan.metrics.widthPx / 2f
+    val rubyY = rubyFlow.y + rubyFlow.layout.getLineBaseline(rubyLine) +
+        ((rubyBase.emDescentPx ?: rubyBase.descentPx) - (rubyBase.emAscentPx ?: rubyBase.ascentPx)) / 2f
+    verify(rubyDoc.hit(rubyX, rubyY)?.lookup != null, "ruby base lost recursive lookup")
+    val reading = rubySpan.metrics.readingLayout
+    val readingY = rubyFlow.y + rubyFlow.layout.getLineBaseline(rubyLine) - rubyBase.firstBaseline -
+        rubySpan.metrics.heightPx + rubySpan.metrics.readingOffsetPx + reading.firstBaseline -
+        (reading.emAscentPx ?: reading.ascentPx) / 2f
+    verify(rubyDoc.hit(rubyX, readingY) == null, "ruby annotation started recursive lookup")
     val linkDoc = render(listOf(element(StructuredTag.Link, listOf(text("lookup")), mapOf("href" to "?query=target"))))
     val linkFlow = linkDoc.items.filterIsInstance<NativeTextFlow>().single()
     val linkBounds = bounds(linkFlow, 1, 2)
     verify(linkDoc.hit(linkBounds.centerX(), linkBounds.centerY())?.lookup == "target", "explicit link target")
     val rubyLink = render(listOf(element(StructuredTag.Link, listOf(ruby), mapOf("href" to "?query=target"))))
-    verify(rubyLink.links.isEmpty(), "ruby-only link exposes an accessibility lookup action")
+    verify("target" in rubyLink.links, "ruby-base link lost its accessibility lookup action")
     val blockLink = render(listOf(element(StructuredTag.Link,
         listOf(element(StructuredTag.Div, listOf(text("first"))), text("second")), mapOf("href" to "?query=target"))))
     verify(blockLink.items.filterIsInstance<NativeTextFlow>().all { item ->
@@ -152,7 +191,7 @@ private fun nativeSpanText(
     paragraph: NativeTextProfile,
     paintOnly: Boolean,
     reference: Boolean = false,
-): SpannedString {
+): SpannableStringBuilder {
     val builder = SpannableStringBuilder()
     fun TextStyle.metrics() = toSpanStyle().copy(color = Color.Unspecified, background = Color.Unspecified,
         textDecoration = null, shadow = null)
@@ -172,9 +211,9 @@ private fun nativeSpanText(
             paintOnly -> profile.spanFor(paragraph)
             else -> NativeStyleSpan(profile)
         }
-        builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        if (span != null) builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
-    return SpannedString(builder)
+    return builder
 }
 
 private fun nativeSpanMedian(values: DoubleArray): Double {
@@ -182,7 +221,7 @@ private fun nativeSpanMedian(values: DoubleArray): Double {
     return if (usable.isEmpty()) -1.0 else usable[usable.size / 2]
 }
 
-private fun nativeSpanBitmap(layout: StaticLayout): Bitmap {
+private fun nativeSpanBitmap(layout: Layout): Bitmap {
     val bitmap = Bitmap.createBitmap(layout.width.coerceAtLeast(1), layout.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
     layout.draw(Canvas(bitmap))
     return bitmap
@@ -230,10 +269,10 @@ internal fun nativeSpanBenchmark(resolver: FontFamily.Resolver): String {
         verify(legacyMetric == fixture.runs.size, "${fixture.name} legacy spans do not cover every run")
         if (fixture.name == "color-runs") {
             verify(paintMetric == 0, "color-only spans still affect metrics")
-            verify(paintSpans == fixture.runs.size, "color-only spans are not all paint-only")
+            verify(paintSpans == 3, "color fixture did not retain exactly its three colour changes")
         } else {
             verify(paintMetric > 0, "mixed fixture lost its metric-affecting spans")
-            verify(paintSpans > 0, "mixed fixture lost its paint-only spans")
+            verify(paintSpans == 0, "mixed fixture retained redundant baseline paint spans")
         }
     }
 
@@ -287,7 +326,7 @@ internal fun nativeSpanBenchmark(resolver: FontFamily.Resolver): String {
 
     val pairs = 25
     val warmups = 10
-    fun sample(texts: List<SpannedString>): NativeSpanTiming {
+    fun sample(texts: List<SpannableStringBuilder>): NativeSpanTiming {
         val cpuStart = Debug.threadCpuTimeNanos()
         val wallStart = System.nanoTime()
         var heightSum = 0

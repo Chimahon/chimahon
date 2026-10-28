@@ -38,6 +38,7 @@ import eu.kanade.tachiyomi.ui.dictionary.compose.NativeRubySpan
 import eu.kanade.tachiyomi.ui.dictionary.compose.NativeTextFlow
 import eu.kanade.tachiyomi.ui.dictionary.compose.StructuredEntry
 import eu.kanade.tachiyomi.ui.dictionary.compose.StructuredNode
+import eu.kanade.tachiyomi.ui.dictionary.compose.StructuredTag
 import eu.kanade.tachiyomi.ui.dictionary.compose.dictionaryBaseStyle
 import eu.kanade.tachiyomi.ui.dictionary.compose.parseCssColor2
 import eu.kanade.tachiyomi.ui.dictionary.compose.parseDictionaryCss
@@ -154,7 +155,15 @@ class DictionaryFidelityActivity : Activity() {
                 if (intent.getBooleanExtra("native_prepare_bench_only", false)) {
                     // Preparation benchmark over the SAME staged corpus, with no perfetto tracing attached.
                     // This isolates preparation, not the phone popup's cold end-to-end latency.
-                    val bench = nativePrepareBenchmark(this@DictionaryFidelityActivity, cases, fontFile, resources.displayMetrics.density)
+                    val sampled = intent.getBooleanExtra("native_prepare_sampled", false)
+                    if (sampled) android.os.Debug.startMethodTracingSampling(File(root, "methods.trace").absolutePath, 64 * 1024 * 1024, 1000)
+                    val bench = try {
+                        nativePrepareBenchmark(this@DictionaryFidelityActivity, cases, fontFile, resources.displayMetrics.density,
+                            iterations = if (sampled) 5 else 40, warmups = if (sampled) 2 else 10,
+                            drawOnly = intent.getBooleanExtra("native_draw_bench_only", false),
+                            stageTimings = intent.getBooleanExtra("native_stage_timings", true))
+                    } finally { if (sampled) android.os.Debug.stopMethodTracing() }
+                    report.put("sampled_diagnostic", sampled)
                     File(filesDir, "native-prepare-bench.json").writeText(bench, Charsets.UTF_8)
                     Log.i("DictFidelity", "native prepare benchmark written to files/native-prepare-bench.json")
                     report.put("prepare_benchmark", JSONObject(bench))
@@ -182,6 +191,14 @@ class DictionaryFidelityActivity : Activity() {
                             File(site, "index.html").writeText(html, Charsets.UTF_8)
                             web.loadUrl("https://fidelity.invalid/index.html")
                             var geometry = awaitGeometry(web, token)
+                            if (case.optBoolean("expandDetails", false)) {
+                                val count = javascript(web, "(() => { const nodes = document.querySelectorAll('.structured-content details'); nodes.forEach(e => e.open = true); return nodes.length; })()")
+                                    .toIntOrNull() ?: error("Failed to open reference disclosures")
+                                require(count > 0) { "Expanded fixture contains no disclosures" }
+                                result.put("expanded_details", count)
+                                awaitVisualState(web, index.toLong())
+                                geometry = awaitGeometry(web, token)
+                            }
                             // innerWidth is an integer CSS viewport width, not a pixel scale.
                             // Dividing by it shrank both native fonts and reference crop bounds.
                             val scale = geometry.getDouble("dpr")
@@ -247,10 +264,21 @@ class DictionaryFidelityActivity : Activity() {
                                 }
                                 val style = dictionaryBaseStyle(parseCssColor2(geometry.getString("color")) ?: Color.Black,
                                     case.getInt("fontSize"), family).copy(lineHeight = geometry.getDouble("lineHeight").toFloat().sp)
+                                val expanded = buildSet<StructuredNode.Element> {
+                                    if (case.optBoolean("expandDetails", false)) {
+                                        fun visit(node: StructuredNode) {
+                                            if (node !is StructuredNode.Element) return
+                                            if (node.tag == StructuredTag.Details && node.attributes.properties["open"] != "true") add(node)
+                                            node.children.forEach(::visit)
+                                        }
+                                        nodes.forEach(::visit)
+                                    }
+                                }
                                 val native = NativeGlossaryCompiler(parseDictionaryCss(case.getString("css"), variables),
                                     Density(scale.toFloat(), 1f), if (geometry.getString("direction") == "rtl") LayoutDirection.Rtl else LayoutDirection.Ltr,
                                     resolver, parseCssColor2(variables["secondary"].orEmpty()) ?: Color.Gray,
-                                    parseCssColor2(variables["border"].orEmpty()) ?: Color.Gray).prepare(nodes, style, emptyList(), width)
+                                    parseCssColor2(variables["border"].orEmpty()) ?: Color.Gray,
+                                    expanded = expanded).prepare(nodes, style, emptyList(), width)
                                 checkSize(native.width, native.height.coerceAtLeast(1))
                                 if (intent.getBooleanExtra("hit_geometry_check", false)) {
                                     result.put("hit_check", nativeHitTestCheck(native))

@@ -54,29 +54,51 @@ public fun NativeGlossaryContent(nodes: List<StructuredNode>, css: ParsedCss, st
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
     val resolver = LocalFontFamilyResolver.current
+    BoxWithConstraints(modifier) {
+        val width = constraints.maxWidth
+        require(width != Constraints.Infinity) { "Dictionary documents require a bounded viewport" }
+        val context = remember(style, density, direction, resolver, secondary, border, width) {
+            NativeGlossaryLayoutContext(style, density, direction, resolver, secondary, border, width)
+        }
+        PreparedGlossaryContent(nodes, css, context, width, dictName, onLookup, Modifier, ancestors)
+    }
+}
+
+/** The popup supplies the exact assigned width; no per-document constraint subcomposition. */
+@Composable
+public fun PreparedGlossaryContent(nodes: List<StructuredNode>, css: ParsedCss, context: NativeGlossaryLayoutContext,
+    width: Int, dictName: String, onLookup: ((String) -> Unit)?, modifier: Modifier = Modifier,
+    ancestors: List<CssAncestor> = emptyList()) {
+    val style = context.style
+    val density = context.density
+    val direction = context.direction
+    val resolver = context.resolver
+    val secondary = context.secondary
+    val border = context.border
     val provider = LocalNativeGlossaryDocuments.current
     val profilingId = LocalLookupProfilingId.current
     var toggled by remember(nodes) { mutableStateOf<Set<StructuredNode.Element>>(emptySet()) }
     var fontRevision by remember(nodes, resolver) { mutableIntStateOf(0) }
-    val media = LocalMediaDataUris.current
-    BoxWithConstraints(modifier) {
-        val width = constraints.maxWidth
-        require(width != Constraints.Infinity) { "Dictionary documents require a bounded viewport" }
-        val initial = provider[nodes]?.takeIf { fontRevision == 0 && toggled.isEmpty() && it.matches(nodes, css, style, ancestors,
+    val initial = provider[nodes]?.takeIf { fontRevision == 0 && toggled.isEmpty() && it.matches(nodes, css, style, ancestors,
             density, direction, resolver, secondary, border, width) }
-        val prepared by produceState(initialValue = initial, nodes, css, style, ancestors, density, direction, resolver, secondary, border, width, toggled, fontRevision) {
+        val prepared by produceState(initialValue = initial, nodes, css, context, ancestors, width, toggled, fontRevision) {
             value = initial ?: withContext(Dispatchers.Default) {
-                NativeGlossaryCompiler(css, density, direction, resolver, secondary, border, toggled,
-                    checkCancellation = { coroutineContext.ensureActive() }, profilingId = profilingId)
+                context.compiler(css, profilingId, expanded = toggled,
+                    checkCancellation = { coroutineContext.ensureActive() })
                     .prepare(nodes, style, ancestors, width)
             }
         }
-        val staleFonts = prepared?.hasStaleFonts == true
+        val staleFonts = initial == null && prepared?.hasStaleFonts == true
         LaunchedEffect(prepared, staleFonts) { if (staleFonts) fontRevision++ }
-        val document = prepared?.takeIf { it.matches(nodes, css, style, ancestors, density, direction, resolver, secondary, border, width) }
+        // A new lookup can supply a finished document before produceState publishes its value.
+        val document = initial ?: prepared?.takeIf { it.matches(nodes, css, style, ancestors, density, direction, resolver, secondary, border, width) }
         if (document != null) {
             val toggle: (StructuredNode.Element) -> Unit = { node -> toggled = if (node in toggled) toggled - node else toggled + node }
-            Layout(content = {
+            if (document.images.isEmpty()) {
+                AndroidView(modifier = modifier, factory = { NativeGlossaryView(it) },
+                    update = { it.bind(document, dictName, onLookup, toggle) })
+            } else Layout(modifier = modifier, content = {
+                val media = LocalMediaDataUris.current
                 AndroidView(factory = { NativeGlossaryView(it) }, update = { it.bind(document, dictName, onLookup, toggle) })
                 document.images.forEach { image ->
                     val path = image.source.attributes.properties["path"].orEmpty()
@@ -94,7 +116,6 @@ public fun NativeGlossaryContent(nodes: List<StructuredNode>, css: ParsedCss, st
                 }
             }
         }
-    }
 }
 
 /** Native text surface: measurement reads dimensions; drawing never walks the glossary source. */

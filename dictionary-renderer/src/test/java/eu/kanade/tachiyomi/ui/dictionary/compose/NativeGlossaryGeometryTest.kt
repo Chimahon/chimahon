@@ -1,11 +1,37 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import kotlin.random.Random
 
 class NativeGlossaryGeometryTest {
+    @Test fun onlyBlockAxisBordersSeparateVerticalMargins() {
+        assertFalse(BoxStyle().separatesVerticalMargins)
+        assertFalse(BoxStyle(hasBorder = true, leftAccent = true).separatesVerticalMargins)
+        assertTrue(BoxStyle(hasBorder = true).separatesVerticalMargins)
+    }
+
+    @Test fun inlineRangesKeepAndroidBoundaryAndEmptyQuerySemantics() {
+        assertTrue(inlineRangeOverlaps(2, 5, 3, 4))
+        assertFalse(inlineRangeOverlaps(2, 5, 5, 7))
+        assertFalse(inlineRangeOverlaps(2, 5, 0, 2))
+        assertTrue(inlineRangeOverlaps(2, 5, 2, 2))
+        assertTrue(inlineRangeOverlaps(2, 5, 5, 5))
+        assertFalse(inlineRangeOverlaps(2, 5, 6, 6))
+        assertTrue(inlineRangeOverlaps(3, 3, 2, 4))
+    }
+
+    @Test fun orderedInlineRangesFindTheFirstPossibleIntersection() {
+        val ends = listOf(3, 8, 12, 17)
+        for (offset in 0..20) {
+            val expected = ends.indexOfFirst { it >= offset }.let { if (it < 0) ends.size else it }
+            assertEquals(expected, firstRangeEndingAtOrAfter(ends, offset) { it })
+        }
+        assertEquals(0, firstRangeEndingAtOrAfter(emptyList<Int>(), 4) { it })
+    }
+
     @Test fun gridRubyIntrinsicWidthIncludesReadingsWithoutOverhangingOtherRuby() {
         assertEquals(0f, rubyIntrinsicExtra(30f, 20f, 21f))
         assertEquals(33f, rubyIntrinsicExtra(30f, 63f, 21f))

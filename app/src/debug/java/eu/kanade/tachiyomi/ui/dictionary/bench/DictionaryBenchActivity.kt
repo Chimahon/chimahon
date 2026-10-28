@@ -55,6 +55,7 @@ import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -354,7 +355,9 @@ private suspend fun stagePass(context: Context, cases: List<BenchCase>, config: 
     val planRow = time("  order+cssMap+cards", "excludes layout; ${cases.size} dicts", config.iters) {
         val shown = orderLookupResultsForDisplay(listOf(biggest.result), profile, context)
         buildParsedCssMap(cases.map { it.styles }.flatten(), "", context)
-        buildCards(shown, groupTerms = true, resolveTitle = { it }, priority = emptyMap())
+        runBlocking {
+            buildCards(shown, groupTerms = true, resolveTitle = { it }, priority = emptyMap())
+        }
         Unit
     }
     out.append(planRow)

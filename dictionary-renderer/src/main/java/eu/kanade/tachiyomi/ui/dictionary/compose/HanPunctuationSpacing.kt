@@ -1,11 +1,9 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import android.graphics.Rect
-import android.text.Spannable
-import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.MetricAffectingSpan
-import android.text.style.ReplacementSpan
+import android.text.Spanned
 
 internal enum class HanPunctuation { OTHER, OPEN, CLOSE, MIDDLE, OPEN_NARROW, CLOSE_NARROW, FONT_DEPENDENT }
 
@@ -14,6 +12,10 @@ internal fun hanPunctuation(char: Char): HanPunctuation = when (char) {
     '\u3001', '\u3002', '\uff0c', '\uff0e', '\uff1a', '\uff1b',
     '\u2018', '\u2019', '\u201c', '\u201d' -> HanPunctuation.FONT_DEPENDENT
     '\u00b7', '\u2027', '\u30fb', '\u3000' -> HanPunctuation.MIDDLE
+    '(', '[', '{' -> HanPunctuation.OPEN_NARROW
+    ')', ']', '}' -> HanPunctuation.CLOSE_NARROW
+    // These ranges contain no other opening/closing punctuation.
+    in '\u0000'..'\u007f', in '\u3040'..'\u30ff', in '\u3400'..'\u9fff' -> HanPunctuation.OTHER
     else -> {
         val fullwidth = char in '\u3000'..'\u303f' || char in '\uff01'..'\uff60'
         when (Character.getType(char)) {
@@ -78,15 +80,19 @@ private class HanKerningSpan(private val features: String) : MetricAffectingSpan
 }
 
 /** Interior punctuation pairs only. StaticLayout still owns shaping, line breaking and hit offsets. */
-internal fun applyHanPunctuationSpacing(text: Spannable, paragraphFont: RubyFontResources) {
+internal fun applyHanPunctuationSpacing(text: NativeParagraphText, ranges: NativeParagraphRanges,
+    paragraphFont: RubyFontResources) {
+    if (text.length < 2) return
     fun fontAt(index: Int): RubyFontResources =
-        text.getSpans(index, index + 1, NativeStyleSpan::class.java).lastOrNull()?.profile?.resource?.font ?: paragraphFont
-    fun spaceAll(index: Int) = text.getSpans(index, index + 1, NativeTextSpacingTrim::class.java).any { it.value == "space-all" }
+        ranges.styles.at(index)?.profile?.resource?.font ?: paragraphFont
+    fun spaceAll(index: Int) = ranges.trims.at(index)?.value == "space-all"
+    var preceding = hanPunctuation(text[0])
     for (index in 1 until text.length) {
-        val previous = hanPunctuation(text[index - 1])
+        val previous = preceding
         val current = hanPunctuation(text[index])
+        preceding = current
         if (previous == HanPunctuation.OTHER || current == HanPunctuation.OTHER) continue
-        if (text.getSpans(index - 1, index + 1, ReplacementSpan::class.java).isNotEmpty()) continue
+        if (ranges.replacements.overlapping(index - 1, index + 1) != null) continue
         val previousFont = fontAt(index - 1).hanPunctuation
         val currentFont = fontAt(index).hanPunctuation
         val left = previousFont.type(text[index - 1])
@@ -97,6 +103,6 @@ internal fun applyHanPunctuationSpacing(text: Spannable, paragraphFont: RubyFont
         // advance. Use the closing half so a soft wrap leaves the new line's opener fullwidth.
         if (left == HanPunctuation.CLOSE && right == HanPunctuation.OPEN && previousFont === currentFont && !spaceAll(index - 1)) target = index - 1
         val features = (if (target == index) currentFont else previousFont).trimFeatures ?: continue
-        text.setSpan(HanKerningSpan(features), target, target + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        text.addSpan(HanKerningSpan(features), target, target + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 }

@@ -32,6 +32,8 @@ import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryCardPreparation
+import eu.kanade.tachiyomi.ui.dictionary.compose.prepareDictionaryCards
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryRenderEnvironment
 import eu.kanade.tachiyomi.ui.dictionary.compose.LocalDictionaryRenderEnvironment
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
@@ -71,13 +73,17 @@ class LookupReplayActivity : ComponentActivity() {
         val environment = DictionaryRenderEnvironment(appearance.getBoolean("dark"), appearance.getBoolean("amoled"),
             appearance.getInt("seedColor"), LookupReplayData.stringMap(appearance.getJSONObject("dictionaryTitles")))
     }
-    private data class Job(val key: Int, val inputs: Inputs, val results: List<LookupResult>, val requestId: Long)
+    private data class Job(val key: Int, val inputs: Inputs, val results: List<LookupResult>, val requestId: Long,
+        val cardPreparation: DictionaryCardPreparation)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val runId = intent.getStringExtra("run_id").orEmpty()
         require(runId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "Invalid replay run id" }
-        val root = File(filesDir, "lookup-replay/$runId")
+        val base = if (intent.getBooleanExtra("external_storage", false)) {
+            checkNotNull(getExternalFilesDir(null)) { "App-scoped external storage is unavailable" }
+        } else filesDir
+        val root = File(base, "lookup-replay/$runId")
         require(root.isDirectory) { "Stage request.json first" }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         savedSink = LookupProfiler.sink
@@ -151,19 +157,38 @@ class LookupReplayActivity : ComponentActivity() {
                     val decodeMs = (SystemClock.elapsedRealtimeNanos() - decodeStart) / 1e6
                     val drawn = CompletableDeferred<Unit>()
                     val committed = CompletableDeferred<Long>()
-                    var commitCallback: Runnable? = null
-                    val timings = LookupReplayTimings {
-                        drawn.complete(Unit)
-                        if (Build.VERSION.SDK_INT >= 29 && window.decorView.isHardwareAccelerated) {
-                            Runnable { committed.complete(SystemClock.elapsedRealtimeNanos()) }.also {
-                                commitCallback = it
-                                window.decorView.viewTreeObserver.registerFrameCommitCallback(it)
+                    val frames = LookupReplayDrawFrames()
+                    val observer = window.decorView.viewTreeObserver
+                    val commitCallbacks = ArrayList<Runnable>()
+                    val canObserveCommit = Build.VERSION.SDK_INT >= 29 && window.decorView.isHardwareAccelerated
+                    val preDraw = android.view.ViewTreeObserver.OnPreDrawListener {
+                        val frame = frames.beginFrame()
+                        if (canObserveCommit && frames.contentFrame == null) {
+                            val callback = object : Runnable {
+                                override fun run() {
+                                    commitCallbacks.remove(this)
+                                    if (frames.containsFirstContent(frame)) committed.complete(SystemClock.elapsedRealtimeNanos())
+                                }
                             }
+                            commitCallbacks.add(callback)
+                            // ViewRootImpl captures these BEFORE drawing. Registration from a
+                            // document's onDraw misses that frame and may await an unrelated redraw.
+                            if (Build.VERSION.SDK_INT >= 29) observer.registerFrameCommitCallback(callback)
                         }
+                        true
                     }
+                    val timings = LookupReplayTimings {
+                        frames.contentDrawn()
+                        drawn.complete(Unit)
+                    }
+                    if (canObserveCommit) observer.addOnPreDrawListener(preDraw)
                     LookupProfiler.sink = timings
                     timings.requestId = LookupProfiler.start(case.getString("id"))
-                    job = Job(++sequence, input, results, timings.requestId)
+                    val cards = scope.prepareDictionaryCards(results, case.getJSONObject("options").getBoolean("groupTerms"),
+                        input.profile.dictionaryOrder, timings.requestId) {
+                        input.environment.dictionaryTitles[it] ?: it
+                    }
+                    job = Job(++sequence, input, results, timings.requestId, cards)
                     val sample = try {
                         withTimeout(30_000) { drawn.await() }
                         val commit = if (Build.VERSION.SDK_INT >= 29) withTimeoutOrNull(3_000) { committed.await() } else null
@@ -172,12 +197,17 @@ class LookupReplayActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         JSONObject().put("ok", false).put("error", e.message ?: e.javaClass.simpleName)
                     } finally {
-                        if (Build.VERSION.SDK_INT >= 29) commitCallback?.let {
-                            window.decorView.viewTreeObserver.unregisterFrameCommitCallback(it)
+                        if (observer.isAlive) {
+                            observer.removeOnPreDrawListener(preDraw)
+                            if (Build.VERSION.SDK_INT >= 29) for (callback in commitCallbacks) {
+                                observer.unregisterFrameCommitCallback(callback)
+                            }
                         }
                         job = null
+                        cards.cancel()
                     }
                     sample.put("caseId", case.getString("id")).put("iteration", iteration - warmups)
+                        .put("frameCommitObserver", if (canObserveCommit) "pre-draw/same-content-frame-v1" else "unavailable")
                         .put("warmup", iteration < warmups).put("payloadDecodeAndDispatchMs", decodeMs)
                         .put("results", results.size).put("glossaries", results.sumOf { it.term.glossaries.size })
                     report.getJSONArray("samples").put(sample)
@@ -205,6 +235,8 @@ class LookupReplayActivity : ComponentActivity() {
             LocalDictionaryRenderEnvironment provides job.inputs.environment,
         ) {
             DictionaryEntryCompose(results = job.results, styles = job.inputs.styles,
+                cardPreparation = job.cardPreparation,
+                viewportWidthPx = case.getInt("widthPx"),
                 mediaDataUris = job.inputs.media, placeholder = "",
                 activeProfile = job.inputs.profile, fontSize = case.getInt("fontSize"),
                 groupTerms = options.getBoolean("groupTerms"), groupPitches = options.getBoolean("groupPitches"),
@@ -269,7 +301,9 @@ class LookupReplayActivity : ComponentActivity() {
 
     private fun runtime(): JSONObject = JSONObject().put("sdk", Build.VERSION.SDK_INT).put("release", Build.VERSION.RELEASE)
         .put("device", "${Build.MANUFACTURER} ${Build.MODEL}").put("abi", Build.SUPPORTED_ABIS.first())
-        .put("buildType", BuildConfig.BUILD_TYPE).put("rendererSourceSha256", BuildConfig.DICTIONARY_REPLAY_SOURCE_SHA256)
+        .put("buildType", BuildConfig.BUILD_TYPE)
+        .put("debuggable", applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
+        .put("rendererSourceSha256", BuildConfig.DICTIONARY_REPLAY_SOURCE_SHA256)
         .put("package", packageName).put("version", BuildConfig.VERSION_NAME).put("cores", Runtime.getRuntime().availableProcessors())
         .put("actualDensity", resources.displayMetrics.density).put("actualFontScale", resources.configuration.fontScale)
         .put("refreshRateHz", windowManager.defaultDisplay.refreshRate)

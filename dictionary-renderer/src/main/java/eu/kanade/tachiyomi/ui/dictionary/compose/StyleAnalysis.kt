@@ -126,7 +126,7 @@ public fun analyzeBoxProps(styleMap: Map<String, String>, baseFontSizeSp: Float)
                     hasBackground = true
                 }
             }
-            "border", "borderColor", "borderWidth", "borderLeft", "borderStyle", "borderLeftColor" -> {
+            "border", "borderColor", "borderWidth", "borderStyle", "borderLeftColor" -> {
                 if (value.isNotBlank() && value != "none" && value != "0" && value != "0px") {
                     when (key) {
                         "borderWidth" -> borderWidth = parseDpValue(value, baseFontSizeSp)
@@ -174,7 +174,7 @@ public fun analyzeBoxProps(styleMap: Map<String, String>, baseFontSizeSp: Float)
                     } else {
                         // `border-color` alone produces no visible box border in CSS (border-style
                         // defaults to none); treat it as an accent edge, not a full frame.
-                        hasBorder = key == "border" || key == "borderWidth" || key == "borderLeft"
+                        hasBorder = key == "border" || key == "borderWidth"
                         if (key == "borderWidth" && value != "0px" && value != "0") hasBorder = true
                         if (key == "borderStyle" && value.contains("solid")) hasBorder = true
                     }
@@ -213,7 +213,7 @@ public fun analyzeBoxProps(styleMap: Map<String, String>, baseFontSizeSp: Float)
             "marginRight", "marginInlineEnd" -> marginEnd = parseMarginValue(value, baseFontSizeSp)
             "marginTop", "marginBlockStart" -> marginTop = parseMarginValue(value, baseFontSizeSp)
             "marginBottom", "marginBlockEnd" -> marginBottom = parseMarginValue(value, baseFontSizeSp)
-            "borderInlineStart" -> if (value.isNotBlank() && value != "none" && value != "0") {
+            "borderInlineStart", "borderLeft" -> if (value.isNotBlank() && value != "none" && value != "0") {
                 leftAccent = true
                 hasBorder = true
                 // Shorthand components may appear in any order; preserve fractional widths.

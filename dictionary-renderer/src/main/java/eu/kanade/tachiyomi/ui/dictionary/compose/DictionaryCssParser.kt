@@ -79,6 +79,9 @@ data class CssCompound(
     val presences: Set<String> = emptySet(),
     val has: List<CssRelativeSelector> = emptyList(),
     val positional: Int? = null,
+    val requiresOpen: Boolean = false,
+    val excluded: List<CssCompound> = emptyList(),
+    val exclusionSpecificity: Long = 0L,
 )
 
 /** A relative selector inside `:has(...)`; descendant and child only. */
@@ -153,6 +156,8 @@ data class ParsedCss(
     /** Plain type selectors, applied before the more specific attribute/class rules. */
     val tagStyles: Map<String, Map<String, String>> = emptyMap(),
 ) {
+    internal val nativeDeclarations by lazy { NativeCssRuleDeclarations(this) }
+    internal val nativeSiblingSelectors by lazy { NativeSiblingSelectors(siblingRules) }
     private val qualifiedIndex = selectorStyles.entries.filter { '\u0000' in it.key }
         .groupBy { it.key.substringBefore('\u0000') }
         .mapValues { (_, entries) -> entries.associate { it.key.substringAfter('\u0000') to it.value } }
@@ -160,26 +165,25 @@ data class ParsedCss(
     private val presenceIndex = presenceRules.withIndex().groupBy { it.value.requiredKeys.firstOrNull() }
     public val hasWeakFlatStyles = tagStyles.isNotEmpty() || weakValueKeys.isNotEmpty() || presenceRules.any { it.bare }
     // Sort once per sheet, not per element. Stable sorting preserves source order for ties.
-    private val nestedCascade = nestedTagRules.sortedBy { rule ->
-        val ancestorWeight = if (rule.scopes.isNotEmpty()) {
-            rule.scopes.sumOf { it.compound.specificity() }
-        } else {
-            (rule.ancestors.size.toLong() shl 32) + (if (rule.parentTag != null) 1L else 0L)
-        }
-        ancestorWeight + (rule.target?.specificity()
-            ?: (((rule.qualifier.size.toLong() + (if (rule.positional != null) 1L else 0L)) shl 32) +
-                (if (rule.tag.isNotEmpty()) 1L else 0L)))
-    }
+    private val nestedCascade = nestedTagRules.sortedBy { it.specificity() }
     private val wildcardTags = nestedCascade.filter { it.tag.isEmpty() }
     private val tagIndex = nestedTagRules.map { it.tag }.filter { it.isNotEmpty() }.distinct().associateWith { tag ->
         nestedCascade.filter { it.tag.isEmpty() || it.tag == tag }
     }
     private val nestedIndex = NestedRuleIndex(nestedCascade)
+    internal val ancestorMachine = NativeCssAncestorMachine(nestedCascade)
 
     internal fun nestedCandidates(tag: String, data: Map<String, String>, keys: List<String>, into: BitSet): BitSet =
         nestedIndex.candidates(tag, data, keys, into)
 
     internal fun nestedRule(index: Int): IndexedNestedRule = nestedIndex.rules[index]
+
+    internal fun presenceCandidates(data: Map<String, String>, into: BitSet): BitSet {
+        into.clear()
+        presenceIndex[null]?.forEach { into.set(it.index) }
+        for (key in data.keys) presenceIndex[key]?.forEach { into.set(it.index) }
+        return into
+    }
 
     public fun presenceCandidates(data: Map<String, String>): List<CssPresenceRule> {
         if (presenceRules.isEmpty()) return emptyList()
@@ -202,8 +206,116 @@ data class ParsedCss(
     }
 }
 
+/** Ordered ancestor selectors advance once at tree entry, not by backtracking for every target. */
+internal class NativeCssAncestorMachine(rules: List<NestedTagRule>) {
+    internal class State(val reachable: BitSet, val here: BitSet)
+    private data class Step(val previous: Int, val compound: Int, val direct: Boolean)
+    /** Tag and one required key have already been established by the dispatch index. */
+    private class Residual(val source: CssCompound, val keys: Array<String>) {
+        fun matches(values: Set<String>, tag: String, node: StructuredNode.Element?, index: Int?, last: Boolean): Boolean {
+            if (source.requiresOpen && node?.attributes?.properties?.get("open") != "true") return false
+            for (excluded in source.excluded) if (excluded.matchesFrame(values, tag, node, index, last)) return false
+            for (key in keys) if (key !in values) return false
+            if (source.positional != null && !positionalMatches(source.positional, index, last)) return false
+            if (source.has.isNotEmpty()) {
+                if (node == null) return false
+                for (relative in source.has) if (!hasDescendant(node, relative)) return false
+            }
+            return true
+        }
+    }
+    private val compounds = ArrayList<CssCompound>()
+    private val residuals = ArrayList<Residual?>()
+    private val steps = ArrayList<Step>()
+    private val positions = ArrayList<MutableList<Int>>()
+    private val ends = IntArray(rules.size) { -1 }
+    private val required = Array(rules.size) { IntArray(0) }
+    private val values = HashMap<String, BitSet>()
+    private val tags = HashMap<String, BitSet>()
+    private val unanchored = BitSet()
+    private val wildcardTags = BitSet()
+    private val emptyBits = BitSet()
+    val root = State(emptyBits, emptyBits)
+
+    init {
+        val compoundIds = HashMap<CssCompound, Int>()
+        val stepIds = HashMap<Step, Int>()
+        fun compoundId(compound: CssCompound): Int = compoundIds.getOrPut(compound) {
+            compounds.size.also { compounds.add(compound); positions.add(ArrayList()) }
+        }
+        fun stepId(step: Step): Int = stepIds.getOrPut(step) {
+            steps.size.also { steps.add(step); positions[step.compound].add(it) }
+        }
+        for ((rank, rule) in rules.withIndex()) {
+            var previous = -1
+            for (scope in rule.scopes) {
+                previous = stepId(Step(previous, compoundId(scope.compound), scope.direct))
+            }
+            ends[rank] = previous
+            if (rule.scopes.isEmpty()) required[rank] = buildList {
+                for (key in rule.ancestors) add(stepId(Step(-1, compoundId(CssCompound(values = setOf(key))), false)))
+                rule.parentTag?.let { add(stepId(Step(-1, compoundId(CssCompound(tag = it)), false))) }
+            }.toIntArray()
+        }
+        for ((id, compound) in compounds.withIndex()) {
+            if (compound.tag.isEmpty()) wildcardTags.set(id) else tags.getOrPut(compound.tag, ::BitSet).set(id)
+            val anchor = compound.values.firstOrNull() ?: compound.presences.firstOrNull()?.let { BARE_KEY_MARKER + it }
+            if (anchor == null) unanchored.set(id) else values.getOrPut(anchor, ::BitSet).set(id)
+            val remaining = buildList {
+                for (value in compound.values) if (value != anchor) add(value)
+                for (presence in compound.presences) {
+                    val key = BARE_KEY_MARKER + presence
+                    if (key != anchor) add(key)
+                }
+            }
+            residuals.add(if (remaining.isEmpty() && !compound.requiresOpen && compound.excluded.isEmpty() &&
+                compound.positional == null && compound.has.isEmpty()) null else Residual(compound, remaining.toTypedArray()))
+        }
+        for (bucket in tags.values) bucket.or(wildcardTags)
+    }
+
+    fun advance(parent: State, frameValues: Set<String>, tag: String, node: StructuredNode.Element?,
+        siblingIndex: Int?, isLast: Boolean, candidates: BitSet): State {
+        if (steps.isEmpty()) return root
+        candidates.clear()
+        candidates.or(unanchored)
+        for (key in frameValues) values[key]?.let(candidates::or)
+        candidates.and(tags[tag] ?: wildcardTags)
+        var here: BitSet? = null
+        var compound = candidates.nextSetBit(0)
+        while (compound >= 0) {
+            if (residuals[compound]?.matches(frameValues, tag, node, siblingIndex, isLast) != false) {
+                for (position in positions[compound]) {
+                    val step = steps[position]
+                    if (step.previous < 0 || (if (step.direct) parent.here else parent.reachable)[step.previous]) {
+                        val matches = here ?: BitSet().also { here = it }
+                        matches.set(position)
+                    }
+                }
+            }
+            compound = candidates.nextSetBit(compound + 1)
+        }
+        val current = here ?: return if (parent.here.isEmpty) parent else State(parent.reachable, emptyBits)
+        var position = current.nextSetBit(0)
+        var addsReachable = false
+        while (position >= 0) {
+            if (!parent.reachable[position]) { addsReachable = true; break }
+            position = current.nextSetBit(position + 1)
+        }
+        val reachable = if (addsReachable) (parent.reachable.clone() as BitSet).also { it.or(current) } else parent.reachable
+        return State(reachable, current)
+    }
+
+    fun matches(state: State, rank: Int, direct: Boolean): Boolean {
+        val end = ends[rank]
+        return if (end < 0) required[rank].all { state.reachable[it] }
+            else (if (direct) state.here else state.reachable)[end]
+    }
+}
+
 /** Necessary conditions only: ordered scope/position/:has matching remains authoritative. */
 internal class IndexedNestedRule(val rule: NestedTagRule) {
+    val specificity = rule.specificity()
     val ancestorKeys: Set<String> = if (rule.scopes.isEmpty()) rule.ancestors else buildSet {
         for (scope in rule.scopes) {
             addAll(scope.compound.values)
@@ -257,9 +369,19 @@ private class NestedRuleIndex(cascade: List<NestedTagRule>) {
 
 // The supported selector subset has no IDs: attributes/classes/pseudo-classes outrank types.
 // :has() contributes its argument's specificity, not an additional pseudo-class weight.
+private fun NestedTagRule.specificity(): Long {
+    val ancestorWeight = if (scopes.isNotEmpty()) scopes.sumOf { it.compound.specificity() }
+        else (ancestors.size.toLong() shl 32) + (if (parentTag != null) 1L else 0L)
+    return ancestorWeight + (target?.specificity()
+        ?: (((qualifier.size.toLong() + (if (positional != null) 1L else 0L)) shl 32) +
+            (if (tag.isNotEmpty()) 1L else 0L)))
+}
+
 private fun CssCompound.specificity(): Long =
-    ((values.size.toLong() + presences.size + (if (positional != null) 1L else 0L)) shl 32) +
-        (if (tag.isNotEmpty()) 1L else 0L) + has.sumOf { it.compound.specificity() }
+    ((values.size.toLong() + presences.size + (if (positional != null) 1L else 0L) +
+        (if (requiresOpen) 1L else 0L)) shl 32) +
+        (if (tag.isNotEmpty()) 1L else 0L) + has.sumOf { it.compound.specificity() } +
+        exclusionSpecificity
 
 /**
  * `base.css` `:root` custom properties (base.css:1-40), the light-mode values the reference
@@ -469,7 +591,17 @@ private fun parseDictionaryCssUncached(cssText: String, themeVars: Map<String, S
         // Both of these were recomputed several times per rule. `splitSelectorList` allocated a
         // fresh list on each call, and `toCamelCase` was applied once per (selector x property)
         // rather than once per property. Neither is observable, they are just pure recomputation.
-        val selectorParts = splitSelectorList(selectorPart)
+        val rawParts = splitSelectorList(selectorPart)
+        val beforeParts = rawParts.filter { it.trim().endsWith("::before") }
+        val selectorParts = rawParts.filterNot { it in beforeParts }
+        if (beforeParts.isNotEmpty()) {
+            val generated = properties.mapKeys { generatedProperty(it.key) }.toMutableMap()
+            properties["content"]?.let { generated["beforeContent"] = generatedContent(it) }
+            for (part in beforeParts) {
+                parseDescendantCompound(part.trim().removeSuffix("::before"), generated, allowSingle = true)
+                    ?.let(nestedTagRules::add)
+            }
+        }
         val hasParts = selectorParts.filter { it.contains(":has(") }
         val normalParts = if (hasParts.isEmpty()) selectorParts else selectorParts.filterNot { it.contains(":has(") }
         val camelProperties = properties.mapKeys { toCamelCase(it.key) }
@@ -510,7 +642,7 @@ private fun parseDictionaryCssUncached(cssText: String, themeVars: Map<String, S
         val partKeys: List<Pair<Boolean, List<String>>> = normalParts.map { part ->
             val bare = isBareSingleAttrSelector(part)
             val compound = parseCompound(part)
-            if (compound == null || compound.positional != null) return@map bare to emptyList()
+            if (compound == null || compound.positional != null || compound.requiresOpen || compound.excluded.isNotEmpty()) return@map bare to emptyList()
             val keys = if (part.count { it == '[' } <= 1) {
                 extractDataSelectors(part) + extractClassSelectors(part)
             } else {
@@ -617,6 +749,7 @@ private inline fun forEachFlatStyle(
     sheet: ParsedCss,
     tag: String?,
     keys: List<String>,
+    presenceBits: BitSet? = null,
     consume: (Map<String, String>, Boolean) -> Unit,
 ) {
     sheet.tagStyles[tag]?.let { consume(it, false) }
@@ -629,9 +762,19 @@ private inline fun forEachFlatStyle(
     if (qualified.isNotEmpty()) for (key in keys) {
         qualified[key]?.let { consume(it, true) }
     }
-    for (rule in sheet.presenceCandidates(data)) {
-        if (rule.appliesTo(tag) && data.keys.containsAll(rule.requiredKeys)) {
-            consume(rule.styles, !rule.bare)
+    if (presenceBits != null) {
+        val candidates = sheet.presenceCandidates(data, presenceBits)
+        var rank = candidates.nextSetBit(0)
+        while (rank >= 0) {
+            val rule = sheet.presenceRules[rank]
+            if (rule.appliesTo(tag) && data.keys.containsAll(rule.requiredKeys)) consume(rule.styles, !rule.bare)
+            rank = candidates.nextSetBit(rank + 1)
+        }
+    } else {
+        for (rule in sheet.presenceCandidates(data)) {
+            if (rule.appliesTo(tag) && data.keys.containsAll(rule.requiredKeys)) {
+                consume(rule.styles, !rule.bare)
+            }
         }
     }
 }
@@ -710,30 +853,6 @@ private fun appendCssDeclarations(
         destination[key] = value
     }
     return destination
-}
-
-/** A single matching rule can be used directly; copy only when a later rule overrides it. */
-private class CssDeclarationBuilder {
-    private var declarations: Map<String, String> = emptyMap()
-    private var owned: MutableMap<String, String>? = null
-
-    fun add(styles: Map<String, String>, skipMargins: Boolean = false) {
-        if (styles.isEmpty()) return
-        if (skipMargins && styles.keys.any { it.startsWith("margin") }) {
-            for ((key, value) in styles) if (!key.startsWith("margin")) mutable()[key] = value
-        } else if (declarations.isEmpty()) {
-            declarations = styles
-        } else if (declarations !== styles) {
-            mutable().putAll(styles)
-        }
-    }
-
-    private fun mutable(): MutableMap<String, String> = owned ?: HashMap(declarations).also {
-        owned = it
-        declarations = it
-    }
-
-    fun build(): Map<String, String> = declarations
 }
 
 /**
@@ -820,15 +939,17 @@ public fun getNestedStyles(
 }
 
 /**
- * Mutable ancestor chain for the native compiler. Pushing an element folds its
- * `dataValueKeys` into key counts instead of copying the whole ancestor list, so
- * unscoped key/tag membership is constant-time. Ordered CSS nesting scopes still
- * match against individual frames, so a tag and its attributes cannot match different nodes.
- *
- * Counts (not sets) are required because the same key may appear on several
- * ancestors and one pop must not erase an earlier occurrence.
+ * Native ancestor context. Selector-prefix bitsets advance at entry and the parent state is
+ * restored at exit; no repeated ancestor searches or key/tag membership-count updates.
+ * Frames remain available for :has() and APIs that need actual ancestor nodes.
  */
-public class NativeCssContext(private val parsedCss: ParsedCss) {
+public class NativeCssContext internal constructor(private val parsedCss: ParsedCss, private val cascade: NativeCssCascade) {
+    constructor(parsedCss: ParsedCss) : this(parsedCss, NativeCssCascade())
+
+    private val compiled = parsedCss.nativeDeclarations
+    private val hasDeclarations = parsedCss.tagStyles.isNotEmpty() || parsedCss.selectorStyles.isNotEmpty() ||
+        parsedCss.presenceRules.isNotEmpty() || parsedCss.siblingRules.isNotEmpty() ||
+        parsedCss.nestedTagRules.isNotEmpty() || parsedCss.hasRules.isNotEmpty()
     private val enabled = parsedCss.nestedTagRules.isNotEmpty() || parsedCss.hasRules.isNotEmpty()
     private class Frame(
         val values: Set<String>,
@@ -836,12 +957,15 @@ public class NativeCssContext(private val parsedCss: ParsedCss) {
         val node: StructuredNode.Element?,
         val siblingIndex: Int?,
         val isLast: Boolean,
+        val selectors: NativeCssAncestorMachine.State,
     )
 
     private val frames = ArrayList<Frame>()
-    private val keyCounts = HashMap<String, Int>()
-    private val tagCounts = HashMap<String, Int>()
     private val nestedCandidates = BitSet()
+    private val presenceCandidates = BitSet()
+    private val siblingCandidates = BitSet()
+    private val ancestorCandidates = BitSet()
+    private val ancestorMachine = parsedCss.ancestorMachine
 
     fun push(node: StructuredNode.Element) {
         if (!enabled) return
@@ -859,21 +983,17 @@ public class NativeCssContext(private val parsedCss: ParsedCss) {
     }
 
     private fun pushFrame(values: Set<String>, tag: String, node: StructuredNode.Element?, siblingIndex: Int?, isLast: Boolean) {
-        frames.add(Frame(values, tag, node, siblingIndex, isLast))
-        for (key in values) keyCounts[key] = (keyCounts[key] ?: 0) + 1
-        tagCounts[tag] = (tagCounts[tag] ?: 0) + 1
+        val started = if (cascade.collectStageTimings) System.nanoTime() else 0L
+        val selectors = ancestorMachine.advance(frames.lastOrNull()?.selectors ?: ancestorMachine.root,
+            values, tag, node, siblingIndex, isLast, ancestorCandidates)
+        frames.add(Frame(values, tag, node, siblingIndex, isLast, selectors))
+        if (cascade.collectStageTimings) cascade.ancestorNanos += System.nanoTime() - started
     }
 
     fun pop() {
         if (!enabled) return
         if (frames.isEmpty()) return
-        val frame = frames.removeAt(frames.lastIndex)
-        for (key in frame.values) {
-            val count = keyCounts[key] ?: continue
-            if (count <= 1) keyCounts.remove(key) else keyCounts[key] = count - 1
-        }
-        val tagCount = tagCounts[frame.tag] ?: return
-        if (tagCount <= 1) tagCounts.remove(frame.tag) else tagCounts[frame.tag] = tagCount - 1
+        frames.removeAt(frames.lastIndex)
     }
 
     /** Snapshot for APIs that still take a list (table cell CSS). */
@@ -918,6 +1038,46 @@ public class NativeCssContext(private val parsedCss: ParsedCss) {
         return true
     }
 
+    private fun tableFlatState(tag: String, data: Map<String, String>, keys: List<String>,
+        inherited: NativeCssCascade.State = cascade.root): NativeCssCascade.State {
+        var state = inherited
+        // Table defaults are separate from the ordinary div/universal reset policy.
+        forEachFlatStyle(data, parsedCss, tag, keys, presenceCandidates) { styles, _ ->
+            state = state.append(compiled.block(styles))
+        }
+        return state
+    }
+
+    internal fun tableRowInheritance(data: Map<String, String>): NativeCssRuleBlock =
+        cascade.tableRowInheritance(tableFlatState("tr", data, lookupKeysOf(data)).resolve(cascade))
+
+    internal fun tableRowDeclarations(node: StructuredNode.Element): NativeCssDeclarations {
+        val attributes = node.attributes
+        var state = tableFlatState("tr", attributes.data, attributes.cssKeys.values)
+        forEachNestedStyle("tr", attributes.data, null, false, attributes.cssKeys.values) { styles, _ ->
+            state = state.append(compiled.block(styles))
+        }
+        if (attributes.style.isNotEmpty()) state = state.append(cascade.inline(attributes.nativeStyle))
+        return state.resolve(cascade)
+    }
+
+    internal fun tableCellDeclarations(cell: StructuredTableCell, inherited: NativeCssRuleBlock): NativeCssDeclarations {
+        val tag = if (cell.isHeader) "th" else "td"
+        val attributes = cell.element?.attributes ?: StructuredAttributes.Empty
+        val position = cell.indexInSourceRow + 1
+        val last = cell.indexInSourceRow == cell.sourceRowSize - 1
+        var state = tableFlatState(tag, attributes.data, attributes.cssKeys.values, cascade.root.append(inherited))
+        forEachNestedStyle(tag, attributes.data, position, last, attributes.cssKeys.values) { styles, _ ->
+            state = state.append(compiled.block(styles))
+        }
+        for (rule in parsedCss.hasRules) {
+            if (rule.target.matchesTarget(tag, attributes.data, cell.element, position, last) && matchesAncestors(rule))
+                state = state.append(compiled.block(rule.styles))
+        }
+        if (attributes.style.isNotEmpty()) state = state.append(cascade.inline(attributes.nativeStyle))
+        return state.resolve(cascade)
+    }
+
     fun nestedStyles(
         tag: String,
         dataAttributes: Map<String, String>,
@@ -925,23 +1085,49 @@ public class NativeCssContext(private val parsedCss: ParsedCss) {
         isLastSibling: Boolean = false,
     ): Map<String, String> {
         var merged: MutableMap<String, String>? = null
-        forEachNestedStyle(tag, dataAttributes, siblingIndex, isLastSibling) {
-            merged = appendCssDeclarations(merged, it)
+        forEachNestedStyle(tag, dataAttributes, siblingIndex, isLastSibling) { styles, _ ->
+            merged = appendCssDeclarations(merged, styles)
         }
         return merged ?: emptyMap()
     }
 
-    /** Resolve the native cascade into one map, without temporary maps for each rule family. */
-    fun declarations(node: StructuredNode.Element, preceding: List<Map<String, String>> = emptyList()): Map<String, String> {
-        val declarations = CssDeclarationBuilder()
-        forEachFlatStyle(node.attributes.data, parsedCss, node.tag.tagName, node.attributes.cssKeys.values) { styles, strong ->
-            declarations.add(styles, node.tag == StructuredTag.Div && !strong)
+    /** Match selectors normally, then follow compiled declaration transitions shared by the worker. */
+    fun declarations(node: StructuredNode.Element, preceding: List<Map<String, String>> = emptyList()): NativeCssDeclarations =
+        declarations(node, preceding, null)
+
+    internal fun declarations(node: StructuredNode.Element, siblings: NativeCssSiblings): NativeCssDeclarations =
+        declarations(node, emptyList(), siblings)
+
+    private fun declarations(node: StructuredNode.Element, preceding: List<Map<String, String>>,
+        siblings: NativeCssSiblings?): NativeCssDeclarations {
+        if (!hasDeclarations) return if (node.attributes.style.isEmpty()) NativeCssDeclarations.EMPTY
+            else cascade.intern(node.attributes.nativeStyle)
+        var state = cascade.root
+        var typeRule = parsedCss.tagStyles[node.tag.tagName]
+        forEachFlatStyle(node.attributes.data, parsedCss, node.tag.tagName, node.attributes.cssKeys.values, presenceCandidates) { styles, strong ->
+            state = state.append(compiled.block(styles, node.tag == StructuredTag.Div && !strong,
+                reset = typeRule === styles))
+            typeRule = null
         }
-        forEachSiblingStyle(node.attributes.data, parsedCss, preceding) { declarations.add(it) }
-        forEachNestedStyle(node.tag.tagName, node.attributes.data, null, false, node.attributes.cssKeys.values) { declarations.add(it) }
-        forEachHasStyle(node) { declarations.add(it) }
-        declarations.add(node.attributes.style)
-        return declarations.build()
+        if (siblings != null) {
+            val candidates = siblings.candidates(node.attributes, siblingCandidates)
+            var rank = candidates.nextSetBit(0)
+            while (rank >= 0) {
+                state = state.append(compiled.block(parsedCss.siblingRules[rank].styles))
+                rank = candidates.nextSetBit(rank + 1)
+            }
+        } else {
+            forEachSiblingStyle(node.attributes.data, parsedCss, preceding) { state = state.append(compiled.block(it)) }
+        }
+        forEachNestedStyle(node.tag.tagName, node.attributes.data, null, false, node.attributes.cssKeys.values, node) { styles, specificity ->
+            // Shipping resets: .structured-content * (0,1,0), div margins (0,1,1).
+            state = state.append(compiled.block(styles,
+                structural = node.tag == StructuredTag.Div && specificity < (1L shl 32) + 1,
+                reset = specificity < (1L shl 32)))
+        }
+        forEachHasStyle(node) { state = state.append(compiled.block(it)) }
+        if (node.attributes.style.isNotEmpty()) state = state.append(cascade.inline(node.attributes.nativeStyle))
+        return state.resolve(cascade)
     }
 
     private inline fun forEachNestedStyle(
@@ -950,7 +1136,8 @@ public class NativeCssContext(private val parsedCss: ParsedCss) {
         siblingIndex: Int?,
         isLastSibling: Boolean,
         keys: List<String> = lookupKeysOf(dataAttributes),
-        consume: (Map<String, String>) -> Unit,
+        element: StructuredNode.Element? = null,
+        consume: (Map<String, String>, Long) -> Unit,
     ) {
         if (parsedCss.nestedTagRules.isEmpty() || tag.isEmpty()) return
         val candidates = parsedCss.nestedCandidates(tag, dataAttributes, keys, nestedCandidates)
@@ -959,28 +1146,21 @@ public class NativeCssContext(private val parsedCss: ParsedCss) {
         var rank = candidates.nextSetBit(0)
         while (rank >= 0) {
             val indexed = parsedCss.nestedRule(rank)
+            val candidateRank = rank
             rank = candidates.nextSetBit(rank + 1)
-            if (!indexed.ancestorKeys.all { keyCounts.containsKey(it) } ||
-                !indexed.ancestorTags.all { tagCounts.containsKey(it) }) continue
             val rule = indexed.rule
+            if (!ancestorMachine.matches(parent?.selectors ?: ancestorMachine.root, candidateRank,
+                    rule.scopes.isNotEmpty() && rule.direct)) continue
             if (rule.tag.isNotEmpty() && rule.tag != tag) continue
             if (rule.qualifier.isNotEmpty() && !qualifierMatches(rule.qualifier, dataAttributes)) continue
-            if (rule.target?.matchesTarget(tag, dataAttributes, null, siblingIndex, isLastSibling) == false) continue
+            if (rule.target?.matchesTarget(tag, dataAttributes, element, siblingIndex, isLastSibling) == false) continue
             if (rule.positional != null && !positionalMatches(rule.positional, siblingIndex, isLastSibling)) continue
-            if (rule.scopes.isNotEmpty()) {
-                if (!matchesNestingScopes(rule.scopes, rule.direct, frames.lastIndex) { compound, index ->
-                        val frame = frames[index]
-                        compound.matchesFrame(frame.values, frame.tag, frame.node, frame.siblingIndex, frame.isLast)
-                    }) continue
-            } else if (rule.direct) {
+            if (rule.scopes.isEmpty() && rule.direct) {
                 // Child combinator: the DIRECT parent carries the ancestor values.
                 if (parent == null || !parent.values.containsAll(rule.ancestors)) continue
                 if (rule.parentTag != null && parent.tag != rule.parentTag) continue
-            } else {
-                if (!rule.ancestors.all { keyCounts.containsKey(it) }) continue
-                if (rule.parentTag != null && (tagCounts[rule.parentTag] ?: 0) == 0) continue
             }
-            consume(rule.styles)
+            consume(rule.styles, indexed.specificity)
         }
     }
 }
@@ -1234,12 +1414,20 @@ private fun parseCompound(raw: String): CssCompound? {
     val presences = mutableSetOf<String>()
     val has = mutableListOf<CssRelativeSelector>()
     var positional: Int? = null
+    var requiresOpen = false
+    val excluded = mutableListOf<CssCompound>()
+    var exclusionSpecificity = 0L
     var i = 0
     while (i < s.length) {
         when (val ch = s[i]) {
             '[' -> {
                 val end = findClosing(s, i) ?: return null
                 val body = s.substring(i + 1, end).trim()
+                if (body == "open") {
+                    requiresOpen = true
+                    i = end + 1
+                    continue
+                }
                 if (!body.startsWith("data-sc")) return null
                 val eq = body.indexOf('=')
                 if (eq == -1) {
@@ -1271,6 +1459,15 @@ private fun parseCompound(raw: String): CssCompound? {
                 while (j < s.length && (s[j].isLetterOrDigit() || s[j] == '-')) j++
                 val name = s.substring(i + 1, j).lowercase()
                 when (name) {
+                    "not" -> {
+                        if (s.getOrNull(j) != '(') return null
+                        val end = findClosing(s, j) ?: return null
+                        val group = splitSelectorList(s.substring(j + 1, end)).map { parseCompound(it) ?: return null }
+                        if (group.isEmpty()) return null
+                        excluded.addAll(group)
+                        exclusionSpecificity += group.maxOf { it.specificity() }
+                        i = end + 1
+                    }
                     "has" -> {
                         if (s.getOrNull(j) != '(') return null
                         val end = findClosing(s, j) ?: return null
@@ -1297,8 +1494,8 @@ private fun parseCompound(raw: String): CssCompound? {
             else -> return null
         }
     }
-    if (tag.isEmpty() && values.isEmpty() && presences.isEmpty() && has.isEmpty()) return null
-    return CssCompound(tag, values, presences, has, positional)
+    if (tag.isEmpty() && values.isEmpty() && presences.isEmpty() && has.isEmpty() && !requiresOpen && excluded.isEmpty()) return null
+    return CssCompound(tag, values, presences, has, positional, requiresOpen, excluded, exclusionSpecificity)
 }
 
 /** Index of the `]` / `)` matching the opening bracket at [open], respecting quotes. */
@@ -1331,14 +1528,15 @@ private fun findClosing(s: String, open: Int): Int? {
  * [NestedTagRule] carrying [properties]. Reuses the ordered compound matcher,
  * including class-only targets and positional constraints; siblings use their own path.
  */
-private fun parseDescendantCompound(part: String, properties: Map<String, String>): NestedTagRule? {
+private fun parseDescendantCompound(part: String, properties: Map<String, String>, allowSingle: Boolean = false): NestedTagRule? {
     val parts = splitCompounds(part.trim()) ?: return null
-    if (parts.size < 2 || parts.any { it.second == '+' || it.second == '~' }) return null
+    if (parts.isEmpty() || parts.any { it.second == '+' || it.second == '~' }) return null
     val scopes = parts.dropLast(1).map { (raw, combinator) ->
         val compound = parseCompound(raw) ?: return null
         CssAncestorSelector(compound, combinator == '>')
     }
     val target = parseCompound(parts.last().first) ?: return null
+    if (parts.size == 1 && !allowSingle && !target.requiresOpen && target.excluded.isEmpty()) return null
     if (target.has.isNotEmpty()) return null
     val camel = properties.mapKeys { toCamelCase(it.key) }
     return NestedTagRule(
@@ -1389,6 +1587,9 @@ data class BoxStyle(
     /** `width: fit-content` — shrink-wrap instead of stretching to the parent. */
     val fitContent: Boolean = false,
 ) {
+    /** A left-only border does not separate adjoining block-axis margins (CSS 2.1 8.3.1). */
+    internal val separatesVerticalMargins: Boolean get() = hasBorder && !leftAccent
+
     val hasPadding: Boolean
         get() = paddingStart != null || paddingEnd != null || paddingTop != null || paddingBottom != null
 }
@@ -1446,9 +1647,9 @@ private fun parseProperties(propertiesPart: String, variables: Map<String, Strin
                 val nested = propertiesPart.substring(i + 1, end)
                 val selector = segment.toString().trim()
                 if (selector == "&::before" || selector == "&:before") {
-                    val before = parseProperties(nested, variables)["content"]
-                        ?.takeUnless { it == "none" || it == "normal" }?.trim('"', '\'', ' ')
-                    if (!before.isNullOrEmpty()) parsed["beforeContent"] = before
+                    for ((name, value) in parseProperties(nested, variables)) {
+                        parsed[generatedProperty(name)] = if (name == "content") generatedContent(value) else value
+                    }
                 }
                 segment.clear()
                 i = end
@@ -1464,6 +1665,10 @@ private fun parseProperties(propertiesPart: String, variables: Map<String, Strin
     if (segment.isNotBlank()) addDeclaration(parsed, segment.toString(), variables)
     return parsed
 }
+
+private fun generatedProperty(name: String): String = "before" + toCamelCase(name).replaceFirstChar { it.uppercase() }
+private fun generatedContent(value: String): String =
+    if (value == "none" || value == "normal") "" else value.trim('"', '\'')
 
 private fun addDeclaration(out: MutableMap<String, String>, raw: String, variables: Map<String, String> = emptyMap()) {
     val colonIndex = raw.indexOf(':')
@@ -1740,6 +1945,8 @@ private fun CssCompound.matchesElement(
     isLast: Boolean = false,
 ): Boolean {
     if (tag.isNotEmpty() && tag != node.tag.tagName) return false
+    if (requiresOpen && node.attributes.properties["open"] != "true") return false
+    if (excluded.any { it.matchesElement(node, siblingIndex, isLast) }) return false
     val data = node.attributes.data
     if (presences.any { it !in data.keys }) return false
     if (values.isNotEmpty()) {
@@ -1759,6 +1966,8 @@ private fun CssCompound.matchesTarget(
     isLast: Boolean,
 ): Boolean {
     if (this.tag.isNotEmpty() && this.tag != tag) return false
+    if (requiresOpen && element?.attributes?.properties?.get("open") != "true") return false
+    if (excluded.any { it.matchesTarget(tag, data, element, siblingIndex, isLast) }) return false
     if (presences.any { it !in data.keys }) return false
     if (values.isNotEmpty()) {
         val keys = if (element != null && element.attributes.data === data) element.attributes.cssKeys.values
@@ -1781,6 +1990,8 @@ private fun CssCompound.matchesFrame(
     isLast: Boolean,
 ): Boolean {
     if (tag.isNotEmpty() && tag != frameTag) return false
+    if (requiresOpen && node?.attributes?.properties?.get("open") != "true") return false
+    if (excluded.any { it.matchesFrame(frameValues, frameTag, node, siblingIndex, isLast) }) return false
     if (presences.any { (BARE_KEY_MARKER + it) !in frameValues }) return false
     if (values.isNotEmpty() && !values.all { it in frameValues }) return false
     if (positional != null && !positionalMatches(positional, siblingIndex, isLast)) return false
@@ -2054,6 +2265,7 @@ private fun stripCssComments(css: String): String {
 
 /** Converts a CSS property name to camelCase. */
 public fun toCamelCase(cssProperty: String): String {
+    if ('-' !in cssProperty) return cssProperty
     val parts = cssProperty.split('-')
     if (parts.size == 1) return parts[0]
     return buildString {

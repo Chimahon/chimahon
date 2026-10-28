@@ -36,6 +36,8 @@ internal fun nativePrepareBenchmark(
     density: Float,
     iterations: Int = 40,
     warmups: Int = 10,
+    drawOnly: Boolean = false,
+    stageTimings: Boolean = true,
 ): String {
     val resolver = createFontFamilyResolver(context)
     val family = FontFamily(android.graphics.Typeface.createFromFile(fontFile))
@@ -93,8 +95,19 @@ internal fun nativePrepareBenchmark(
     repeat(hits) { eu.kanade.tachiyomi.ui.dictionary.compose.parseDictionaryCss(prepared[0].css, themeVars) }
     val cssHitMs = (System.nanoTime() - hitStart) / 1e6 / hits
 
-    fun runOnce(perWorker: Boolean): BenchmarkSample {
+    if (drawOnly) {
         val resources = NativeGlossaryResources(Density(density), direction, resolver)
+        val documents = prepared.map { c ->
+            NativeGlossaryCompiler(stylesheets.getValue(c.css), Density(density), direction,
+                resolver, Color.Gray, Color.LightGray, resources = resources).prepare(c.nodes,
+                dictionaryBaseStyle(Color.Black, c.fontSize, family), emptyList(),
+                (c.width * density).toInt().coerceAtLeast(1))
+        }
+        return nativePlainTextDrawBenchmark(documents)
+    }
+
+    fun runOnce(perWorker: Boolean): BenchmarkSample {
+        val resources = NativeGlossaryResources(Density(density), direction, resolver, collectStageTimings = stageTimings)
         val cpuStart = Debug.threadCpuTimeNanos()
         val wallStart = System.nanoTime()
         var parseNs = 0L
@@ -130,16 +143,26 @@ internal fun nativePrepareBenchmark(
             elements = resources.elements,
             cssMatches = resources.cssMatches,
             paragraphs = resources.paragraphs,
+            singleLineParagraphs = resources.singleLineParagraphs,
+            plainTextParagraphs = resources.plainTextParagraphs,
             rubyPairs = resources.rubyPairs,
             tables = resources.tables,
             fontProfiles = Regex("fontProfiles=(\\d+)").find(resources.summary())?.groupValues?.get(1)?.toIntOrNull() ?: 0,
             lineLayoutMs = resources.lineLayoutNanos / 1e6,
+            paragraphFinishMs = resources.paragraphFinishNanos / 1e6,
+            paragraphGeometryMs = resources.paragraphGeometryNanos / 1e6,
+            decorationMs = resources.decorationNanos / 1e6,
+            rubyPlacementMs = resources.rubyPlacementNanos / 1e6,
+            ancestorMs = resources.ancestorNanos / 1e6,
+            rubyLowerMs = resources.rubyLowerNanos / 1e6,
+            tableMs = resources.tableNanos / 1e6,
             typographyMisses = resources.typographyMisses,
             boxMisses = resources.boxMisses,
             profileMisses = resources.profileMisses,
             declarationsMs = resources.declarationsNanos / 1e6,
             resourceMs = resources.resourceNanos / 1e6,
             appends = resources.appends,
+            summary = resources.summary(),
         )
     }
 
@@ -165,7 +188,15 @@ internal fun nativePrepareBenchmark(
     val minParse = samples.map { it.parseMs }.min()
     val minOwn = minWall - minLine - minParse
 
+    // Timer cost on this target. Stage counters are only worth reading when this is small.
+    val timerStart = System.nanoTime()
+    var timerSink = 0L
+    repeat(10000) { timerSink += System.nanoTime() }
+    val nanoTimeNs = (System.nanoTime() - timerStart) / 10000.0
+
     return JSONObject().apply {
+        put("nanoTimeNs", nanoTimeNs)
+        put("nanoTimeSink", timerSink)
         put("benchmark", "native-flow-v1-preparation")
         put("disclaimer", "Preparation only, no drawing and no perfetto tracing. Wall time for the whole corpus.")
         put("device", JSONObject().apply {
@@ -182,6 +213,9 @@ internal fun nativePrepareBenchmark(
         put("elements", last.elements)
         put("cssMatches", last.cssMatches)
         put("paragraphs", last.paragraphs)
+        put("singleLineParagraphs", last.singleLineParagraphs)
+        put("plainTextParagraphs", last.plainTextParagraphs)
+        put("staticParagraphs", last.paragraphs - last.singleLineParagraphs)
         put("rubyPairs", last.rubyPairs)
         put("tables", last.tables)
         put("fontProfiles", last.fontProfiles)
@@ -206,6 +240,13 @@ internal fun nativePrepareBenchmark(
         put("medianCpuMs", medianCpu)
         put("medianGlossaryParseMs", medianParse)
         put("medianLineLayoutMs", medianLine)
+        put("medianParagraphFinishMs", median(samples.map { it.paragraphFinishMs }))
+        put("medianParagraphGeometryMs", median(samples.map { it.paragraphGeometryMs }))
+        put("medianDecorationMs", median(samples.map { it.decorationMs }))
+        put("medianRubyPlacementMs", median(samples.map { it.rubyPlacementMs }))
+        put("medianAncestorMs", median(samples.map { it.ancestorMs }))
+        put("medianRubyLowerMs", median(samples.map { it.rubyLowerMs }))
+        put("medianTableMs", median(samples.map { it.tableMs }))
         put("medianOwnMs", own)
         put("minWallMs", minWall)
         put("minLineLayoutMs", minLine)
@@ -216,6 +257,7 @@ internal fun nativePrepareBenchmark(
         put("usPerElementWall", if (last.elements > 0) medianWall * 1000.0 / last.elements else -1.0)
         put("msPerParagraph", if (last.paragraphs > 0) medianWall / last.paragraphs else -1.0)
         put("msPerDocument", if (prepared.isNotEmpty()) medianWall / prepared.size else -1.0)
+        put("summary", last.summary)
     }.toString(2)
 }
 
@@ -226,14 +268,24 @@ private class BenchmarkSample(
     val elements: Int,
     val cssMatches: Int,
     val paragraphs: Int,
+    val singleLineParagraphs: Int,
+    val plainTextParagraphs: Int,
     val rubyPairs: Int,
     val tables: Int,
     val fontProfiles: Int,
     val lineLayoutMs: Double,
+    val paragraphFinishMs: Double,
+    val paragraphGeometryMs: Double,
+    val decorationMs: Double,
+    val rubyPlacementMs: Double,
+    val ancestorMs: Double,
+    val rubyLowerMs: Double,
+    val tableMs: Double,
     val typographyMisses: Int,
     val boxMisses: Int,
     val profileMisses: Int,
     val declarationsMs: Double,
     val resourceMs: Double,
     val appends: Int,
+    val summary: String,
 )

@@ -66,7 +66,8 @@ object LookupProfiler {
 
     fun timestamp(): Long = sink?.now() ?: System.nanoTime()
 
-    fun summaryOnly(phase: String): Boolean = phase.startsWith("document.") || phase.startsWith("text.") ||
+    fun summaryOnly(phase: String): Boolean = phase.startsWith("native.") ||
+        phase.startsWith("document.") || phase.startsWith("text.") ||
         phase.startsWith("ruby.") || phase.startsWith("style.") || phase.startsWith("node.") ||
         phase.startsWith("paragraph.") || phase.startsWith("table.") || phase.startsWith("plan.worker.") ||
         phase.startsWith("fn.")

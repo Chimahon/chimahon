@@ -27,9 +27,11 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import chimahon.diagnostics.LookupProfiler
+import java.util.IdentityHashMap
 import kotlin.math.ceil
 
-public data class RubyTextSegment(val text: String, val style: TextStyle)
+/** UTF-16 ranges share the full shaping context instead of owning substring copies. */
+public data class RubyTextRun(val start: Int, val end: Int, val style: TextStyle)
 
 /** Normalized typo ascent/descent of a shaped run, in pixels. */
 public data class RubyEmHeight(val ascentPx: Float, val descentPx: Float)
@@ -43,12 +45,18 @@ public class RubyTextRenderer(
     var profilingId: Long = 0
     private val fonts = HashMap<SpanStyle, RubyFontResources>()
     private val styles = HashMap<TextStyle, RubyTextStyle>()
+    // The same style instances recur for every ruby pair; identity skips hashing their spans.
+    private val identityStyles = IdentityHashMap<TextStyle, RubyTextStyle>()
     val fontProfileCount: Int get() = fonts.size
     var shapedTextRuns = 0
         private set
 
     fun resources(style: TextStyle): RubyTextStyle {
-        styles[style]?.takeUnless { it.font.isStale }?.let { return it }
+        identityStyles[style]?.takeUnless { it.font.isStale }?.let { return it }
+        styles[style]?.takeUnless { it.font.isStale }?.let {
+            identityStyles[style] = it
+            return it
+        }
         val resolved = resolveDefaults(style, direction)
         // Paint and line leading cannot change glyph selection or advances.
         val key = resolved.toSpanStyle().copy(color = Color.Unspecified, background = Color.Unspecified,
@@ -57,7 +65,10 @@ public class RubyTextRenderer(
             RubyFontResources(resolved, density, resolver, direction == LayoutDirection.Rtl)
         }.also { fonts[key] = it }
         return LookupProfiler.section(profilingId, "ruby.paint.prepare") { RubyTextStyle(style, font, density) }
-            .also { styles[style] = it }
+            .also {
+                styles[style] = it
+                identityStyles[style] = it
+            }
     }
 
     fun lineBox(style: TextStyle): LineBoxMetrics {
@@ -67,27 +78,25 @@ public class RubyTextRenderer(
         return LineBoxMetrics(ascent, descent, leading, ascent + leading)
     }
 
-    fun prepare(text: String, style: TextStyle, segments: List<RubyTextSegment> = emptyList(),
+    fun prepare(text: String, style: TextStyle, runs: List<RubyTextRun> = emptyList(),
         resource: RubyTextStyle = resources(style)): PreparedRubyText {
-        val pieces = ArrayList<RubyTextPiece>(maxOf(1, segments.size))
+        val pieces = ArrayList<RubyTextPiece>(maxOf(1, runs.size))
         var advance = 0f
         var ascent = 0f
         var descent = 0f
         var emAscent: Float? = null
         var emDescent: Float? = null
         var requestedHeight = resource.lineHeightPx
-        var textOffset = 0
         val chars = if (Build.VERSION.SDK_INT < 31) text.toCharArray() else null
-        fun append(value: String, runStyle: TextStyle) {
-            if (value.isEmpty()) return
+        fun append(start: Int, end: Int, runStyle: TextStyle) {
+            if (start == end) return
             val runResource = if (runStyle === style) resource else resources(runStyle)
             requestedHeight = maxOf(requestedHeight, runResource.lineHeightPx)
             val glyphs = LookupProfiler.section(profilingId, "ruby.glyphs.shape") {
-                runResource.font.shape(text, textOffset, value.length, chars)
+                runResource.font.shape(text, start, end - start, chars)
             }
-            textOffset += value.length
             shapedTextRuns++
-            pieces.add(RubyTextPiece(glyphs, runResource, advance, value.length))
+            pieces.add(RubyTextPiece(glyphs, runResource, advance, end - start))
             advance += glyphs.advancePx
             ascent = maxOf(ascent, glyphs.ascentPx + runResource.baselineShiftPx)
             descent = maxOf(descent, glyphs.descentPx - runResource.baselineShiftPx)
@@ -96,10 +105,10 @@ public class RubyTextRenderer(
                 emDescent = maxOf(emDescent ?: 0f, it.descentPx)
             }
         }
-        if (segments.isEmpty()) append(text, style) else segments.forEach { append(it.text, it.style) }
+        if (runs.isEmpty()) append(0, text.length, style) else runs.forEach { append(it.start, it.end, it.style) }
         val halfLeading = ((requestedHeight - ascent - descent) / 2f).coerceAtLeast(0f)
         return PreparedRubyText(text, style, pieces, advance, ascent, descent, halfLeading,
-            requestedHeight.takeIf { it > 0f } ?: (ascent + descent), emAscent, emDescent)
+            requestedHeight.takeIf { it > 0f } ?: (ascent + descent), emAscent, emDescent, resource.paint.textSize)
     }
 }
 
@@ -111,13 +120,14 @@ public class RubyFontResources(private val textStyle: TextStyle, density: Densit
         /** Text size for the one-off glyph-bounds probe that tells a real italic face from a flag. */
         private const val PROBE_TEXT_SIZE = 100f
     }
-    private val regularTypeface: Typeface = fontResolver.resolveAsTypeface(
-        textStyle.fontFamily, textStyle.fontWeight ?: FontWeight.Normal, FontStyle.Normal,
-        textStyle.fontSynthesis ?: FontSynthesis.All).value
     private val typefaceState: State<Typeface> = fontResolver.resolveAsTypeface(
         textStyle.fontFamily, textStyle.fontWeight ?: FontWeight.Normal, textStyle.fontStyle ?: FontStyle.Normal,
         textStyle.fontSynthesis ?: FontSynthesis.All)
     private val resolved: Typeface = typefaceState.value
+    private val regularTypeface: Typeface = if (textStyle.fontStyle == FontStyle.Italic) {
+        fontResolver.resolveAsTypeface(textStyle.fontFamily, textStyle.fontWeight ?: FontWeight.Normal,
+            FontStyle.Normal, textStyle.fontSynthesis ?: FontSynthesis.All).value
+    } else resolved
     val isStale: Boolean get() = typefaceState.value != resolved
     /**
      * CSS synthesises a bold face when the family has none (2.1 15.5). Compose's resolver hands
@@ -126,7 +136,7 @@ public class RubyFontResources(private val textStyle: TextStyle, density: Densit
      * reference's bold headword carried 1127 ink pixels where the native's carried 811.
      */
     private val syntheticBold: Boolean =
-        !resolved.isBold && textStyle.fontWeight == FontWeight.Bold
+        !resolved.isBold && (textStyle.fontWeight?.weight ?: 400) >= 600
     /**
      * The same synthesis for italic: the staged face has no italic, and the browser skews it by
      * 0.25. Measured against the reference, the skewed 'l' of a gloss shifted 6px over 28 rows
@@ -172,6 +182,8 @@ public class RubyFontResources(private val textStyle: TextStyle, density: Densit
         }
     }
     private val emRatios = HashMap<Font, FontTypoRatio?>()
+    /** Immutable font facts; callers must not pass this object to APIs that overwrite metrics. */
+    internal val metricsInt: Paint.FontMetricsInt by lazy { paint.fontMetricsInt }
     internal val hanPunctuation by lazy { HanPunctuationFont(paint) }
     private var primaryHeight: Pair<Float, Float>? = null
 
@@ -212,13 +224,32 @@ public class RubyFontResources(private val textStyle: TextStyle, density: Densit
         }.also { strut = it }
     }
 
-    fun shape(text: String, start: Int, count: Int, chars: CharArray?): RubyGlyphRun = if (Build.VERSION.SDK_INT >= 31) {
-        val shaped = TextRunShaper.shapeTextRun(text, start, count, 0, text.length, 0f, 0f, rtl, paint)
-        PositionedRubyGlyphs(shaped, emHeight(shaped))
-    } else {
-        val context = checkNotNull(chars)
-        CanvasRubyGlyphs(text, start, start + count, rtl, paint.fontMetrics,
-            paint.getTextRunAdvances(context, start, count, 0, context.size, rtl, null, 0))
+    /**
+     * Shaped runs keyed by the exact shaping input. Ruby bases and readings repeat heavily across
+     * a popup, and the shaped result depends only on this font resource, the text and the range.
+     */
+    private class ShapeKey(val text: String, val start: Int, val count: Int) {
+        override fun hashCode(): Int = (text.hashCode() * 31 + start) * 31 + count
+        override fun equals(other: Any?): Boolean = other is ShapeKey && other.start == start &&
+            other.count == count && other.text == text
+    }
+    private val shapedRuns = HashMap<ShapeKey, RubyGlyphRun>()
+
+    fun shape(text: String, start: Int, count: Int, chars: CharArray?): RubyGlyphRun {
+        val key = ShapeKey(text, start, count)
+        shapedRuns[key]?.let { return it }
+        val run = if (Build.VERSION.SDK_INT >= 31) {
+            val shaped = TextRunShaper.shapeTextRun(text, start, count, 0, text.length, 0f, 0f, rtl, paint)
+            PositionedRubyGlyphs(shaped, emHeight(shaped))
+        } else {
+            val context = checkNotNull(chars)
+            CanvasRubyGlyphs(text, start, start + count, rtl, paint.fontMetrics,
+                paint.getTextRunAdvances(context, start, count, 0, context.size, rtl, null, 0))
+        }
+        // Bounded so one very large lookup cannot retain every annotation it ever shaped.
+        if (shapedRuns.size >= 4096) shapedRuns.clear()
+        shapedRuns[key] = run
+        return run
     }
 
     fun characterOffset(text: String, start: Int, end: Int, x: Float, width: Float): Int {
@@ -262,6 +293,7 @@ public class PreparedRubyText(
     val lineHeightPx: Float,
     val emAscentPx: Float?,
     val emDescentPx: Float?,
+    val fontSizePx: Float,
 ) {
     val heightPx: Float get() = ascentPx + descentPx + halfLeadingPx * 2f
     val size = IntSize(ceil(advancePx).toInt(), ceil(heightPx).toInt())

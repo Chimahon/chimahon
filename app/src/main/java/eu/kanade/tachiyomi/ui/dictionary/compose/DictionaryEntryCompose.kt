@@ -205,6 +205,22 @@ private class GlossaryLayoutWork(
     val index: Int,
 )
 
+private val LocalPopupGlossaryLayout = compositionLocalOf<NativeGlossaryLayoutContext?> { null }
+
+@Immutable
+internal class GlossaryPresentation(
+    val css: ParsedCss,
+    val width: Int,
+    val initiallyExpanded: Boolean,
+    val definitionTags: List<List<String>>,
+)
+
+@Immutable
+internal class TermCardPresentation(
+    val customOpenNames: Set<String>,
+    val groups: List<GlossaryPresentation>,
+)
+
 /**
  * Prepares glosses drawn from the shared queue on the calling worker.
  *
@@ -215,15 +231,10 @@ private class GlossaryLayoutWork(
 private suspend fun prepareGlossaryBatch(
     profilingId: Long,
     nextWork: () -> GlossaryLayoutWork?,
-    fontResolver: FontFamily.Resolver,
-    density: Density,
-    layoutDirection: LayoutDirection,
-    secondary: Color,
-    border: Color,
-    baseStyle: TextStyle,
+    layout: NativeGlossaryLayoutContext,
 ): IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument> {
     val preparation = chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.worker.context") {
-        NativeGlossaryResources(density, layoutDirection, fontResolver)
+        layout.createResources()
     }
     val caller = currentCoroutineContext()
     val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
@@ -235,15 +246,13 @@ private suspend fun prepareGlossaryBatch(
         val item = nextWork() ?: break
         if (firstIndex == -1) firstIndex = item.index
         val compiler = chimahon.diagnostics.LookupProfiler.section(profilingId, "document.compiler.create") {
-            NativeGlossaryCompiler(item.css, density, layoutDirection,
-                fontResolver, secondary, border, checkCancellation = { caller.ensureActive() },
-                profilingId = profilingId, resources = preparation)
+            layout.compiler(item.css, profilingId, preparation, checkCancellation = { caller.ensureActive() })
         }
         val paragraphStart = preparation.paragraphs
         val rubyStart = preparation.rubyPairs
         val start = if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.timestamp() else 0L
         val doc = chimahon.diagnostics.LookupProfiler.section(profilingId, "document.prepare") {
-            compiler.prepare(item.nodes, baseStyle, emptyList(), item.width)
+            compiler.prepare(item.nodes, layout.style, emptyList(), item.width)
         }
         out[item.nodes] = doc
         if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.document",
@@ -314,6 +323,9 @@ fun DictionaryEntryCompose(
     isLoading: Boolean = false,
     usePlainTextBody: Boolean = false,
     profilingId: Long = 0,
+    /** Actual bounded content width supplied by a host that already calculated its geometry. */
+    viewportWidthPx: Int? = null,
+    cardPreparation: DictionaryCardPreparation? = null,
 ) {
     val context = LocalContext.current
     val renderEnvironment = LocalDictionaryRenderEnvironment.current
@@ -358,8 +370,7 @@ fun DictionaryEntryCompose(
     val themeVars = remember(colorScheme, isDark, isAmoled) {
         dictionaryThemeVars(colorScheme, isDark, isAmoled)
     }
-    BoxWithConstraints(modifier) {
-    val popupWidthPx = constraints.maxWidth
+    DictionaryViewport(modifier, viewportWidthPx) { popupWidthPx ->
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val fontResolver = LocalFontFamilyResolver.current
@@ -369,6 +380,9 @@ fun DictionaryEntryCompose(
     rubyRenderer.profilingId = profilingId
     // Shared by worker document preparation and the drawing host.
     val baseStyle = remember(onBg, fontSize) { dictionaryBaseStyle(onBg, fontSize, null) }
+    val glossaryLayout = remember(baseStyle, density, layoutDirection, fontResolver, secondary, border, popupWidthPx) {
+        NativeGlossaryLayoutContext(baseStyle, density, layoutDirection, fontResolver, secondary, border, popupWidthPx)
+    }
 
     val plan by produceState(
         initialValue = if (isLoading) RenderPlan.Empty else null,
@@ -403,6 +417,9 @@ fun DictionaryEntryCompose(
         val snapshotPriority = priority
         val snapshotResolveTitle = resolveTitle
         val snapshotThemeVars = themeVars
+        val snapshotCardPreparation = cardPreparation?.takeIf {
+            resultsAreOrdered && it.matches(snapshot, snapshotGroupTerms, snapshotProfile.dictionaryOrder)
+        }
         chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.queued")
         if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.config",
             "schema=native-flow-v1 widthPolicy=assigned tablePolicy=allocated-grid rubyLookup=base-only workerLimit=4 popupWidth=$popupWidthPx fontSize=$fontSize density=${density.density} " +
@@ -411,36 +428,45 @@ fun DictionaryEntryCompose(
             val shown = if (resultsAreOrdered) snapshot else {
                 orderLookupResultsForDisplay(snapshot, snapshotProfile, context)
             }
-            val planCssMap = chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.css") { buildParsedCssMap(snapshotStyles, snapshotCustomCss, context, snapshotThemeVars) }
-            val planCards = chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.cards_parse") {
-                buildCards(shown, snapshotGroupTerms, snapshotResolveTitle, snapshotPriority)
+            // Neither parser consumes the other's output. Overlap them before starting layout;
+            // both retain their original input/order and cancellation belongs to this lookup.
+            val (planCssMap, planCards) = coroutineScope {
+                val css = async {
+                    chimahon.diagnostics.LookupProfiler.section(profilingId, "plan.css") {
+                        buildParsedCssMap(snapshotStyles, snapshotCustomCss, context, snapshotThemeVars)
+                    }
+                }
+                val cards = if (snapshotCardPreparation != null) snapshotCardPreparation.await() else {
+                    chimahon.diagnostics.LookupProfiler.elapsedSection(profilingId, "plan.cards_parse") {
+                        buildCards(shown, snapshotGroupTerms, snapshotResolveTitle, snapshotPriority)
+                    }
+                }
+                css.await() to cards
             }
             val documents = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+            val presentation = ArrayList<TermCardPresentation>(planCards.size)
             val work = ArrayList<GlossaryLayoutWork>()
             val seen = IdentityHashMap<List<StructuredNode>, Boolean>()
             for (card in planCards) {
                 val customOpen = customOpenDictionaryNames(card, snapshotProfile)
+                val groups = ArrayList<GlossaryPresentation>(card.dictGroups.size)
                 for ((groupIndex, group) in card.dictGroups.withIndex()) {
                     val expanded = dictionaryInitiallyExpanded(group, groupIndex, snapshotProfile.dictionaryCollapseMode, customOpen)
-                    if (!expanded || popupWidthPx == androidx.compose.ui.unit.Constraints.Infinity) continue
                     val groupCss = planCssMap[group.dictName]
                         ?: planCssMap[group.dictName.lowercase()]
                         ?: ParsedCss.EMPTY
-                    // One width per group, not per gloss: it depends only on the popup width and on
-                    // whether the group holds a single gloss.
-                    val width = run {
-                        val inset = with(density) {
-                            4.dp.roundToPx() + 12.dp.roundToPx() + 12.dp.roundToPx() +
-                                if (group.glosses.size == 1) 0 else 16.dp.roundToPx()
-                        }
-                        (popupWidthPx - inset).coerceAtLeast(0)
-                    }
+                    val width = glossaryLayout.glossaryWidth(group.glosses.size != 1)
+                    groups.add(GlossaryPresentation(groupCss, width, expanded, group.glosses.map { gloss ->
+                        gloss.definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }.take(8)
+                    }))
+                    if (!expanded) continue
                     for ((index, nodes) in group.parsedGlosses.withIndex()) {
                         if (seen.put(nodes, true) != null) continue
                         work.add(GlossaryLayoutWork(nodes, group.dictName, group.glosses[index].glossary.length,
                             groupCss, width, work.size))
                     }
                 }
+                presentation.add(TermCardPresentation(customOpen, groups))
             }
             // Start larger documents before the queue drains; display order stays in planCards.
             // The source size is already known, so scheduling adds no tree traversal.
@@ -449,16 +475,13 @@ fun DictionaryEntryCompose(
             val nextWork = { work.getOrNull(next.getAndIncrement()) }
             val batches = if (work.size <= 1) {
                 // Single gloss is the common case and cannot parallelise; skip the fan-out entirely.
-                listOf(prepareGlossaryBatch(profilingId, nextWork, fontResolver, density, layoutDirection,
-                    secondary, border, baseStyle))
+                listOf(prepareGlossaryBatch(profilingId, nextWork, glossaryLayout))
             } else {
                 val workers = Runtime.getRuntime().availableProcessors().coerceIn(1, minOf(4, work.size))
                 coroutineScope {
                     List(workers) {
                         async(glossaryPreparationDispatcher) {
-                            prepareGlossaryBatch(profilingId,
-                                nextWork,
-                                fontResolver, density, layoutDirection, secondary, border, baseStyle)
+                            prepareGlossaryBatch(profilingId, nextWork, glossaryLayout)
                         }
                     }.awaitAll()
                 }
@@ -471,6 +494,8 @@ fun DictionaryEntryCompose(
                 parsedCssMap = planCssMap,
                 cards = planCards,
                 documents = documents,
+                presentation = presentation,
+                layoutContext = glossaryLayout,
             )
         } }
         chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.ready")
@@ -499,6 +524,7 @@ fun DictionaryEntryCompose(
         LocalMediaDataUris provides stableMedia,
         // Complete worker-prepared document geometry; the glossary host only paints and handles taps.
         LocalNativeGlossaryDocuments provides effectivePlan.documents,
+        LocalPopupGlossaryLayout provides (effectivePlan.layoutContext ?: glossaryLayout),
         // Read ONLY by the per-card Anki button leaf ([TermCardAnkiActions]). Providing the set
         // here instead of threading it through TermCardView means an Anki add (which swaps the
         // set instance) recomposes just the two IconButtons: every card body skips, because none
@@ -575,7 +601,8 @@ fun DictionaryEntryCompose(
                         effectivePlan.cards.forEachIndexed { i, card ->
                             val cardKey = "$i-${card.expression}\u0000${card.reading}"
                             val cardState = cardStates[i]
-                            item(key = "$cardKey-header", contentType = "term-header") {
+                            // Retain the control nodes when the term changes; card state still resets.
+                            item(key = "term-header-$i", contentType = "term-header") {
                             TermCardView(
                                 card = card,
                                 index = i,
@@ -604,29 +631,31 @@ fun DictionaryEntryCompose(
                                 showDictionaryGroups = false,
                             )
                             }
-                            val customOpen = customOpenDictionaryNames(card, activeProfile)
+                            val cardPresentation = effectivePlan.presentation[i]
+                            val customOpen = cardPresentation.customOpenNames
                             card.dictGroups.forEachIndexed { groupIndex, group ->
+                                val groupPresentation = cardPresentation.groups[groupIndex]
                                 val groupKey = "$cardKey-dict-$groupIndex"
-                                val initial = dictionaryInitiallyExpanded(group, groupIndex,
-                                    activeProfile.dictionaryCollapseMode, customOpen)
+                                val initial = groupPresentation.initiallyExpanded
                                 item(key = "$groupKey-header", contentType = "dictionary-header") {
                                     DictGroupView(
                                         group, groupIndex, activeProfile.dictionaryCollapseMode, customOpen,
                                         cardState.overrides, cardState.selectedDict, { cardState.selectedDict = it },
                                         fontSize, accent, secondary, hoverBg, onBg, border, eInkMode,
                                         stableCssMap, onRecursiveLookup, usePlainTextBody, showGlosses = false,
+                                        initiallyExpanded = initial,
                                     )
                                 }
                                 if (cardState.overrides[group.title] ?: initial) {
                                     itemsIndexed(group.glosses, key = { glossIndex, _ -> "$groupKey-gloss-$glossIndex" },
-                                        contentType = { _, _ -> "gloss" }) { glossIndex, _ ->
-                                        DictGroupView(
-                                            group, groupIndex, activeProfile.dictionaryCollapseMode, customOpen,
-                                            cardState.overrides, cardState.selectedDict, { cardState.selectedDict = it },
-                                            fontSize, accent, secondary, hoverBg, onBg, border, eInkMode,
-                                            stableCssMap, onRecursiveLookup, usePlainTextBody,
-                                            showHeader = false, glossIndex = glossIndex,
-                                        )
+                                        contentType = { _, _ -> "gloss" }) { glossIndex, gloss ->
+                                        Column(Modifier.padding(start = if (group.glosses.size == 1) 0.dp else 16.dp, end = 12.dp)) {
+                                            GlossRow(gloss.glossary, gloss.definitionTags, gloss.dictName,
+                                                fontSize, onBg, secondary, border, eInkMode, stableCssMap,
+                                                onRecursiveLookup, usePlainTextBody,
+                                                group.parsedGlosses[glossIndex], groupPresentation,
+                                                groupPresentation.definitionTags[glossIndex])
+                                        }
                                     }
                                 }
                             }
@@ -641,6 +670,16 @@ fun DictionaryEntryCompose(
     }
 }
 
+@Composable
+private fun DictionaryViewport(modifier: Modifier, widthPx: Int?, content: @Composable (Int) -> Unit) {
+    if (widthPx != null) {
+        require(widthPx >= 0 && widthPx != androidx.compose.ui.unit.Constraints.Infinity)
+        Box(modifier) { content(widthPx) }
+    } else {
+        BoxWithConstraints(modifier) { content(constraints.maxWidth) }
+    }
+}
+
 /**
  * Everything the renderer needs, derived off the composition thread. Building this in one
  * background pass keeps [DictionaryCssParser] / org.json / jsoup work out of composition and
@@ -652,6 +691,8 @@ internal class RenderPlan(
     val parsedCssMap: Map<String, ParsedCss>,
     val cards: List<TermCard>,
     val documents: Map<List<StructuredNode>, NativeGlossaryDocument> = emptyMap(),
+    val presentation: List<TermCardPresentation> = emptyList(),
+    val layoutContext: NativeGlossaryLayoutContext? = null,
 ) {
     companion object {
         val Empty = RenderPlan(emptyList(), emptyMap(), emptyList())
@@ -733,15 +774,17 @@ internal fun buildParsedCssMap(
     return map
 }
 
-internal fun buildCards(
+internal suspend fun buildCards(
     results: List<LookupResult>,
     groupTerms: Boolean,
     resolveTitle: (String) -> String,
     priority: Map<String, Int>,
+    checkCancellation: () -> Unit = {},
 ): List<TermCard> {
     if (results.isEmpty()) return emptyList()
 
     fun rank(title: String): Int = priority[title] ?: Int.MAX_VALUE
+    val titles = HashMap<String, String>()
     val parsed = HashMap<Triple<String, String, Boolean>, List<StructuredNode>>()
 
     class Acc {
@@ -760,8 +803,7 @@ internal fun buildCards(
         fun finish(): TermCard {
             val groups = glosses.values.sortedBy { rank(it.title) }.map { group ->
                 group.copy(parsedGlosses = group.glosses.map { gloss ->
-                    val source = Triple(group.dictName, gloss.glossary, group.glosses.size == 1)
-                    parsed.getOrPut(source) { parseGlossaryNodes(gloss.glossary) }
+                    parsed.getValue(Triple(group.dictName, gloss.glossary, group.glosses.size == 1))
                 })
             }
             return TermCard(
@@ -781,6 +823,7 @@ internal fun buildCards(
 
     val out = mutableListOf<Acc>()
     for (result in results) {
+        checkCancellation()
         val acc: Acc
         val last = out.lastOrNull()
         if (groupTerms && last != null &&
@@ -804,7 +847,9 @@ internal fun buildCards(
         if (acc.matched.isBlank()) acc.matched = result.matched
         for (p in result.process) acc.process.add(ProcessStep(p.name, p.description))
         for (g in result.term.glossaries) {
-            val group = acc.glosses.getOrPut(g.dictName) { DictionaryGroup(g.dictName, resolveTitle(g.dictName), mutableListOf()) }
+            val group = acc.glosses.getOrPut(g.dictName) {
+                DictionaryGroup(g.dictName, titles.getOrPut(g.dictName) { resolveTitle(g.dictName) }, mutableListOf())
+            }
             @Suppress("UNCHECKED_CAST")
             val list = group.glosses as MutableList<GlossaryEntry>
             if (acc.seenGlosses.getOrPut(g.dictName) { HashSet() }.add(g.glossary to g.definitionTags)) {
@@ -816,6 +861,43 @@ internal fun buildCards(
             acc.frequencies[f.dictName] = if (existing != null) f.copy(frequencies = existing.frequencies + f.frequencies) else f
         }
         for (p in result.term.pitches) acc.pitches[p.dictName] = p
+    }
+    // Parse every unique glossary once. Each source is independent, so spread them over the
+    // available cores the same way the layout phase does; card order stays the source order.
+    val sources = LinkedHashSet<Triple<String, String, Boolean>>()
+    for (acc in out) for (group in acc.glosses.values) {
+        for (gloss in group.glosses) {
+            sources.add(Triple(group.dictName, gloss.glossary, group.glosses.size == 1))
+        }
+    }
+    if (sources.isNotEmpty()) {
+        val pending = sources.toList()
+        val workers = if (pending.size <= 1) 1 else
+            Runtime.getRuntime().availableProcessors().coerceIn(1, minOf(4, pending.size))
+        if (workers == 1) {
+            for (source in pending) {
+                checkCancellation()
+                parsed[source] = parseGlossaryNodes(source.second)
+            }
+        } else {
+            val next = java.util.concurrent.atomic.AtomicInteger()
+            val chunks = coroutineScope {
+                List(workers) {
+                    async(Dispatchers.Default) {
+                        val done = ArrayList<Pair<Triple<String, String, Boolean>, List<StructuredNode>>>(pending.size / workers + 1)
+                        while (true) {
+                            val index = next.getAndIncrement()
+                            if (index >= pending.size) break
+                            checkCancellation()
+                            val source = pending[index]
+                            done.add(source to parseGlossaryNodes(source.second))
+                        }
+                        done
+                    }
+                }.awaitAll()
+            }
+            for (chunk in chunks) for ((source, nodes) in chunk) parsed[source] = nodes
+        }
     }
     return out.map { it.finish() }
 }
@@ -858,9 +940,13 @@ private fun TermCardAnkiActions(
     val alreadyAdded = expression in LocalExistingExpressions.current
     val showAdd = !alreadyAdded || dupAction != "prevent"
     val targetDict = selectedDict ?: firstDictTitle
+    val addAction = rememberUpdatedState { onAnkiLookup(index, null, targetDict, null, false) }
+    val openAction = rememberUpdatedState { onAnkiLookup(index, null, targetDict, null, true) }
+    val onAdd = remember { { addAction.value() } }
+    val onOpen = remember { { openAction.value() } }
     if (showAdd) {
         IconButton(
-            onClick = { onAnkiLookup(index, null, targetDict, null, false) },
+            onClick = onAdd,
             modifier = Modifier.size(28.dp),
         ) {
             Icon(
@@ -873,7 +959,7 @@ private fun TermCardAnkiActions(
     }
     if (alreadyAdded) {
         IconButton(
-            onClick = { onAnkiLookup(index, null, targetDict, null, true) },
+            onClick = onOpen,
             modifier = Modifier.size(28.dp),
         ) {
             Icon(
@@ -1220,9 +1306,10 @@ private fun DictGroupView(
     showHeader: Boolean = true,
     glossIndex: Int? = null,
     showGlosses: Boolean = true,
+    initiallyExpanded: Boolean? = null,
 ) {
     val override = overrideState[group.title]
-    val initial = dictionaryInitiallyExpanded(group, groupIndex, collapseMode, customOpenNames)
+    val initial = initiallyExpanded ?: dictionaryInitiallyExpanded(group, groupIndex, collapseMode, customOpenNames)
     val expanded = override ?: initial
 
     Column(modifier = Modifier.padding(top = if (!showHeader) 0.dp else if (groupIndex == 0) 2.dp else 4.dp)) {
@@ -1525,6 +1612,8 @@ internal fun GlossRow(
      * both so a plan rebuild with new nodes re-resolves correctly.
      */
     parsedNodes: List<StructuredNode> = emptyList(),
+    presentation: GlossaryPresentation? = null,
+    preparedDefinitionTags: List<String>? = null,
 ) {
     if (usePlainTextBody) {
         val plain = remember(glossary) {
@@ -1543,7 +1632,7 @@ internal fun GlossRow(
         }
         if (plain.isBlank()) return
         Column(Modifier.padding(vertical = 2.dp)) {
-            val defTags = remember(definitionTags) {
+            val defTags = preparedDefinitionTags ?: remember(definitionTags) {
                 definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
             }
             if (defTags.isNotEmpty()) {
@@ -1557,18 +1646,18 @@ internal fun GlossRow(
         }
         return
     }
-    val glossCss = remember(dictName, parsedCssMap) {
+    val glossCss = presentation?.css ?: remember(dictName, parsedCssMap) {
         parsedCssMap[dictName] ?: parsedCssMap[dictName.lowercase()] ?: ParsedCss.EMPTY
     }
     // The Compose renderer is a user option, so every gloss goes through it. A gloss that is not
     // structured content is just a text node. Parsing runs once per gloss in the plan phase; this
     // remember only covers producers that bypass the plan (none in production).
-    val structuredNodes: List<StructuredNode> = remember(glossary, parsedNodes) {
+    val structuredNodes: List<StructuredNode> = if (presentation != null) parsedNodes else remember(glossary, parsedNodes) {
         parsedNodes.ifEmpty { parseGlossaryNodes(glossary) }
     }
     // definitionTags (part-of-speech / field / archaic chips) must render for BOTH paths —
     // the structured branch previously returned before them, hiding half the entry info.
-    val defTags = remember(definitionTags) {
+    val defTags = preparedDefinitionTags ?: remember(definitionTags) {
         definitionTags.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     }
     // One stable lookup callback for both body paths. `onRecursiveLookup` is a fresh lambda on
@@ -1586,7 +1675,11 @@ internal fun GlossRow(
                 }
             }
         }
-        StructuredGlossaryContent(
+        if (presentation != null) {
+            val layout = checkNotNull(LocalPopupGlossaryLayout.current) { "Prepared gloss requires its popup layout context" }
+            PreparedGlossaryContent(structuredNodes, glossCss, layout, presentation.width, dictName,
+                onLookup, Modifier.fillMaxWidth())
+        } else StructuredGlossaryContent(
             nodes = structuredNodes,
             parsedCss = glossCss,
             dictName = dictName,
@@ -1610,9 +1703,13 @@ private fun WordAudioButton(
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
-    var playing by remember(expression) { mutableStateOf(false) }
+    var playing by remember(expression, reading) { mutableStateOf(false) }
+    var playbackRequest by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    androidx.compose.runtime.DisposableEffect(expression, reading) {
+        onDispose { playbackRequest?.cancel() }
+    }
 
-    LaunchedEffect(expression, autoplay) {
+    LaunchedEffect(expression, reading, autoplay) {
         if (!autoplay) return@LaunchedEffect
         val url = WordAudioPlayer.findAudio(expression, reading)
         if (url != null) WordAudioPlayer.playUrl(url)
@@ -1621,11 +1718,14 @@ private fun WordAudioButton(
     IconButton(
         onClick = {
             if (playing) return@IconButton
-            scope.launch {
+            playbackRequest = scope.launch {
                 playing = true
-                val url = WordAudioPlayer.findAudio(expression, reading)
-                if (url != null) WordAudioPlayer.playUrl(url)
-                playing = false
+                try {
+                    val url = WordAudioPlayer.findAudio(expression, reading)
+                    if (url != null) WordAudioPlayer.playUrl(url)
+                } finally {
+                    playing = false
+                }
             }
         },
         modifier = modifier.size(28.dp),

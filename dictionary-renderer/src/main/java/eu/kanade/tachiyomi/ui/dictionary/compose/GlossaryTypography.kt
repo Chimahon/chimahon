@@ -59,34 +59,38 @@ public class GlossaryTypography private constructor(
     }
 
     companion object {
-        fun read(css: Map<String, String>): GlossaryTypography {
-            val color = css["color"]?.let {
+        fun read(css: Map<String, String>): GlossaryTypography = read { css[it.name] }
+
+        internal fun read(css: NativeCssDeclarations): GlossaryTypography = read { css[it] }
+
+        private inline fun read(value: (NativeCssProperty) -> String?): GlossaryTypography {
+            val color = value(NativeCssProperty.Color)?.let {
                 parseCssColor2(if (it.contains("color-mix", ignoreCase = true)) blendColorMix(it) ?: it else it)
             }
-            val weight = when (val raw = css["fontWeight"]) {
+            val weight = when (val raw = value(NativeCssProperty.FontWeight)) {
                 "bold", "bolder" -> FontWeight.Bold
                 "normal" -> FontWeight.Normal
-                else -> FontWeight.Bold.takeIf { (raw?.toIntOrNull() ?: 0) >= 600 }
+                else -> raw?.toIntOrNull()?.takeIf { it in 1..1000 }?.let(::FontWeight)
             }
-            val opacity = css["opacity"]?.trim()?.toFloatOrNull()?.let {
+            val opacity = value(NativeCssProperty.Opacity)?.trim()?.toFloatOrNull()?.let {
                 when {
                     it in 0f..1f -> it
                     it > 1f && it <= 100f -> (it / 100f).coerceIn(0f, 1f)
                     else -> null
                 }
             }
-            val shift = when (css["verticalAlign"]?.trim()?.lowercase()) { "super" -> 1; "sub" -> -1; else -> 0 }
-            val align = when (css["textAlign"]?.trim()?.lowercase()) {
+            val shift = when (value(NativeCssProperty.VerticalAlign)?.trim()?.lowercase()) { "super" -> 1; "sub" -> -1; else -> 0 }
+            val align = when (value(NativeCssProperty.TextAlign)?.trim()?.lowercase()) {
                 "right", "end" -> TextAlign.End
                 "center" -> TextAlign.Center
                 "left", "start" -> TextAlign.Start
                 "justify" -> TextAlign.Justify
                 else -> null
             }
-            return GlossaryTypography(color, length(css["fontSize"], false), length(css["lineHeight"], true),
-                css["lineHeight"] != null, weight, css["fontStyle"] == "italic",
-                css["textDecoration"]?.contains("underline") == true || css["textDecorationLine"]?.contains("underline") == true,
-                opacity, shift, align, css["fontFeatureSettings"])
+            return GlossaryTypography(color, length(value(NativeCssProperty.FontSize), false), length(value(NativeCssProperty.LineHeight), true),
+                value(NativeCssProperty.LineHeight) != null, weight, value(NativeCssProperty.FontStyle) == "italic",
+                value(NativeCssProperty.TextDecoration)?.contains("underline") == true || value(NativeCssProperty.TextDecorationLine)?.contains("underline") == true,
+                opacity, shift, align, value(NativeCssProperty.FontFeatureSettings))
         }
 
         private fun length(raw: String?, unitless: Boolean): TypographyLength? {
@@ -105,3 +109,13 @@ public class GlossaryTypography private constructor(
 
 public fun applyTypography(base: TextStyle, css: Map<String, String>, density: Float = 1f): TextStyle =
     GlossaryTypography.read(css).apply(base, density)
+
+/** The rt UA defaults override inherited line-height, but not explicit dictionary declarations. */
+internal fun rubyAnnotationStyle(base: TextStyle, inherited: TextStyle, css: NativeCssDeclarations): TextStyle {
+    val baseSize = fontSizeSp(base)
+    val size = css[NativeCssProperty.FontSize]?.let { parseMarginValue(it, baseSize) } ?: baseSize * 0.5f
+    // Match WebView's minimum logical font size for relative annotation sizes.
+    return inherited.copy(fontSize = size.coerceAtLeast(8f).sp,
+        lineHeight = if (css[NativeCssProperty.LineHeight] != null) inherited.lineHeight else TextUnit.Unspecified,
+        textDecoration = null)
+}

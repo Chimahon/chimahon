@@ -4,6 +4,17 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class StyleAnalysisTest {
+    @Test fun physicalLeftBorderIsOneEdgeWithItsRequestedWidthAndColor() {
+        for (declaration in listOf("1px solid #666666", "solid #666666 1px")) {
+            val box = analyzeBoxProps(mapOf("borderLeft" to declaration), 14f)
+            assertEquals(true, box.hasBorder)
+            assertEquals(true, box.leftAccent)
+            assertEquals(1f, box.borderWidth)
+            assertEquals("#666666", box.borderColor)
+            assertEquals(null, box.paddingStart)
+        }
+    }
+
     @Test fun logicalStartBorderRetainsWidthRegardlessOfShorthandOrder() {
         for (declaration in listOf("solid 0.5px black", "black solid 0.5px", "0.5px solid black")) {
             val box = analyzeBoxProps(mapOf("borderInlineStart" to declaration), 14f)

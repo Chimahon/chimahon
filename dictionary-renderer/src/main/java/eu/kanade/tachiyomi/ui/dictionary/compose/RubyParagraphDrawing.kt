@@ -27,9 +27,9 @@ public class RubyParagraphDrawing internal constructor(private val commands: Lis
 
         public fun appendColumn(builder: RubyGlyphBatchBuilder, metrics: RubyMetrics, x: Float, y: Float) {
             metrics.readingLayout.appendTo(builder,
-                x + (metrics.widthPx - metrics.readingLayout.advancePx) / 2f, y + metrics.readingOffsetPx)
+                x + metrics.inlineOffsetPx + (metrics.widthPx - metrics.readingLayout.advancePx) / 2f, y + metrics.readingOffsetPx)
             metrics.baseLayout.appendTo(builder,
-                x + (metrics.widthPx - metrics.baseLayout.advancePx) / 2f, y + metrics.baseOffsetPx)
+                x + metrics.inlineOffsetPx + (metrics.widthPx - metrics.baseLayout.advancePx) / 2f, y + metrics.baseOffsetPx)
         }
     }
 }

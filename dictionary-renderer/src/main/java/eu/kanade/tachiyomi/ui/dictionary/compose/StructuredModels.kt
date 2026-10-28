@@ -2,6 +2,21 @@ package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.runtime.Immutable
 
+/** Mirrors renderer.js's sc-prefixed DOMStringMap key conversion, not CSS property camel-casing. */
+internal fun structuredDataName(key: String): String? {
+    if (key == "class") return key
+    if (key.indices.any { key[it] == '-' && key.getOrNull(it + 1)?.let { next -> next in 'a'..'z' } == true }) return null
+    if (key.isEmpty()) return key
+    if (key[0] in 'a'..'z' && key.none { it in 'A'..'Z' }) return key
+    return buildString {
+        val name = key.take(1).uppercase() + key.substring(1)
+        for (char in name) {
+            if (char in 'A'..'Z') { if (isNotEmpty()) append('-'); append(char.lowercaseChar()) }
+            else append(char)
+        }
+    }.removePrefix("-")
+}
+
 /**
  * A parsed structured-glossary element tree. Mirrors the DOM that `renderer.js` builds from
  * a dictionary's JSON `structured-content`, preserving every attribute needed to apply
@@ -19,7 +34,7 @@ sealed interface StructuredNode {
     data class Element(
         val tag: StructuredTag,
         val children: List<StructuredNode> = emptyList(),
-        val attributes: StructuredAttributes = StructuredAttributes(),
+        val attributes: StructuredAttributes = StructuredAttributes.Empty,
     ) : StructuredNode
 }
 
@@ -107,7 +122,15 @@ data class StructuredAttributes(
     val style: Map<String, String> = emptyMap(),
     val properties: Map<String, String> = emptyMap(),
 ) {
+    companion object {
+        val Empty = StructuredAttributes()
+
+        internal fun create(data: Map<String, String>, style: Map<String, String>, properties: Map<String, String>): StructuredAttributes =
+            if (data.isEmpty() && style.isEmpty() && properties.isEmpty()) Empty else StructuredAttributes(data, style, properties)
+    }
+
     internal val cssKeys = cssAttributeKeys(data)
+    internal val nativeStyle = NativeCssDeclarations.compile(style)
 
     /** `data-sc-content` and `data-sc-class` values carried by this node. */
     val dataValues: List<String>

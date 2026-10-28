@@ -66,12 +66,15 @@ import chimahon.util.ImageEncoder
 import eu.kanade.tachiyomi.ui.dictionary.buildKanjiEntryJson
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryEntryWebView
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryCardPreparation
+import eu.kanade.tachiyomi.ui.dictionary.compose.prepareDictionaryCards
 import eu.kanade.tachiyomi.ui.dictionary.compose.GlossTab
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.resolveDictionaryTheme
 import eu.kanade.tachiyomi.ui.dictionary.TabInfo
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
+import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import eu.kanade.tachiyomi.ui.dictionary.stopDictionaryAudio
 import eu.kanade.tachiyomi.util.system.toast
@@ -314,6 +317,8 @@ fun OcrLookupPopup(
     // stale query run to completion. Caller-supplied deferreds are never cancelled - the caller may
     // still want that result.
     var ownedLookup by remember { mutableStateOf<kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>?>(null) }
+    var cardPreparation by remember { mutableStateOf<DictionaryCardPreparation?>(null) }
+    val visibleRef = rememberUpdatedState(visible)
 
     fun dismissPopup() {
         if (!isRecursiveChild) {
@@ -456,14 +461,22 @@ fun OcrLookupPopup(
         }
 
         val finalQuery = if (isRecursive) cleanQuery else query
+        val nativeLookup = rendererMode == DictionaryPreferences.RENDERER_COMPOSE
         val generation = ++lookupGeneration
+        cardPreparation?.cancel()
+        cardPreparation = null
         contentReady = false
         val shouldShowLoading = !isRecursive && lastRenderedLookupGeneration < 0
 
-        fun handleResult(result: chimahon.DictionaryRepository.LookupResult2, orderedResults: List<LookupResult>, lookupStart: Long) {
+        fun handleResult(result: chimahon.DictionaryRepository.LookupResult2, orderedResults: List<LookupResult>, lookupStart: Long,
+            preparedCards: DictionaryCardPreparation? = null) {
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.main.resume")
-            if (generation != lookupGeneration) return
+            if (generation != lookupGeneration || nativeLookup && !visibleRef.value) {
+                preparedCards?.cancel()
+                return
+            }
             if (isRecursive && result.results.isEmpty()) {
+                preparedCards?.cancel()
                 if (shouldShowLoading) isLoading = false
                 return
             }
@@ -482,7 +495,9 @@ fun OcrLookupPopup(
             )
 
             // Truncate any forward history past the current index, then push
-            val truncated = lookupStackState.stack.take(lookupStackState.activeIndex + 1) + frame
+            val truncated = (if (nativeLookup && !isRecursive) emptyList()
+                else lookupStackState.stack.take(lookupStackState.activeIndex + 1)) + frame
+            cardPreparation = preparedCards
             lookupStackState = LookupStackState(stack = truncated, activeIndex = truncated.size - 1)
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "results.publish")
             errorMessage = result.error
@@ -573,7 +588,7 @@ fun OcrLookupPopup(
             repository.lookupWithSearchResolution(finalQuery, termPaths, activeProfile, profilingId)
         }.also { if (deferredResult == null) ownedLookup = it }
 
-        if (!deferred.isCompleted) {
+        if (!deferred.isCompleted || nativeLookup) {
             // Must await in a coroutine
             scope.launch {
                 if (shouldShowLoading) {
@@ -582,8 +597,16 @@ fun OcrLookupPopup(
                 errorMessage = null
                 try {
                     val result = deferred.await()
-                    val orderedResults = withContext(Dispatchers.Default) {
-                        chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") { orderLookupResultsForDisplay(result.results, activeProfile, context) }
+                    val (orderedResults, preparedCards) = withContext(Dispatchers.Default) {
+                        val ordered = chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") {
+                            orderLookupResultsForDisplay(result.results, activeProfile, context)
+                        }
+                        val preparation = if (nativeLookup && generation == lookupGeneration && visibleRef.value) {
+                            scope.prepareDictionaryCards(ordered, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
+                                getDictionaryTitle(context, it)
+                            }
+                        } else null
+                        ordered to preparation
                     }
                     Log.i(
                         "DictPerf",
@@ -595,7 +618,7 @@ fun OcrLookupPopup(
                             "stale=${generation != lookupGeneration}",
                     )
                     if (generation == lookupGeneration) ownedLookup = null
-                    handleResult(result, orderedResults, lookupStart)
+                    handleResult(result, orderedResults, lookupStart, preparedCards)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     if (generation != lookupGeneration) return@launch
@@ -1013,6 +1036,8 @@ fun OcrLookupPopup(
 
     LaunchedEffect(visible) {
         if (!visible) {
+            cardPreparation?.cancel()
+            cardPreparation = null
             webView?.let { stopDictionaryAudio(it) }
             if (!isRecursiveChild) {
                 childPopupRequest = null
@@ -1037,12 +1062,9 @@ fun OcrLookupPopup(
             lastRenderedLookupGeneration = -1
             return@LaunchedEffect
         }
-        // Reset the stack and load the initial term.
-        // contentReady is intentionally NOT reset here — the warm shell keeps
-        // the popup visible between lookups so the WebView never goes blank.
-        // The renderer's onContentInvalidated callback will hide stale content
-        // when a genuinely new lookup generation begins (see onContentReadyChange).
-        lookupStackState = LookupStackState()
+        // Native keeps the previous subtree mounted until replacement results arrive;
+        // handleResult resets top-level history atomically with publishing the new frame.
+        if (rendererMode != DictionaryPreferences.RENDERER_COMPOSE) lookupStackState = LookupStackState()
         isLoading = false
         pushLookup(lookupString, deferredResult = initialLookupDeferred, entryJsons = initialEntryJsons)
     }
@@ -1205,13 +1227,15 @@ fun OcrLookupPopup(
             if (!ready && lookupGeneration != lastRenderedLookupGeneration) {
                 contentReady = false
             }
-            contentReadyChangeRef.value?.invoke(ready)
+            if (!ready) contentReadyChangeRef.value?.invoke(false)
         }
     }
     val composePlanReady: () -> Unit = remember(visible) {
         {
             contentReady = true
             lastRenderedLookupGeneration = lookupGeneration
+            chimahon.diagnostics.LookupProfiler.mark(lookupStackState.currentFrame?.profilingId ?: 0L, "popup.plan.ready")
+            contentReadyChangeRef.value?.invoke(true)
         }
     }
     val webContentReady: (Boolean) -> Unit = remember(visible) {
@@ -1232,6 +1256,7 @@ fun OcrLookupPopup(
     }
 
     val outsideTapInteraction = remember { MutableInteractionSource() }
+    val revealedFrame = remember { longArrayOf(0L) }
     val recursiveTabs = lookupStackState.buildTabs()
     val showRecursiveChrome = when (recursiveNavMode) {
         "stack" -> lookupStackState.activeIndex > 0
@@ -1401,11 +1426,20 @@ fun OcrLookupPopup(
     @Composable
     fun PopupContent() {
         val swipeThreshold = with(density) { popupSwipeThresholdPref.dp.toPx() }
+        val revealContent = contentReady || isLoading || errorMessage != null
+        val readyRequestId = if (visible && contentReady && !isLoading) currentFrame?.profilingId ?: 0L else 0L
         Surface(
             modifier = modifier
                 .width(actualWidthDp)
                 .height(actualHeightDp)
-                .alpha(if (contentReady || isLoading || errorMessage != null) 1f else 0f)
+                .alpha(if (revealContent) 1f else 0f)
+                .drawWithContent {
+                    drawContent()
+                    if (revealContent && readyRequestId != 0L && revealedFrame[0] != readyRequestId) {
+                        revealedFrame[0] = readyRequestId
+                        chimahon.diagnostics.LookupProfiler.mark(readyRequestId, "popup.ready_container.draw")
+                    }
+                }
                 .pointerInput(Unit) {
                     if (!popupSwipeToDismissPref) return@pointerInput
                     awaitPointerEventScope {
@@ -1460,6 +1494,8 @@ fun OcrLookupPopup(
                     val plainText = rendererMode == DictionaryPreferences.RENDERER_PLAIN_TEXT
                     if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE || plainText) {
                         DictionaryEntryCompose(
+                            cardPreparation = cardPreparation,
+                            viewportWidthPx = with(density) { actualWidthDp.roundToPx() },
                             profilingId = currentFrame?.profilingId ?: 0L,
                             results = results,
                             styles = styles,

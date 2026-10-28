@@ -18,7 +18,9 @@ internal fun nativeHitTestCheck(document: NativeGlossaryDocument): JSONObject {
     var annotationHits = 0
     var staticHits = 0
     var staticProbes = 0
+    var movedMismatches = 0
     val misses = JSONArray()
+    val rubyProbes = ArrayList<NativeRubyHitProbe>()
     for (flow in document.items.filterIsInstance<NativeTextFlow>()) {
         if (!flow.interactive) {
             staticProbes++
@@ -26,6 +28,7 @@ internal fun nativeHitTestCheck(document: NativeGlossaryDocument): JSONObject {
             continue
         }
         val layout = flow.layout
+        val moved = flow.moved(11, 17)
         val text = layout.text
         val spanned = text as? Spanned
         for (offset in text.indices) {
@@ -41,6 +44,7 @@ internal fun nativeHitTestCheck(document: NativeGlossaryDocument): JSONObject {
             val x = startX + (endX - startX) * 0.25f
             val y = layout.getLineBaseline(line) - layout.paint.textSize / 2f
             val hit = flow.lookupAt(flow.x + x, flow.y + y)
+            if (hit != moved.lookupAt(flow.x + x + 11, flow.y + y + 17)) movedMismatches++
             if (span == null) {
                 ordinary++
                 if (hit != null) ordinaryHits++
@@ -48,11 +52,13 @@ internal fun nativeHitTestCheck(document: NativeGlossaryDocument): JSONObject {
                     .put("offset", offset).put("line", line).put("x", x).put("y", y))
             } else {
                 ruby++
+                if (rubyProbes.size < 32) rubyProbes.add(NativeRubyHitProbe(flow, flow.x + x, flow.y + y))
                 if (hit != null) rubyHits++
                 val metrics = span.metrics
                 val reading = metrics.readingLayout
                 val readingY = layout.getLineBaseline(line) - metrics.baseLayout.firstBaseline - metrics.heightPx +
                     metrics.readingOffsetPx + reading.firstBaseline - (reading.emAscentPx ?: reading.ascentPx) / 2f
+                if (rubyProbes.size < 32) rubyProbes.add(NativeRubyHitProbe(flow, flow.x + (startX + endX) / 2f, flow.y + readingY))
                 annotation++
                 if (flow.lookupAt(flow.x + (startX + endX) / 2f, flow.y + readingY) != null) annotationHits++
             }
@@ -63,4 +69,6 @@ internal fun nativeHitTestCheck(document: NativeGlossaryDocument): JSONObject {
         .put("ruby_base_probes", ruby).put("ruby_base_hits", rubyHits).put("ordinary_misses", misses)
         .put("annotation_probes", annotation).put("annotation_hits", annotationHits)
         .put("static_probes", staticProbes).put("static_hits", staticHits)
+        .put("moved_result_mismatches", movedMismatches)
+        .put("ruby_tap_benchmark", nativeRubyHitBenchmark(rubyProbes))
 }

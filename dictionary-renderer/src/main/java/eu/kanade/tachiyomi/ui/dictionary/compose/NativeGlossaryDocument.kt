@@ -113,7 +113,13 @@ public class NativeGlossaryDocument(
     val images = items.filterIsInstance<NativeGlossaryImage>()
     val disclosures = items.filterIsInstance<NativeGlossaryDisclosure>()
     val hasStaleFonts: Boolean get() = resources.hasStaleFonts
-    val text: String by lazy { items.filterIsInstance<NativeTextFlow>().joinToString("\n") { it.layout.text.toString() } }
+    val text: String by lazy {
+        items.mapNotNull { item -> when (item) {
+            is NativeTextFlow -> item.layout.text.toString()
+            is NativeListMarker -> item.text
+            else -> null
+        } }.joinToString("\n")
+    }
     val links: List<String> by lazy {
         items.filterIsInstance<NativeTextFlow>().filter { it.interactive }.flatMap { flow ->
             val text = flow.layout.text as? Spanned

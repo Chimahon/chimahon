@@ -1,14 +1,10 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
-import android.graphics.Path
 import android.graphics.Rect
-import android.graphics.RectF
 import android.icu.text.BreakIterator
+import android.os.Build
 import android.text.Layout
-import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.SpannedString
-import android.text.style.LeadingMarginSpan
 import android.text.style.ReplacementSpan
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
@@ -23,10 +19,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import chimahon.diagnostics.LookupProfiler
 import java.util.Locale
+import java.util.IdentityHashMap
+import java.text.Bidi
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -34,7 +31,7 @@ import kotlin.math.roundToInt
 /** Width used when measuring a table cell's natural size: wide enough that nothing wraps. */
 private const val MEASURE_WIDTH = 100000
 
-/** Lowers the source directly into positioned native flows. There is no eligibility or intrinsic pass. */
+/** Lowers source into positioned native flows; only tables negotiate intrinsic widths. */
 public class NativeGlossaryCompiler(
     private val css: ParsedCss,
     private val density: Density,
@@ -48,7 +45,7 @@ public class NativeGlossaryCompiler(
     val resources: NativeGlossaryResources = NativeGlossaryResources(density, direction, resolver),
 ) {
     init { resources.profilingId = profilingId }
-    private var activeLink: String? = null
+    private val inlineState = NativeInlineState()
     /**
      * CSS `vertical-align` of the inline box that currently contains an image. The property is not
      * inherited, but an inline box shrinks to its content; when that content is a single replaced
@@ -62,6 +59,8 @@ public class NativeGlossaryCompiler(
      * The element skips its own margin when it is visited.
      */
     private var marginCollapseTarget: StructuredNode.Element? = null
+    private var inspectedChild: StructuredNode.Element? = null
+    private var inspectedDeclarations: NativeCssDeclarations? = null
     /**
      * True until the document has produced its first content.
      *
@@ -75,14 +74,15 @@ public class NativeGlossaryCompiler(
     private var documentStart = true
     private var listDepth = 0
     private var tableCellDepth = 0
-    private var whiteSpace = "normal"
-    private var textSpacingTrim = "normal"
     private var measuringIntrinsic = false
     private var activeTableCell: TableCellInput? = null
+    private val paragraphLayout = NativeParagraphLayout(resources)
+    private val rubyBase = RubyTextParts(TextStyle.Default)
+    private val rubyReading = RubyTextParts(TextStyle.Default)
     private val tableLineBreaks by lazy { BreakIterator.getLineInstance(Locale.JAPANESE) }
     private fun px(value: Float) = (value * density.density).roundToInt()
     private fun verticalPx(value: Float) = value * density.density
-    private fun cellStroke(box: BoxStyle, own: Map<String, String>, collapsed: Boolean): Int {
+    private fun cellStroke(box: BoxStyle, own: NativeCssDeclarations, collapsed: Boolean): Int {
         if (!box.hasBorder && !defaultCellBorder(own)) return 0
         val width = (box.borderWidth ?: CELL_BORDER_PX) * density.density
         return if (width <= 0f) 0 else if (collapsed) floor(width).toInt().coerceAtLeast(1) else width.roundToInt()
@@ -91,7 +91,8 @@ public class NativeGlossaryCompiler(
 
     /** The first in-flow child that generates a block box; whitespace-only text does not count. */
     private inline fun inspectFirstBlockChild(node: StructuredNode.Element, scope: NativeCssContext,
-        consume: (StructuredNode.Element, Map<String, String>) -> Unit) {
+        consume: (StructuredNode.Element, NativeCssDeclarations) -> Unit) {
+        var earlierElement = false
         for (child in node.children) {
             // Anything that generates content before the child separates the two margins, so the
             // search has to STOP at it instead of looking further: case 13's <li>text<ul/></li>
@@ -101,10 +102,16 @@ public class NativeGlossaryCompiler(
                 continue
             }
             if (child !is StructuredNode.Element) return
-            if (child.tag == StructuredTag.Rt || child.tag == StructuredTag.Rp) continue
-            val own = declarations(child, scope)
-            if (hidden(own)) continue
-            if (!isInlineLevel(child) || own["display"] == "block") consume(child, own)
+            if (child.tag == StructuredTag.Rt || child.tag == StructuredTag.Rp) { earlierElement = true; continue }
+            val own = declarations(child, scope, cacheCell = false)
+            if (hidden(own)) { earlierElement = true; continue }
+            // The existing margin probe has no sibling context. Reuse its declarations only
+            // when that is also the context the normal child visit will use.
+            if (!earlierElement || css.siblingRules.isEmpty()) {
+                inspectedChild = child
+                inspectedDeclarations = own
+            }
+            if (!isInlineLevel(child) || own[NativeCssProperty.Display] == "block") consume(child, own)
             return
         }
     }
@@ -114,13 +121,13 @@ public class NativeGlossaryCompiler(
      * per-tag defaults that [block] applies, so a parent can fold its first child's margin into
      * its own collapsed margin.
      */
-    private fun marginTopOf(node: StructuredNode.Element, style: TextStyle, own: Map<String, String>): Float {
+    private fun marginTopOf(node: StructuredNode.Element, style: NativeTextStyle, own: NativeCssDeclarations): Float {
         val default = when (node.tag) {
             StructuredTag.Table -> TABLE_MARGIN_PX
             StructuredTag.OrderedList, StructuredTag.UnorderedList -> LIST_MARGIN_EM * fontSizeSp(style)
             StructuredTag.Details -> 0f
             StructuredTag.ListItem -> if (listDepth > 0) LIST_ITEM_MARGIN_EM * fontSizeSp(style) else 0f
-            else -> if (!isInlineLevel(node) || own["display"] == "block") {
+            else -> if (!isInlineLevel(node) || own[NativeCssProperty.Display] == "block") {
                 if (node.tag == StructuredTag.Div) BLOCK_MARGIN_PX else 0f
             } else return 0f
         }
@@ -132,29 +139,50 @@ public class NativeGlossaryCompiler(
         val items = ArrayList<NativeGlossaryItem>()
         val rootAncestors = ancestors.map { it.copy(values = it.values.toSet()) }
         listDepth = rootAncestors.count { it.tag == "ul" || it.tag == "ol" }
-        val scope = NativeCssContext(css)
+        val scope = NativeCssContext(css, resources.cascade)
         for (ancestor in rootAncestors) scope.push(ancestor.values, ancestor.tag)
         val height = LookupProfiler.section(profilingId, "native.document.lower_layout") {
-            flow(nodes, style, scope, 0, width.coerceAtLeast(1), 0f, true, items)
+            flow(nodes, resources.nativeStyle(style), scope, 0, width.coerceAtLeast(1), 0f, true, items)
         }
         return NativeGlossaryDocument(nodes, css, style, rootAncestors, density, direction, resolver, secondary, border,
             width, ceil(height).toInt(), items.toList(), resources, profilingId)
     }
 
-    private fun declarations(node: StructuredNode.Element, scope: NativeCssContext, preceding: List<Map<String, String>> = emptyList()): Map<String, String> {
+    private fun declarations(node: StructuredNode.Element, scope: NativeCssContext, preceding: NativeCssSiblings? = null,
+        cacheCell: Boolean = true): NativeCssDeclarations {
+        if (node === inspectedChild) {
+            inspectedChild = null
+            return checkNotNull(inspectedDeclarations).also { inspectedDeclarations = null }
+        }
         resources.elements++
         resources.cssMatches++
-        val started = System.nanoTime()
-        val merged = scope.declarations(node, preceding)
-        resources.declarationsNanos += System.nanoTime() - started
-        // Interned so the typography and box caches can use identity keys instead of hashing the
-        // whole map again on every lookup.
-        return resources.intern(merged)
+        // A source element has the same selector context in both width passes of its cell.
+        // Margin probes are excluded: they intentionally have no preceding-sibling context.
+        val cell = if (cacheCell) activeTableCell else null
+        cell?.declarations?.get(node)?.let { return it }
+        val started = if (resources.stageTimings) System.nanoTime() else 0L
+        val target = cssNode(node)
+        val merged = if (preceding != null) scope.declarations(target, preceding) else scope.declarations(target)
+        if (started != 0L) resources.declarationsNanos += System.nanoTime() - started
+        cell?.declarations?.put(node, merged)
+        return merged
     }
 
-    private fun hidden(declarations: Map<String, String>) = declarations["display"] == "none" || declarations["visibility"] in HIDDEN
+    private fun hidden(declarations: NativeCssDeclarations) =
+        declarations[NativeCssProperty.Display] == "none" || declarations[NativeCssProperty.Visibility] in HIDDEN
 
-    private fun semantic(style: TextStyle, tag: StructuredTag): TextStyle = when (tag) {
+    private fun isOpen(node: StructuredNode.Element): Boolean =
+        (node.attributes.properties["open"] == "true") xor (node in expanded)
+
+    private fun cssNode(node: StructuredNode.Element): StructuredNode.Element {
+        if (node.tag != StructuredTag.Details) return node
+        val open = isOpen(node)
+        if (open == (node.attributes.properties["open"] == "true")) return node
+        val properties = if (open) node.attributes.properties + ("open" to "true") else node.attributes.properties - "open"
+        return node.copy(attributes = node.attributes.copy(properties = properties))
+    }
+
+    private fun semantic(style: NativeTextStyle, tag: StructuredTag): NativeTextStyle = when (tag) {
         StructuredTag.Bold -> style.copy(fontWeight = FontWeight.Bold)
         StructuredTag.Italic -> style.copy(fontStyle = FontStyle.Italic)
         StructuredTag.Underline -> style.copy(textDecoration = TextDecoration.Underline)
@@ -166,29 +194,58 @@ public class NativeGlossaryCompiler(
         else -> style
     }
 
-    private fun flow(nodes: List<StructuredNode>, style: TextStyle, scope: NativeCssContext, x: Int, width: Int,
+    private fun flow(nodes: List<StructuredNode>, style: NativeTextStyle, scope: NativeCssContext, x: Int, width: Int,
         y: Float, interactive: Boolean, output: MutableList<NativeGlossaryItem>, vertical: Boolean = false,
         rubyLineHeight: Boolean = false, textIndent: Int = 0, marginOwner: TextCursor? = null,
-        before: String? = null): Float {
+        before: NativeCssDeclarations? = null, pendingBottom: Float = 0f): Float {
         val cursor = TextCursor(x, width.coerceAtLeast(1), y, style, interactive, output, vertical, rubyLineHeight,
             textIndent)
-        before?.let { cursor.noLookup(it, style) }
-        visitChildren(nodes, style, scope, cursor)
+        cursor.pendingBottom = pendingBottom
+        val cell = activeTableCell
+        val paragraphs = cell?.paragraphs?.get(nodes)
+        val prepared = if (!measuringIntrinsic && marginCollapseTarget == null) paragraphs?.firstOrNull {
+            it.style === style && it.vertical == vertical && it.indent == textIndent &&
+                it.before === before && it.whiteSpace == inlineState.whiteSpace && it.trim == inlineState.trim
+        } else null
+        val rubyStart = cell?.rubyIndex ?: 0
+        if (prepared != null) {
+            cursor.restore(prepared)
+            cell!!.rubyIndex += prepared.rubyCount
+            // A parent's margin inspection may have resolved this inline subtree's first child.
+            inspectedChild = null
+            inspectedDeclarations = null
+        } else {
+            before?.let { cursor.before(it, style) }
+            visitChildren(nodes, style, scope, cursor)
+            if (measuringIntrinsic && cell != null && cursor.canRetainParagraph) {
+                cursor.retainParagraph = { paragraph ->
+                    cell.paragraphs.getOrPut(nodes) { ArrayList() }.add(
+                        TableParagraphInput(paragraph, style, vertical, textIndent, before,
+                            inlineState.whiteSpace, inlineState.trim, cell.rubyIndex - rubyStart))
+                }
+            }
+        }
         val bottom = cursor.finish()
         if (marginOwner != null) marginOwner.pendingBottom = maxOf(marginOwner.pendingBottom, cursor.pendingBottom)
         return bottom
     }
 
-    private fun visitChildren(nodes: List<StructuredNode>, inherited: TextStyle, scope: NativeCssContext, cursor: TextCursor) {
-        val preceding = if (css.siblingRules.isEmpty()) null else ArrayList<Map<String, String>>()
+    private fun visitChildren(nodes: List<StructuredNode>, inherited: NativeTextStyle, scope: NativeCssContext, cursor: TextCursor) {
+        val trackSiblings = css.siblingRules.isNotEmpty()
+        var previous: StructuredAttributes? = null
+        var preceding: NativeCssSiblings? = null
         for (node in nodes) {
-            visit(node, inherited, scope, cursor, preceding ?: emptyList())
-            if (preceding != null && node is StructuredNode.Element) preceding.add(0, node.attributes.data)
+            if (trackSiblings && node is StructuredNode.Element) previous?.let { attributes ->
+                val history = preceding ?: NativeCssSiblings(css.nativeSiblingSelectors).also { preceding = it }
+                history.append(attributes)
+            }
+            visit(node, inherited, scope, cursor, preceding)
+            if (trackSiblings && node is StructuredNode.Element) previous = node.attributes
         }
     }
 
-    private fun visit(node: StructuredNode, inherited: TextStyle, scope: NativeCssContext, cursor: TextCursor,
-        preceding: List<Map<String, String>>) {
+    private fun visit(node: StructuredNode, inherited: NativeTextStyle, scope: NativeCssContext, cursor: TextCursor,
+        preceding: NativeCssSiblings?) {
         checkCancellation()
         // The element whose top margin was already folded into its parent's collapsed margin.
         val skipMarginTop = node === marginCollapseTarget
@@ -201,25 +258,25 @@ public class NativeGlossaryCompiler(
                 val own = declarations(node, scope, preceding)
                 if (hidden(own) || node.attributes.data["content"] == "attribution") return
                 val resolved = resources.style(semantic(inherited, node.tag), own)
-                val style = inlineAlignment(inherited, resolved, own["verticalAlign"], node.tag)
-                scope.push(node)
+                val style = inlineAlignment(inherited, resolved, own[NativeCssProperty.VerticalAlign], node.tag)
+                scope.push(cssNode(node))
                 val isList = node.tag == StructuredTag.UnorderedList || node.tag == StructuredTag.OrderedList
                 if (isList) listDepth++
-                val previousWhiteSpace = whiteSpace
-                whiteSpace = own["whiteSpace"] ?: previousWhiteSpace
-                val previousTrim = textSpacingTrim
-                textSpacingTrim = own["textSpacingTrim"] ?: previousTrim
+                val previousWhiteSpace = inlineState.whiteSpace
+                inlineState.whiteSpace = own[NativeCssProperty.WhiteSpace] ?: previousWhiteSpace
+                val previousTrim = inlineState.trim
+                inlineState.trim = own[NativeCssProperty.TextSpacingTrim] ?: previousTrim
                 try {
                     when (node.tag) {
                         StructuredTag.Ruby -> ruby(node, style, scope, cursor)
                         StructuredTag.Break -> cursor.appendBreak(style)
-                        StructuredTag.Table -> block(cursor, style, own, TABLE_MARGIN_PX, skipMarginTop = skipMarginTop) { x, width, y ->
+                        StructuredTag.Table -> block(cursor, style, own, resources.box(own, style), TABLE_MARGIN_PX, skipMarginTop = skipMarginTop) { x, width, y ->
                             table(node, style, scope, x, width, y, cursor.output)
                         }
-                        StructuredTag.OrderedList, StructuredTag.UnorderedList -> block(cursor, style, own, LIST_MARGIN_EM * fontSizeSp(style), padStart = false, skipMarginTop = skipMarginTop) { x, width, y ->
+                        StructuredTag.OrderedList, StructuredTag.UnorderedList -> block(cursor, style, own, resources.box(own, style), LIST_MARGIN_EM * fontSizeSp(style), padStart = false, skipMarginTop = skipMarginTop) { x, width, y ->
                             list(node, style, own, scope, x, width, y, cursor.interactive, cursor)
                         }
-                        StructuredTag.Details -> block(cursor, style, own, 0f, skipMarginTop = skipMarginTop) { x, width, y ->
+                        StructuredTag.Details -> block(cursor, style, own, resources.box(own, style), 0f, skipMarginTop = skipMarginTop) { x, width, y ->
                             details(node, style, scope, x, width, y, cursor.interactive, cursor.output)
                         }
                         StructuredTag.Image -> {
@@ -227,7 +284,7 @@ public class NativeGlossaryCompiler(
                             // that wants a figure sets display:block; treating every image as a
                             // block put each 1em sense icon on its own line and pushed the text
                             // below it (国語辞典オンライン's 大舞台, +246 device px).
-                            if (own["display"]?.trim()?.lowercase() == "block") {
+                            if (own[NativeCssProperty.Display]?.trim()?.lowercase() == "block") {
                                 cursor.flush()
                                 image(node, style, scope, cursor)
                             } else {
@@ -239,7 +296,8 @@ public class NativeGlossaryCompiler(
                             cursor.output.add(NativeGlossaryRect(cursor.x, (cursor.y + verticalPx(4f)).roundToInt(), cursor.width, px(1f).coerceAtLeast(1), border.toArgb()))
                             cursor.y += verticalPx(9f)
                         }
-                        else -> if (!isInlineLevel(node) || own["display"] == "block") {
+                        else -> if (!isInlineLevel(node) || own[NativeCssProperty.Display] == "block") {
+                            cursor.preventRetention()
                             // CSS 2.1 8.3.1: a block's top margin collapses with the top margin of
                             // its first in-flow child when nothing separates them, and the collapsed
                             // margin is the LARGER of the two and sits outside the parent. Adding the
@@ -253,7 +311,7 @@ public class NativeGlossaryCompiler(
                                 else -> 0f
                             }
                             var collapsed = ownMargin
-                            if (!box.hasBorder && (box.paddingTop ?: 0f) <= 0f) {
+                            if (!box.separatesVerticalMargins && (box.paddingTop ?: 0f) <= 0f) {
                                 inspectFirstBlockChild(node, scope) { child, childOwn ->
                                     val childMargin = marginTopOf(child, style, childOwn)
                                     if (childMargin > 0f) {
@@ -268,7 +326,7 @@ public class NativeGlossaryCompiler(
                             // CSS 2.1 8.3.1: an empty block's own margins collapse through it, so it
                             // adds no height of its own; case 13's trailing empty <ul> pushed the
                             // document 4 CSS px down. Its margins merge with its neighbours'.
-                            if (node.children.isEmpty() && own["beforeContent"].isNullOrEmpty() && !box.hasBorder &&
+                            if (node.children.isEmpty() && own[NativeCssProperty.BeforeContent].isNullOrEmpty() && !box.separatesVerticalMargins &&
                                 (box.paddingTop ?: 0f) <= 0f && (box.paddingBottom ?: 0f) <= 0f) {
                                 val top = if (skipMarginTop || documentStart) 0f else verticalPx(collapsed)
                                 cursor.pendingBottom = maxOf(cursor.pendingBottom, top,
@@ -277,10 +335,10 @@ public class NativeGlossaryCompiler(
                                 return
                             }
                             try {
-                                block(cursor, style, own, collapsed, skipMarginTop = skipMarginTop, resolvedMargin = collapsed) { x, width, y ->
+                                block(cursor, style, own, box, collapsed, skipMarginTop = skipMarginTop, resolvedMargin = collapsed) { x, width, y ->
                                     flow(node.children, style, scope, x, width, y, cursor.interactive, cursor.output,
                                         vertical = isVerticalWriting(own), rubyLineHeight = true, textIndent = indent,
-                                        marginOwner = cursor, before = own["beforeContent"])
+                                        marginOwner = cursor, before = own.before)
                                 }
                             } finally {
                                 marginCollapseTarget = null
@@ -290,17 +348,17 @@ public class NativeGlossaryCompiler(
                             val box = resources.box(own, style)
                             cursor.space(px((box.marginStart ?: 0f) + (box.paddingStart ?: 0f)), style)
                             val start = cursor.length
-                            val previousLink = activeLink
+                            val previousLink = inlineState.link
                             val previousAlign = imageAlign
                             if (node.tag == StructuredTag.Link && cursor.interactive) {
-                                activeLink = node.attributes.properties["href"]?.let { extractQuery(it) ?: node.collect() }
+                                inlineState.link = node.attributes.properties["href"]?.let { extractQuery(it) ?: node.collect() }
                             }
-                            if (own["verticalAlign"] != null) imageAlign = own["verticalAlign"]
+                            if (own[NativeCssProperty.VerticalAlign] != null) imageAlign = own[NativeCssProperty.VerticalAlign]
                             try {
-                                own["beforeContent"]?.let { cursor.noLookup(it, style) }
+                                own.before?.let { cursor.before(it, style) }
                                 visitChildren(node.children, style, scope, cursor)
                             } finally {
-                                activeLink = previousLink
+                                inlineState.link = previousLink
                                 imageAlign = previousAlign
                             }
                             cursor.decorate(start, box, style)
@@ -308,8 +366,8 @@ public class NativeGlossaryCompiler(
                         }
                     }
                 } finally {
-                    whiteSpace = previousWhiteSpace
-                    textSpacingTrim = previousTrim
+                    inlineState.whiteSpace = previousWhiteSpace
+                    inlineState.trim = previousTrim
                     if (isList) listDepth--
                     scope.pop()
                 }
@@ -317,10 +375,9 @@ public class NativeGlossaryCompiler(
         }
     }
 
-    private inline fun block(cursor: TextCursor, style: TextStyle, own: Map<String, String>, defaultMargin: Float, padStart: Boolean = true,
+    private inline fun block(cursor: TextCursor, style: NativeTextStyle, own: NativeCssDeclarations, box: BoxStyle, defaultMargin: Float, padStart: Boolean = true,
         skipMarginTop: Boolean = false, resolvedMargin: Float? = null, content: (Int, Int, Float) -> Float) {
         cursor.flush()
-        val box = resources.box(own, style)
         // The first block's top margin collapses out of the document; see [documentStart].
         val collapsesOut = documentStart
         documentStart = false
@@ -332,41 +389,47 @@ public class NativeGlossaryCompiler(
         val x = cursor.x + if (direction == LayoutDirection.Rtl) right else left
         val width = (cursor.width - left - right).coerceAtLeast(1)
         val top = cursor.y
-        val slot = cursor.output.size
-        val circle = own["clipPath"]?.trim() == "circle()"
+        val circle = !measuringIntrinsic && own[NativeCssProperty.ClipPath]?.trim() == "circle()"
+        val background = if (measuringIntrinsic) 0 else argb(box.backgroundColor)
+        val stroke = if (!measuringIntrinsic && box.hasBorder && !box.leftAccent) px(box.borderWidth ?: 1f).toFloat() else 0f
+        val borderColor = if (stroke > 0f) argb(box.borderColor, border) else 0
+        val gradient = if (measuringIntrinsic) null else
+            (own[NativeCssProperty.BackgroundImage] ?: own[NativeCssProperty.Background])?.trim()?.takeIf { it.startsWith("radial-gradient(") }
+        val painted = background ushr 24 != 0 || stroke > 0f && borderColor ushr 24 != 0 || gradient != null
         val paintTop = top.roundToInt()
-        cursor.output.add(NativeGlossaryRect(x, paintTop, width, 0))
-        if (circle) cursor.output.add(NativeGlossaryRect(x, paintTop, width, 0))
+        val clipSlot = if (circle) cursor.output.size.also { cursor.output.add(NativeGlossaryRect(x, paintTop, width, 0)) } else -1
+        val paintSlot = if (painted) cursor.output.size.also { cursor.output.add(NativeGlossaryRect(x, paintTop, width, 0)) } else -1
+        val accentWidth = if (box.hasBorder && box.leftAccent) px(box.borderWidth ?: 3f) else 0
         val start = if (padStart) px(box.paddingStart ?: 0f) else 0
         val end = px(box.paddingEnd ?: 0f)
-        cursor.y = content(x + if (direction == LayoutDirection.Rtl) end else start,
-            (width - start - end).coerceAtLeast(1), top + verticalPx(box.paddingTop ?: 0f))
-        if (box.hasBorder || (box.paddingBottom ?: 0f) > 0f) {
+        cursor.y = content(x + accentWidth + if (direction == LayoutDirection.Rtl) end else start,
+            (width - start - end - accentWidth).coerceAtLeast(1), top + verticalPx(box.paddingTop ?: 0f))
+        if (box.separatesVerticalMargins || (box.paddingBottom ?: 0f) > 0f) {
             cursor.y += cursor.pendingBottom
             cursor.pendingBottom = 0f
         }
         cursor.y += verticalPx(box.paddingBottom ?: 0f)
-        val stroke = if (box.hasBorder && !box.leftAccent) px(box.borderWidth ?: 1f).toFloat() else 0f
         val height = (cursor.y.roundToInt() - paintTop).coerceAtLeast(0)
-        cursor.output[slot + if (circle) 1 else 0] = NativeGlossaryRect(x, paintTop, width, height,
-            argb(box.backgroundColor), argb(box.borderColor, border), stroke, px(box.borderRadius ?: 0f).toFloat(),
-            radialBackground(own["backgroundImage"] ?: own["background"], width, height))
-        if (box.leftAccent) cursor.output.add(NativeGlossaryRect(x, paintTop, px(box.borderWidth ?: 3f), height, argb(box.borderColor, border)))
+        if (painted) cursor.output[paintSlot] = NativeGlossaryRect(x, paintTop, width, height,
+            background, borderColor, stroke, px(box.borderRadius ?: 0f).toFloat(), radialBackground(gradient, width, height))
+        if (!measuringIntrinsic && box.leftAccent) cursor.output.add(NativeGlossaryRect(x, paintTop, px(box.borderWidth ?: 3f), height, argb(box.borderColor, border)))
         if (circle) {
-            cursor.output[slot] = NativeCircleClip(x, paintTop, width, height, true)
+            cursor.output[clipSlot] = NativeCircleClip(x, paintTop, width, height, true)
             cursor.output.add(NativeCircleClip(x, paintTop, width, height, false))
         }
         cursor.pendingBottom = maxOf(cursor.pendingBottom, verticalPx(box.marginBottom ?: defaultMargin))
     }
 
-    private fun list(node: StructuredNode.Element, style: TextStyle, own: Map<String, String>, scope: NativeCssContext,
+    private fun list(node: StructuredNode.Element, style: NativeTextStyle, own: NativeCssDeclarations, scope: NativeCssContext,
         x: Int, width: Int, y: Float, interactive: Boolean, owner: TextCursor): Float {
         var bottom = y
         var pendingBottom = 0f
         val output = owner.output
         val box = resources.box(own, style)
         val gutter = px(box.paddingStart ?: LIST_PADDING_START_EM * fontSizeSp(style)).coerceAtLeast(0)
-        val previous = ArrayList<Map<String, String>>()
+        val trackSiblings = css.siblingRules.isNotEmpty()
+        var previous: NativeCssSiblings? = null
+        var previousItem: StructuredAttributes? = null
         var number = node.attributes.properties["start"]?.toIntOrNull() ?: 1
         for (child in node.children) {
             checkCancellation()
@@ -377,14 +440,18 @@ public class NativeGlossaryCompiler(
                 bottom = flow(listOf(child), style, scope, x + gutter, (width - gutter).coerceAtLeast(1), bottom, interactive, output)
                 continue
             }
+            if (trackSiblings) previousItem?.let { attributes ->
+                val history = previous ?: NativeCssSiblings(css.nativeSiblingSelectors).also { previous = it }
+                history.append(attributes)
+            }
             val itemCss = declarations(child, scope, previous)
-            if (css.siblingRules.isNotEmpty()) previous.add(0, child.attributes.data)
+            if (trackSiblings) previousItem = child.attributes
             val itemStyle = resources.style(style, itemCss)
             if (hidden(itemCss)) { number++; continue }
             val itemBox = resources.box(itemCss, itemStyle)
             bottom += pendingBottom
             pendingBottom = 0f
-            val type = itemCss["listStyleType"] ?: own["listStyleType"]
+            val type = itemCss[NativeCssProperty.ListStyleType] ?: own[NativeCssProperty.ListStyleType]
             // Blink's UA stylesheet renders the outside marker as the glyph FOLLOWED BY A SPACE
             // ("\u25aa ", "\u2022 ", "1. "). The marker box is right-aligned against the content
             // edge, so the space is what pushes the glyph left of the text. Without it the native
@@ -400,21 +467,16 @@ public class NativeGlossaryCompiler(
                 "inherit", "initial", "unset" -> if (node.tag == StructuredTag.OrderedList) "$number. " else "\u2022 "
                 else -> if (type.startsWith("url(")) "\u2022 " else type.trim('"', '\'')
             }
-            val inside = (itemCss["listStylePosition"] ?: own["listStylePosition"]) == "inside"
-            if (marker.isNotEmpty() && !inside) {
-                // Outside markers preserve whitespace and never wrap (CSS Lists 3, ::marker).
-                // Position by the full advance: end alignment trims the marker's trailing space.
-                val markerWidth = ceil(Layout.getDesiredWidth(marker, resources.profile(itemStyle).resource.paint))
-                    .toInt().coerceAtLeast(1)
-                val markerX = if (direction == LayoutDirection.Rtl) x + width - gutter else x + gutter - markerWidth
-                val markerLayout = resources.layout(marker, markerWidth, itemStyle.copy(textAlign = TextAlign.Left))
-                output.add(NativeTextFlow(markerLayout, markerX, bottom.roundToInt(), false))
-            }
+            val inside = (itemCss[NativeCssProperty.ListStylePosition] ?: own[NativeCssProperty.ListStylePosition]) == "inside"
+            val outsideMarker = if (!measuringIntrinsic && marker.isNotEmpty() && !inside) resources.marker(marker, itemStyle) else null
+            val markerSlot = output.size
+            if (outsideMarker != null) output.add(NativeGlossaryRect(0, 0, 0, 0))
             // Outside markers use the item's border edge; padding insets only its content.
             val padStart = px(itemBox.paddingStart ?: 0f)
             val padEnd = px(itemBox.paddingEnd ?: 0f)
             val itemX = if (direction == LayoutDirection.Rtl) x + padEnd else x + gutter + padStart
             val start = bottom
+            val firstItem = output.size
             val item = TextCursor(itemX, (width - gutter - padStart - padEnd).coerceAtLeast(1), bottom, itemStyle, interactive, output)
             scope.push(child)
             try {
@@ -423,6 +485,17 @@ public class NativeGlossaryCompiler(
                 bottom = item.finish()
             } finally {
                 scope.pop()
+            }
+            if (outsideMarker != null) {
+                // Align to the first formatted content line, including one in a descendant block.
+                var baseline = start - outsideMarker.ascent
+                for (index in firstItem until output.size) {
+                    val flow = output[index] as? NativeTextFlow ?: continue
+                    baseline = flow.y + flow.layout.getLineBaseline(0).toFloat()
+                    break
+                }
+                val markerX = if (direction == LayoutDirection.Rtl) x + width - gutter else x + gutter - outsideMarker.width
+                output[markerSlot] = NativeListMarker(markerX, baseline, outsideMarker)
             }
             if (bottom == start && marker.isNotEmpty()) bottom += resources.profile(itemStyle).resource.lineHeightPx.coerceAtLeast(1f)
             pendingBottom = maxOf(item.pendingBottom,
@@ -433,32 +506,35 @@ public class NativeGlossaryCompiler(
         return bottom
     }
 
-    private fun details(node: StructuredNode.Element, style: TextStyle, scope: NativeCssContext, x: Int, width: Int,
+    private fun details(node: StructuredNode.Element, style: NativeTextStyle, scope: NativeCssContext, x: Int, width: Int,
         y: Float, interactive: Boolean, output: MutableList<NativeGlossaryItem>): Float {
-        val openByDefault = node.attributes.properties["open"] == "true"
-        val open = if (node in expanded) !openByDefault else openByDefault
+        val open = isOpen(node)
         val summary = node.children.firstOrNull { it is StructuredNode.Element && it.tag == StructuredTag.Summary }
-        val own = if (summary is StructuredNode.Element) declarations(summary, scope) else emptyMap()
+        val own = if (summary is StructuredNode.Element) declarations(summary, scope) else NativeCssDeclarations.EMPTY
         val headerStyle = resources.style(style, own)
         val header = TextCursor(x, width, y, headerStyle, false, output)
-        if (!hidden(own) && own["listStyleType"] != "none" && own["display"] !in setOf("block", "inline", "inline-block")) {
-            header.disclosureMarker(open, headerStyle)
-        }
-        if (summary is StructuredNode.Element) {
-            if (!hidden(own)) {
-                scope.push(summary)
-                try { visitChildren(summary.children, headerStyle, scope, header) } finally { scope.pop() }
+        if (!hidden(own)) {
+            block(header, headerStyle, own, resources.box(own, headerStyle), 0f) { sx, sw, sy ->
+                val content = TextCursor(sx, sw, sy, headerStyle, false, output)
+                if (own[NativeCssProperty.ListStyleType] != "none" && own[NativeCssProperty.Display] !in setOf("block", "inline", "inline-block")) {
+                    content.disclosureMarker(open, headerStyle)
+                }
+                own.before?.let { content.before(it, headerStyle) }
+                if (summary is StructuredNode.Element) {
+                    scope.push(summary)
+                    try { visitChildren(summary.children, headerStyle, scope, content) } finally { scope.pop() }
+                } else content.append("Details", headerStyle)
+                content.finish()
             }
         }
-        else header.append("Details", style)
         var bottom = header.finish()
         if (interactive) output.add(NativeGlossaryDisclosure(x, y.roundToInt(), width, (bottom.roundToInt() - y.roundToInt()).coerceAtLeast(1), node))
         if (open) bottom = flow(node.children.filterNot { it === summary }, style, scope, x,
-            width, bottom, interactive, output)
+            width, bottom, interactive, output, pendingBottom = header.pendingBottom)
         return bottom
     }
 
-    private fun imageBox(node: StructuredNode.Element, style: TextStyle, scope: NativeCssContext,
+    private fun imageBox(node: StructuredNode.Element, style: NativeTextStyle, scope: NativeCssContext,
         maxWidth: Int): Pair<Int, Int> {
         val data = IMAGE_CONTAINER_DATA
         val container = mergeCssStyles(getCssStyles(data, css, "span"), scope.nestedStyles("span", data))
@@ -468,22 +544,22 @@ public class NativeGlossaryCompiler(
         return px(width).coerceAtLeast(1) to ceil(height * density.density).toInt().coerceAtLeast(1)
     }
 
-    private fun image(node: StructuredNode.Element, style: TextStyle, scope: NativeCssContext, cursor: TextCursor) {
+    private fun image(node: StructuredNode.Element, style: NativeTextStyle, scope: NativeCssContext, cursor: TextCursor) {
         val (width, height) = imageBox(node, style, scope, cursor.width)
         cursor.output.add(NativeGlossaryImage(cursor.x, cursor.y.roundToInt(), width, height, node))
         cursor.y += height
     }
 
-    private fun inlineImage(node: StructuredNode.Element, style: TextStyle, own: Map<String, String>,
+    private fun inlineImage(node: StructuredNode.Element, style: NativeTextStyle, own: NativeCssDeclarations,
         scope: NativeCssContext, cursor: TextCursor) {
         val (width, height) = imageBox(node, style, scope, cursor.width)
-        val shift = imageShift(style, own["verticalAlign"] ?: imageAlign, height)
+        val shift = imageShift(style, own[NativeCssProperty.VerticalAlign] ?: imageAlign, height)
         cursor.inlineImage(node, style, width, height, shift)
     }
 
     /** CSS `text-indent` in device px; null when the declaration is absent so inheritance applies. */
-    private fun textIndentOf(own: Map<String, String>, style: TextStyle): Int? {
-        val raw = own["textIndent"]?.trim()?.lowercase() ?: return null
+    private fun textIndentOf(own: NativeCssDeclarations, style: NativeTextStyle): Int? {
+        val raw = own[NativeCssProperty.TextIndent]?.trim()?.lowercase() ?: return null
         if (raw == "0" || raw == "0px" || raw == "initial" || raw == "unset") return 0
         val dp = parseDpValue(raw, fontSizeSp(style)) ?: return null
         return px(dp)
@@ -494,7 +570,7 @@ public class NativeGlossaryCompiler(
      * downward. Blink aligns replaced elements the same way for the keyword values; the line box
      * grows only when the shifted box leaves the font's ascent/descent.
      */
-    private fun imageShift(style: TextStyle, align: String?, height: Int): Int {
+    private fun imageShift(style: NativeTextStyle, align: String?, height: Int): Int {
         val value = align?.trim()?.lowercase() ?: return 0
         if (value.isEmpty() || value == "baseline") return 0
         val paint = resources.profile(style).resource.paint
@@ -525,7 +601,7 @@ public class NativeGlossaryCompiler(
         }
     }
 
-    private fun inlineAlignment(parent: TextStyle, style: TextStyle, declared: String?, tag: StructuredTag): TextStyle {
+    private fun inlineAlignment(parent: NativeTextStyle, style: NativeTextStyle, declared: String?, tag: StructuredTag): NativeTextStyle {
         if (tag == StructuredTag.Image) return style
         val align = declared ?: when (tag) {
             StructuredTag.Superscript -> "super"
@@ -537,7 +613,7 @@ public class NativeGlossaryCompiler(
         if (align !in INLINE_TEXT_ALIGNMENTS && distance == null) return style
         val parentFont = resources.profile(parent).resource
         val font = resources.profile(style).resource
-        val metrics = font.paint.fontMetricsInt
+        val metrics = font.font.metricsInt
         val halfLeading = floor((font.lineHeightPx - (metrics.descent - metrics.ascent)) / 2f)
         val above = -metrics.ascent + halfLeading
         val shift = parentFont.baselineShiftPx + when (align) {
@@ -555,75 +631,43 @@ public class NativeGlossaryCompiler(
         return style.copy(baselineShift = BaselineShift(shift / -font.paint.ascent()))
     }
 
-    private class RubyParts(val style: TextStyle) {
-        val text = StringBuilder()
-        private val runs = ArrayList<RubyTextSegment>()
-        fun append(value: String, style: TextStyle) {
-            if (value.isEmpty()) return
-            text.append(value)
-            val last = runs.lastOrNull()
-            if (last?.style == style) runs[runs.lastIndex] = RubyTextSegment(last.text + value, style)
-            else runs.add(RubyTextSegment(value, style))
-        }
-        fun segments() = if (runs.size == 1 && runs[0].style == style) emptyList() else runs.toList()
-        fun clear() { text.setLength(0); runs.clear() }
-    }
-
     private class RubyInput(val source: StructuredNode.Element, val style: TextStyle, val parts: List<RubyPart>)
     private class RubyPart(val text: String, val style: TextStyle, val metrics: RubyMetrics? = null, val extraHeight: Int = 0)
 
-    private fun ruby(node: StructuredNode.Element, style: TextStyle, scope: NativeCssContext, cursor: TextCursor) {
+    private fun ruby(node: StructuredNode.Element, style: NativeTextStyle, scope: NativeCssContext, cursor: TextCursor) {
+        val started = if (resources.stageTimings) System.nanoTime() else 0L
         val cell = activeTableCell
         if (cell == null) {
-            lowerRuby(node, style, scope) { text, runStyle, metrics, height -> appendRuby(cursor, text, runStyle, metrics, height) }
+            lowerRuby(node, style.textStyle, scope) { text, runStyle, metrics, height -> appendRuby(cursor, text, runStyle, metrics, height) }
         } else {
-            val input = cell.ruby(node, style) {
+            val input = cell.ruby(node, style.textStyle) {
                 val parts = ArrayList<RubyPart>()
-                lowerRuby(node, style, scope) { text, runStyle, metrics, height -> parts.add(RubyPart(text, runStyle, metrics, height)) }
-                RubyInput(node, style, parts)
+                lowerRuby(node, style.textStyle, scope) { text, runStyle, metrics, height -> parts.add(RubyPart(text, runStyle, metrics, height)) }
+                RubyInput(node, style.textStyle, parts)
             }
             for (part in input.parts) appendRuby(cursor, part.text, part.style, part.metrics, part.extraHeight)
         }
+        if (resources.stageTimings) resources.rubyLowerNanos += System.nanoTime() - started
     }
 
     private fun appendRuby(cursor: TextCursor, text: String, style: TextStyle, metrics: RubyMetrics?, height: Int) {
-        if (metrics == null) cursor.noLookup(text, style) else {
+        if (metrics == null) cursor.noLookup(text, resources.nativeStyle(style)) else {
             resources.rubyPairs++
             cursor.rubyHeight(height)
-            cursor.ruby(text, style, metrics)
+            cursor.ruby(text, resources.nativeStyle(style), metrics)
         }
     }
 
     private inline fun lowerRuby(node: StructuredNode.Element, style: TextStyle, scope: NativeCssContext,
         emit: (String, TextStyle, RubyMetrics?, Int) -> Unit) {
-        val base = RubyParts(style)
+        val base = rubyBase.also { it.reset(style) }
         for (child in node.children) {
             checkCancellation()
             if (child is StructuredNode.Element && child.tag == StructuredTag.Rp) continue
             if (child is StructuredNode.Element && child.tag == StructuredTag.Rt) {
                 val own = declarations(child, scope)
-                val inherited = resources.style(style, own)
-                // The annotation is a fraction of the RUBY element's font size, not of the base
-                // text's. Chrome's UA default for `rt` is 50%, and a declared `font-size: 0.5em` on
-                // the rt means the same thing - 0.5 of the ruby font size. The declared value used
-                // to be thrown away and the INHERITED size used instead, so the annotation was
-                // drawn at the base text's size, roughly twice the reference's: the reference
-                // measured rt/ruby = 0.5 in every case, and the native drew it at 1.0.
-                val rubySizeSp = fontSizeSp(style)
-                val declaredSize = if (own["fontSize"] == null) {
-                    rubySizeSp * 0.5f
-                } else {
-                    parseMarginValue(own["fontSize"].orEmpty(), rubySizeSp) ?: rubySizeSp * 0.5f
-                }
-                // Blink clamps a relative font size to its 8 CSS px minimum logical font size:
-                // the reference reads a 14 px base's 0.5em annotation at 8 px, not 7 px.
-                val size = declaredSize.coerceAtLeast(8f).sp
-                // The UA stylesheet declares `rt { line-height: normal }`, so a numeric line-height
-                // inherited by the ruby does not reach the annotation unless the dictionary sets it
-                // on the rt element itself.
-                val readingLineHeight = if (own["lineHeight"] != null) inherited.lineHeight else TextUnit.Unspecified
-                val readingStyle = inherited.copy(fontSize = size, lineHeight = readingLineHeight, textDecoration = null)
-                val reading = RubyParts(readingStyle)
+                val readingStyle = resources.readingStyle(style, own)
+                val reading = rubyReading.also { it.reset(readingStyle) }
                 if (!hidden(own)) {
                     scope.push(child)
                     try { for (part in child.children) rubyText(part, readingStyle, scope, reading, true) } finally { scope.pop() }
@@ -634,9 +678,8 @@ public class NativeGlossaryCompiler(
                         // Blink grows the line by the reading's em height minus the half-leading
                         // the line already carries above the base em box, not by the whole em
                         // (ruby_utils.cc).
-                        val readingSize = resources.profile(readingStyle).resource.paint.textSize
-                        val metrics = resources.ruby.column(baseText, reading.text.toString(), style, readingStyle, base.segments(), reading.segments())
-                        emit(baseText, style, metrics, (readingSize - resources.cssHalfLeading(style)).roundToInt())
+                        val metrics = resources.ruby.column(baseText, reading.text.toString(), style, readingStyle, base.runs(), reading.runs())
+                        emit(baseText, style, metrics, (metrics.readingLayout.fontSizePx - resources.cssHalfLeading(style)).roundToInt())
                     } else unannotatedRuby(base, emit)
                 }
                 base.clear()
@@ -645,14 +688,17 @@ public class NativeGlossaryCompiler(
         unannotatedRuby(base, emit)
     }
 
-    private inline fun unannotatedRuby(parts: RubyParts, emit: (String, TextStyle, RubyMetrics?, Int) -> Unit) {
-        val segments = parts.segments()
-        if (segments.isEmpty()) {
+    private inline fun unannotatedRuby(parts: RubyTextParts, emit: (String, TextStyle, RubyMetrics?, Int) -> Unit) {
+        val runs = parts.runs()
+        if (runs.isEmpty()) {
             if (parts.text.isNotEmpty()) emit(parts.text.toString(), parts.style, null, 0)
-        } else for (segment in segments) emit(segment.text, segment.style, null, 0)
+        } else {
+            val text = parts.text.toString()
+            for (run in runs) emit(text.substring(run.start, run.end), run.style, null, 0)
+        }
     }
 
-    private fun rubyText(node: StructuredNode, style: TextStyle, scope: NativeCssContext, parts: RubyParts, annotation: Boolean) {
+    private fun rubyText(node: StructuredNode, style: TextStyle, scope: NativeCssContext, parts: RubyTextParts, annotation: Boolean) {
         checkCancellation()
         when (node) {
             is StructuredNode.Text -> parts.append(node.text, style)
@@ -661,8 +707,8 @@ public class NativeGlossaryCompiler(
                 if (node.tag == StructuredTag.Rp || node.tag == StructuredTag.Rt) return
                 val own = declarations(node, scope)
                 if (hidden(own)) return
-                val resolved = resources.style(semantic(style, node.tag), own)
-                val childStyle = if (annotation) resolved.copy(textDecoration = null) else resolved
+                val resolved = resources.style(semantic(resources.nativeStyle(style), node.tag).textStyle, own)
+                val childStyle = if (annotation && resolved.textDecoration != null) resolved.copy(textDecoration = null) else resolved
                 scope.push(node)
                 try { for (child in node.children) rubyText(child, childStyle, scope, parts, annotation) } finally { scope.pop() }
             }
@@ -673,7 +719,9 @@ public class NativeGlossaryCompiler(
         val box: BoxStyle, val verticalMiddle: Boolean, val stroke: Float)
     private class TableIntrinsics(val minimum: IntArray, var border: Int = 0)
     private class TableCellInput(val cell: StructuredTableCell, val position: GlossaryCellPosition,
-        val row: CssAncestor, val own: Map<String, String>, val style: TextStyle, val box: BoxStyle, val stroke: Int) {
+        val row: CssAncestor, val own: NativeCssDeclarations, val style: NativeTextStyle, val box: BoxStyle, val stroke: Int) {
+        val declarations = IdentityHashMap<StructuredNode.Element, NativeCssDeclarations>()
+        val paragraphs = IdentityHashMap<List<StructuredNode>, ArrayList<TableParagraphInput>>()
         // Width changes line breaks, not the cell's ruby sequence, styles or shaped glyphs.
         private val rubies = ArrayList<RubyInput>()
         var rubyIndex = 0
@@ -687,11 +735,11 @@ public class NativeGlossaryCompiler(
 
     private inline fun <T> cellContent(input: TableCellInput, scope: NativeCssContext, intrinsic: Boolean, block: () -> T): T {
         val previousCell = activeTableCell
-        val previousTrim = textSpacingTrim
+        val previousTrim = inlineState.trim
         val previousIntrinsic = measuringIntrinsic
         activeTableCell = input
         input.rubyIndex = 0
-        textSpacingTrim = input.own["textSpacingTrim"] ?: previousTrim
+        inlineState.trim = input.own[NativeCssProperty.TextSpacingTrim] ?: previousTrim
         measuringIntrinsic = intrinsic || previousIntrinsic
         val row = input.row
         scope.push(row.values, row.tag, row.siblingIndex, row.isLastSibling)
@@ -702,44 +750,56 @@ public class NativeGlossaryCompiler(
             scope.pop()
             scope.pop()
             measuringIntrinsic = previousIntrinsic
-            textSpacingTrim = previousTrim
+            inlineState.trim = previousTrim
             activeTableCell = previousCell
         }
     }
 
-    private fun table(node: StructuredNode.Element, style: TextStyle, scope: NativeCssContext, x: Int, width: Int,
+    private fun table(node: StructuredNode.Element, style: NativeTextStyle, scope: NativeCssContext, x: Int, width: Int,
         y: Float, output: MutableList<NativeGlossaryItem>): Float = LookupProfiler.section(profilingId, "native.table.layout") {
+        val started = if (resources.stageTimings) System.nanoTime() else 0L
         resources.tables++
         val rows = ArrayList<List<StructuredTableCell>>()
         val run = ArrayList<StructuredTableCell>()
         val tableScope = scope.ancestors()
-        val tableOwn = declarations(node, scope)
+        // Legacy table scopes contain attribute/tag/position facts, not source node handles.
+        // Construct their native selector state once, then share it across every cell.
+        val tableCss = NativeCssContext(css, resources.cascade)
+        for (frame in tableScope) tableCss.push(frame.values, frame.tag, frame.siblingIndex, frame.isLastSibling)
+        val tableOwn = declarations(node, scope, cacheCell = false)
         val fractions = gridTrackFractions(tableOwn)
         var splicedRows = false
         for (child in node.children) {
-            if (child is StructuredNode.Element && collectTableRowsFlat(child, css, tableScope, rows, run,
-                    gridItems = fractions != null)) splicedRows = true
+            if (child is StructuredNode.Element && collectTableRows(child, rows, run,
+                    gridItems = fractions != null) {
+                    tableCss.tableRowDeclarations(it)[NativeCssProperty.Display]?.trim()?.lowercase() == "contents"
+                }) splicedRows = true
         }
         if (run.isNotEmpty()) rows.add(run.toList())
-        if (rows.isEmpty()) return@section y
+        if (rows.isEmpty()) {
+            if (resources.stageTimings) resources.tableNanos += System.nanoTime() - started
+            return@section y
+        }
         fun StructuredTableCell.span(key: String) = element?.attributes?.properties?.get(key)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
         val placed = GlossaryTableGrid.place(rows.map { row -> row.map { GlossaryCellSpan(it.span("colSpan"), it.span("rowSpan")) } })
         val grid = if (fractions != null && placed.columns < fractions.size) placed.copy(columns = fractions.size) else placed
         // Grid cells retain their source row/column positions when tr is display: contents.
         val automatic = fractions == null && !splicedRows
-        val collapsed = automatic && tableOwn["borderCollapse"] != "separate"
+        val collapsed = automatic && tableOwn[NativeCssProperty.BorderCollapse] != "separate"
         val inputs = ArrayList<TableCellInput>(grid.cells.size)
+        val inheritance = IdentityHashMap<Map<String, String>, NativeCssRuleBlock>()
         for ((rowIndex, row) in rows.withIndex()) {
             val frame = CssAncestor(dataValueKeys(row.firstOrNull()?.rowData ?: emptyMap()), "tr",
                 rowIndex + 1, rowIndex == rows.lastIndex)
-            val rowScope = tableScope + frame
-            for (cell in row) {
-                val own = resources.intern(tableCellCss(cell, css, rowScope))
+            tableCss.push(frame.values, frame.tag, frame.siblingIndex, frame.isLastSibling)
+            try { for (cell in row) {
+                val inherited = inheritance.getOrPut(cell.rowData) { tableCss.tableRowInheritance(cell.rowData) }
+                val own = tableCss.tableCellDeclarations(cell, inherited)
                 val resolved = resources.style(style, own)
                 val box = resources.box(own, resolved)
                 inputs.add(TableCellInput(cell, grid.cells[inputs.size], frame, own,
-                    tableCellStyle(resolved, own, cell.isHeader, box), box, cellStroke(box, own, collapsed)))
-            }
+                    resources.nativeStyle(tableCellStyle(resolved.textStyle, own, cell.isHeader, box)), box, cellStroke(box, own, collapsed)))
+            } } finally { tableCss.pop() }
         }
         var outerBorder = 0
         val edges = when {
@@ -820,7 +880,9 @@ public class NativeGlossaryCompiler(
             val offset = if (cell.verticalMiddle) (cellHeight - cell.height) / 2 else 0f
             for (item in cell.items) output.add(item.moved(cellX, (cellTop + offset).roundToInt()))
         }
-        y + tops.last() + outerBorder
+        val bottom = y + tops.last() + outerBorder
+        if (resources.stageTimings) resources.tableNanos += System.nanoTime() - started
+        bottom
     }
 
     /** Cell widths: natural (max-content) unless [minContent] asks for the anonymous-row minimum. */
@@ -847,25 +909,30 @@ public class NativeGlossaryCompiler(
             val scratch = ArrayList<NativeGlossaryItem>()
             // `word-break: keep-all` keeps a CJK run unbreakable, so its min-content width is
             // the run's full width - 小学館's 犯す/侵す/冒す cells are 37.9px, not 26.4.
-            val narrow = minContent && box.wordBreak != "keep-all"
+            val minimumOnly = minContent && box.wordBreak != "keep-all"
             val natural = cellContent(input, scope, intrinsic = true) {
-                flow(cell.nodes, cellStyle, scope, 0, if (narrow) 1 else MEASURE_WIDTH, 0f, false, scratch)
+                flow(cell.nodes, cellStyle, scope, 0, MEASURE_WIDTH, 0f, false, scratch)
                 var widest = 0
                 var minimum = 0
                 for (item in scratch) {
                     if (item !is NativeTextFlow) continue
                     val layout = item.layout
                     if (layout.lineCount == 0) continue
-                    // Centred lines can start at a negative left. Round each advance up:
-                    // truncating fractional font metrics makes a max-content cell wrap.
-                    for (line in 0 until layout.lineCount) {
-                        val rubyExtra = if (implicitFrom > 0) gridRubyIntrinsicExtra(layout, line, cellStyle) else 0f
-                        val advance = ceil(layout.getLineRight(line) - layout.getLineLeft(line) + rubyExtra).toInt()
-                        widest = maxOf(widest, (if (narrow) 0 else item.x) + advance)
+                    val minimumAdvance = if (minimumOnly || intrinsics != null && box.wordBreak != "keep-all")
+                        minContentAdvance(layout) else 0
+                    if (minimumOnly) {
+                        widest = maxOf(widest, minimumAdvance)
+                    } else {
+                        // Centred lines can start at a negative left. Round each advance up:
+                        // truncating fractional font metrics makes a max-content cell wrap.
+                        for (line in 0 until layout.lineCount) {
+                            val advance = ceil(layout.getLineRight(line) - layout.getLineLeft(line)).toInt()
+                            widest = maxOf(widest, item.x + advance)
+                        }
                     }
                     if (intrinsics != null) {
-                        minimum = maxOf(minimum, if (box.wordBreak == "keep-all" || (own["whiteSpace"] ?: whiteSpace) == "nowrap") widest
-                            else minContentAdvance(layout))
+                        minimum = maxOf(minimum, if (box.wordBreak == "keep-all" || (own[NativeCssProperty.WhiteSpace] ?: inlineState.whiteSpace) == "nowrap") widest
+                            else minimumAdvance)
                     }
                     if (!minContent) continue
                     // The reference sizes an anonymous column as if the reading advanced at the
@@ -902,322 +969,174 @@ public class NativeGlossaryCompiler(
         return grid.columnWidths(widths.toIntArray())
     }
 
-    /** Grid auto tracks include annotation width; normal paragraph carets reserve only the base. */
-    private fun gridRubyIntrinsicExtra(layout: Layout, line: Int, style: TextStyle): Float {
-        val text = layout.text as? Spanned ?: return 0f
-        val start = layout.getLineStart(line)
-        val end = layout.getLineEnd(line)
-        var extra = 0f
-        for (span in text.getSpans(start, end, NativeRubySpan::class.java)) {
-            val metrics = span.metrics
-            val readingStyle = metrics.readingStyle ?: continue
-            val baseFont = resources.profile(metrics.baseLayout.style).resource.paint.textSize
-            fun neighbor(from: Int, to: Int): Float {
-                if (from < start || to > end || from >= to || text[from] == '\n' ||
-                    text.getSpans(from, to, ReplacementSpan::class.java).isNotEmpty()) return 0f
-                val paint = text.getSpans(from, to, NativeStyleSpan::class.java).lastOrNull()?.profile?.resource?.paint
-                    ?: resources.profile(style).resource.paint
-                if (paint.textSize > baseFont) return 0f
-                return paint.measureText(text, from, to)
-            }
-            val spanStart = text.getSpanStart(span)
-            val spanEnd = text.getSpanEnd(span)
-            val before = if (spanStart > start) neighbor(Character.offsetByCodePoints(text, spanStart, -1), spanStart) else 0f
-            val after = if (spanEnd < end) neighbor(spanEnd, Character.offsetByCodePoints(text, spanEnd, 1)) else 0f
-            extra += rubyIntrinsicExtra(metrics.widthPx.toFloat(), metrics.readingLayout.advancePx,
-                resources.profile(readingStyle).resource.paint.textSize, before, after)
-        }
-        return extra
-    }
-
     /** Reads caret advances from the existing layout; never creates a narrow-width StaticLayout. */
     private fun minContentAdvance(layout: Layout): Int {
         val text = layout.text
+        val value = text.toString()
         val breaks = tableLineBreaks
-        breaks.setText(text.toString())
+        breaks.setText(value)
+        // Reading each boundary through getPrimaryHorizontal remeasures the line prefix.
+        // Android 34 can measure the whole simple LTR line once. Multiline/bidi flows retain
+        // Android's caret choice, which is ambiguous at directional and paragraph boundaries.
+        val bounds = if (Build.VERSION.SDK_INT >= 34 && text.isNotEmpty() && layout.lineCount == 1 &&
+            layout.getParagraphDirection(0) == Layout.DIR_LEFT_TO_RIGHT &&
+            !Bidi.requiresBidi(value.toCharArray(), 0, value.length)) {
+            FloatArray(text.length * 4).also { layout.fillCharacterBounds(0, text.length, it, 0) }
+        } else null
+        fun horizontal(offset: Int): Float = if (bounds == null) layout.getPrimaryHorizontal(offset)
+            else if (offset == text.length) bounds[(offset - 1) * 4 + 2] else bounds[offset * 4]
         val spanned = text as? Spanned
         val replacements = spanned?.getSpans(0, text.length, ReplacementSpan::class.java).orEmpty()
+        val ranges = LongArray(replacements.size) {
+            (spanned!!.getSpanStart(replacements[it]).toLong() shl 32) or spanned.getSpanEnd(replacements[it]).toLong()
+        }.apply { sort() }
+        var replacement = 0
         var start = breaks.first()
+        var startX = horizontal(start)
         var widest = 0f
         var end = breaks.next()
         while (end != BreakIterator.DONE) {
-            if (replacements.none { end > spanned!!.getSpanStart(it) && end < spanned.getSpanEnd(it) }) {
+            // Breaks and span starts are ordered; never rescan every ruby for each boundary.
+            while (replacement < ranges.size && (ranges[replacement] and 0xffffffffL) <= end.toLong()) replacement++
+            if (replacement == ranges.size || (ranges[replacement] ushr 32) >= end.toLong()) {
                 var trimmed = end
                 while (trimmed > start && text[trimmed - 1].isWhitespace()) trimmed--
-                widest = maxOf(widest, kotlin.math.abs(layout.getPrimaryHorizontal(trimmed) - layout.getPrimaryHorizontal(start)))
+                val endX = horizontal(trimmed)
+                widest = maxOf(widest, kotlin.math.abs(endX - startX))
                 start = end
+                startX = if (trimmed == end) endX else horizontal(end)
             }
             end = breaks.next()
         }
         return ceil(widest).toInt()
     }
 
-    private inner class TextCursor(val x: Int, val width: Int, var y: Float, val style: TextStyle,
+    private inner class TextCursor(val x: Int, val width: Int, var y: Float, val style: NativeTextStyle,
         val interactive: Boolean, val output: MutableList<NativeGlossaryItem>, val vertical: Boolean = false,
         val rubyLineHeight: Boolean = false, val textIndent: Int = 0) {
-        private var text = SpannableStringBuilder()
-        private var runStyle: TextStyle? = null
-        private var runTrim = "normal"
-        // TextStyle.hashCode() is a 15-field structural hash that Compose recomputes on every call,
-        // so a HashMap lookup keyed on a TextStyle is not cheap. These memos keep that hash to once
-        // per style run and once per paragraph instead of once per text append.
-        private var runProfile: NativeTextProfile? = null
-        private var paragraphProfile: NativeTextProfile? = null
-        private var runStart = 0
-        private var paragraphStyle = style
-        private var minimumHeightPx = 0f
-        private var hasShiftedText = false
-        /** The reading's own line box, added to annotated lines when [rubyLineHeight] is on. */
+        private val builder = NativeParagraphBuilder(style, resources, inlineState, vertical, interactive, checkCancellation)
         private var rubyExtra = 0
-        private var runLink: String? = null
-        private var linkStart = 0
-        private val decorations = ArrayList<InlineDecoration>()
-        private val inlineImages = ArrayList<InlineImage>()
+        private var flushed = false
+        private var readyParagraph: NativeParagraph? = null
         var pendingBottom = 0f
-        // CSS white-space processing (2.1 16.6): under `normal`, a run of whitespace collapses to
-        // one space, and whitespace at the start of a line is dropped. Android's StaticLayout
-        // treats a newline as a HARD line break, so a newline inside a text node - which the
-        // browser merely collapses to a space - split the gloss into extra lines. 用例.jp and
-        // 新語時事用語 ship pretty-printed glosses, so this cost them whole lines of drift.
-        private val spacing = CssWhiteSpace()
-        val length: Int get() = text.length
+        val length: Int get() = builder.length
+        val canRetainParagraph: Boolean get() = !flushed && !builder.hasImages && length > 0
+        var retainParagraph: ((NativeParagraph) -> Unit)? = null
 
-        /**
-         * CSS white-space processing (2.1 16.6): a run of whitespace collapses to one space, and
-         * whitespace at the start of a line is dropped.
-         *
-         * A NEWLINE is not collapsed, though: the reference turns it into a `<br>`
-         * (renderer.js `appendTextWithLineBreaks`), so it is a line break. Treating it as
-         * collapsible whitespace merged whole paragraphs into one line - 明鏡国語辞典, 新語時事用語
-         * and JLPT each came out hundreds of pixels short.
-         */
-        private fun collapseWhitespace(value: String): String {
-            return spacing.append(value, whiteSpace == "pre-wrap" || whiteSpace == "pre" || whiteSpace == "break-spaces")
-        }
-        private fun endLink() {
-            val target = runLink
-            if (interactive && target != null && linkStart < text.length && (linkStart until text.length).any { index ->
-                    !text[index].isWhitespace() &&
-                        text.getSpans(index, index + 1, NativeNoLookup::class.java).isEmpty()
-                }) text.setSpan(NativeLookupLink(target), linkStart, text.length, SPAN_FLAGS)
-            linkStart = text.length
-        }
-        private fun endRun() {
-            val current = runStyle
-            if (current != null && runStart < text.length) {
-                val base = paragraphProfile ?: resources.profile(paragraphStyle).also { paragraphProfile = it }
-                text.setSpan(checkNotNull(runProfile).spanFor(base), runStart, text.length, SPAN_FLAGS)
-                if (runTrim != "normal") text.setSpan(NativeTextSpacingTrim(runTrim), runStart, text.length, SPAN_FLAGS)
-            }
-            runStart = text.length
-        }
-        fun append(value: String, style: TextStyle) {
-            appendInternal(verticalize(collapseWhitespace(value)), style)
-        }
-
-        /**
-         * Vertical writing (`writing-mode: vertical-rl`): the glyphs run DOWN the column instead
-         * of across the line, and each one advances by the line height. StaticLayout has no
-         * vertical mode, so each glyph is given its own line and the line break does the work.
-         *
-         * 小学館's example images caption their table cells this way - `td[data-sc-caption] {
-         * writing-mode: vertical-rl }` - and the native laid those captions out horizontally,
-         * which is what left 小学館's worst case 276 pixels short of the reference.
-         */
-        private fun verticalize(value: String): String {
-            if (!vertical || value.length < 2) return value
-            val out = StringBuilder(value.length * 2)
-            for (char in value) {
-                if (out.isNotEmpty()) out.append('\n')
-                out.append(char)
-            }
-            return out.toString()
-        }
-
-        /** Appends text verbatim: an explicit break, a list marker or a layout spacer. */
-        fun appendRaw(value: String, style: TextStyle) {
-            if (value.any { !isCssWhiteSpace(it) }) spacing.markContent()
-            appendInternal(value, style)
-        }
-
-        /** An explicit `<br>`: a real line break, and the next line starts fresh. */
-        fun appendBreak(style: TextStyle) {
-            appendInternal("\n", style)
-            spacing.reset()
-        }
-
-        private fun appendInternal(value: String, style: TextStyle) {
-            if (value.isEmpty()) return
-            resources.appends++
+        fun preventRetention() { flushed = true }
+        fun restore(input: TableParagraphInput) {
+            readyParagraph = input.paragraph
+            y += pendingBottom
+            pendingBottom = 0f
             documentStart = false
-            if (text.isEmpty()) {
-                y += pendingBottom; pendingBottom = 0f
-                paragraphStyle = this.style
-                paragraphProfile = null
-            }
-            if (runStyle != style || runTrim != textSpacingTrim) {
-                endRun(); runStyle = style; runProfile = null
-                runTrim = textSpacingTrim
-                hasShiftedText = hasShiftedText || (style.baselineShift?.multiplier ?: 0f) != 0f
-            }
-            if (runLink != activeLink) { endLink(); runLink = activeLink }
-            text.append(value)
-            // The run's profile is stable for the whole run, so look it up once per run rather than
-            // once per append: each lookup re-hashes a TextStyle.
-            val profile = runProfile ?: resources.profile(style).also { runProfile = it }
-            minimumHeightPx = maxOf(minimumHeightPx, profile.resource.lineHeightPx)
         }
-        fun noLookup(value: String, style: TextStyle) {
-            val start = text.length
-            appendRaw(value, style)
-            if (start < text.length) text.setSpan(NativeNoLookup(), start, text.length, SPAN_FLAGS)
+
+        private fun contentStarted(started: Boolean) {
+            if (!started) return
+            documentStart = false
+            y += pendingBottom
+            pendingBottom = 0f
         }
-        fun disclosureMarker(open: Boolean, style: TextStyle) {
-            val start = text.length
+
+        fun append(value: String, style: NativeTextStyle) = contentStarted(builder.append(value, style))
+        fun appendRaw(value: String, style: NativeTextStyle) = contentStarted(builder.appendRaw(value, style))
+        fun appendBreak(style: NativeTextStyle) = contentStarted(builder.appendBreak(style))
+        fun noLookup(value: String, style: NativeTextStyle) = contentStarted(builder.noLookup(value, style))
+
+        fun before(own: NativeCssDeclarations, inherited: NativeTextStyle) {
+            val value = own["content"] ?: return
+            if (value.isEmpty() || hidden(own)) return
+            val style = resources.style(inherited, own)
+            val box = resources.box(own, style)
+            val display = own[NativeCssProperty.Display]
+            if (display == "block") flush()
+            space(px(box.marginStart ?: 0f), style)
+            if (display == "inline-block") {
+                val prepared = resources.ruby.prepare(value, style.textStyle)
+                val start = length
+                noLookup(value, style)
+                val padStart = px(box.paddingStart ?: 0f)
+                val padEnd = px(box.paddingEnd ?: 0f)
+                val contentWidth = own["width"]?.let { parseDpValue(it, fontSizeSp(style)) }?.let(::px)
+                    ?: ceil(prepared.advancePx).toInt()
+                val transform = own["transform"].orEmpty().trim()
+                val shiftY = if (transform.startsWith("translateY(") && transform.endsWith(')')) {
+                    parseDpValue(transform.substringAfter('(').dropLast(1), fontSizeSp(style))?.let(::verticalPx) ?: 0f
+                } else 0f
+                builder.addSpan(NativeGeneratedTextSpan(prepared, contentWidth + padStart + padEnd, padStart, shiftY), start)
+            } else {
+                space(px(box.paddingStart ?: 0f), style)
+                val start = length
+                noLookup(value, style)
+                decorate(start, box, style)
+                space(px(box.paddingEnd ?: 0f), style)
+            }
+            space(px(box.marginEnd ?: 0f), style)
+            if (display == "block") flush()
+        }
+
+        fun disclosureMarker(open: Boolean, style: NativeTextStyle) {
+            val start = length
             noLookup("\uFFFC", style)
-            text.setSpan(NativeDisclosureMarkerSpan(resources.profile(style).resource.paint.textSize,
-                open, direction == LayoutDirection.Rtl), start, text.length, SPAN_FLAGS)
+            builder.addSpan(NativeDisclosureMarkerSpan(resources.profile(style).resource.paint.textSize,
+                open, direction == LayoutDirection.Rtl), start)
         }
-        fun ruby(base: String, style: TextStyle, metrics: RubyMetrics) {
-            val start = text.length
-            append(base, style)
-            text.setSpan(NativeRubySpan(base, metrics), start, text.length, SPAN_FLAGS)
-        }
-        /** Appends a placeholder for an inline replaced element; the view paints the bitmap. */
-        fun inlineImage(node: StructuredNode.Element, style: TextStyle, width: Int, height: Int, shift: Int) {
-            val start = text.length
-            appendRaw("\uFFFC", style)
-            text.setSpan(NativeInlineImageSpan(width, height, shift), start, text.length, SPAN_FLAGS)
-            inlineImages.add(InlineImage(start, width, height, shift, node))
-        }
-        /** The reading's own line box, counted once however many rubies a line carries. */
-        fun rubyHeight(pixels: Int) {
-            rubyExtra = maxOf(rubyExtra, pixels)
-        }
-        fun space(width: Int, style: TextStyle) {
+
+        fun ruby(base: String, style: NativeTextStyle, metrics: RubyMetrics) =
+            contentStarted(builder.ruby(base, style, metrics))
+
+        fun inlineImage(node: StructuredNode.Element, style: NativeTextStyle, width: Int, height: Int, shift: Int) =
+            contentStarted(builder.image(node, style, width, height, shift))
+
+        /** Flow's reading strut, applied only to lines containing annotations. */
+        fun rubyHeight(pixels: Int) { rubyExtra = maxOf(rubyExtra, pixels) }
+
+        fun space(width: Int, style: NativeTextStyle) {
             if (width <= 0) return
-            val start = text.length
+            val start = length
             appendRaw(" ", style)
-            text.setSpan(NativeSpacingSpan(width), start, text.length, SPAN_FLAGS)
+            builder.addSpan(NativeSpacingSpan(width), start)
         }
-        fun decorate(start: Int, box: BoxStyle, style: TextStyle) {
-            if (start in 0 until text.length && (box.hasBorder || box.hasBackground)) {
-                // The inline box's content area is the font's ascent to descent, not the line box.
-                val font = resources.profile(style).resource
-                decorations.add(InlineDecoration(start, text.length, box,
-                    font.paint.ascent() - font.baselineShiftPx, font.paint.descent() - font.baselineShiftPx))
-            }
+
+        fun decorate(start: Int, box: BoxStyle, style: NativeTextStyle) {
+            if (start !in 0 until length || !box.hasBorder && !box.hasBackground) return
+            val font = resources.profile(style).resource
+            builder.decorate(NativeInlineDecoration(start, length,
+                font.paint.ascent() - font.baselineShiftPx, font.paint.descent() - font.baselineShiftPx,
+                px(box.paddingStart ?: 0f), px(box.paddingEnd ?: 0f),
+                px(box.paddingTop ?: 0f), px(box.paddingBottom ?: 0f),
+                argb(box.backgroundColor), argb(box.borderColor, this.style.color.takeIf { it.isSpecified } ?: border),
+                if (box.hasBorder) px(box.borderWidth ?: 1f).toFloat() else 0f, px(box.borderRadius ?: 2f).toFloat()))
         }
+
         fun flush() {
-            if (text.isEmpty()) return
-            // CSS 2.1 16.6.1: a line break at the end of a block generates no line box. Plain-text
-            // payloads always end with a newline, and a trailing `<br>` is the same case, so the
-            // empty last line the reference never shows would otherwise become document height.
-            if (text[text.length - 1] == '\n') text.delete(text.length - 1, text.length)
-            if (text.isEmpty()) return
-            checkCancellation()
-            endRun()
-            endLink()
-            val profile = checkNotNull(paragraphProfile)
-            if (!vertical) applyHanPunctuationSpacing(text, profile.resource.font)
-            var gridHeight = 0f
-            if (minimumHeightPx > 0f) {
-                val base = profile.resource.paint.fontMetricsInt
-                // CSS's paragraph strut remains even when every child uses a smaller font.
-                gridHeight = maxOf(minimumHeightPx, profile.resource.lineHeightPx)
-                NativeCssLineHeight(gridHeight, rubyExtra,
-                    -base.ascent, base.descent, y == 0f, hasShiftedText,
-                    lineBoxOrigin = tableCellDepth > 0,
-                    cropFirstRubyLine = !rubyLineHeight && y == 0f).also {
-                    text.setSpan(it, 0, text.length, Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
-                }
-            }
-            // CSS 2.1 16.1: text-indent shifts the first line only, and a negative value may pull
-            // it left of the block's content edge (the hanging indent in 小学館's level-1 senses).
-            if (textIndent != 0) {
-                text.setSpan(LeadingMarginSpan.Standard(textIndent, 0), 0, text.length,
-                    Spanned.SPAN_INCLUSIVE_EXCLUSIVE)
-            }
-            val layout = resources.layout(SpannedString(text), width, paragraphStyle, profile)
-            for (decoration in decorations) {
-                val first = layout.getLineForOffset(decoration.start)
-                val last = layout.getLineForOffset(decoration.end - 1)
-                for (line in first..last) {
-                    val path = Path()
-                    val bounds = RectF()
-                    layout.getSelectionPath(maxOf(decoration.start, layout.getLineStart(line)), minOf(decoration.end, layout.getLineEnd(line)), path)
-                    path.computeBounds(bounds, true)
-                    // CSS paints an inline box's background and border over the box's CONTENT AREA
-                    // - the font's ascent to descent around the baseline - plus its padding, and
-                    // not over the whole line box. The selection path is the line box, so using
-                    // it stretched every tag chip to the full line height: 小学館's 動 badge came
-                    // out 30x85 where the reference draws a 30x30 square.
-                    val baseline = layout.getLineTop(line) - layout.getLineAscent(line)
-                    val top = baseline + decoration.ascent
-                    val bottom = baseline + decoration.descent
-                    val box = decoration.box
-                    val padStart = px(box.paddingStart ?: 0f)
-                    val padEnd = px(box.paddingEnd ?: 0f)
-                    val padTop = px(box.paddingTop ?: 0f)
-                    val padBottom = px(box.paddingBottom ?: 0f)
-                    output.add(NativeGlossaryRect(x + bounds.left.roundToInt() - padStart,
-                        (y + top - padTop).roundToInt(),
-                        (ceil(bounds.width()).toInt() + padStart + padEnd),
-                        (bottom - top).roundToInt() + padTop + padBottom, argb(box.backgroundColor),
-                        argb(box.borderColor, paragraphStyle.color.takeIf { it.isSpecified } ?: border),
-                        if (box.hasBorder) px(box.borderWidth ?: 1f).toFloat() else 0f, px(box.borderRadius ?: 2f).toFloat()))
-                }
-            }
-            for (image in inlineImages) {
-                val line = layout.getLineForOffset(image.start)
-                val primary = layout.getPrimaryHorizontal(image.start)
-                // Inline replaced element: bottom edge on the line baseline, leading edge at the
-                // caret (the right edge in RTL, so the box starts one width to its left).
-                val left = if (layout.getParagraphDirection(line) == Layout.DIR_RIGHT_TO_LEFT) {
-                    primary - image.width
-                } else {
-                    primary
-                }
-                output.add(NativeGlossaryImage((x + left).roundToInt(),
-                    (y + layout.getLineBaseline(line) + image.shift - image.height).roundToInt(),
-                    image.width, image.height, image.node))
-            }
-            output.add(NativeTextFlow.prepare(layout, x, y.roundToInt(), interactive,
-                prepareRubyDrawing = !measuringIntrinsic))
-            // CSS line-height controls flow advance; glyph overflow does not enlarge the box.
-            y += layout.height
-            if (!hasShiftedText && inlineImages.isEmpty() && (!rubyLineHeight || rubyExtra == 0) && gridHeight > 0f) {
-                val exactHeight = gridHeight * layout.lineCount
-                y += exactHeight - exactHeight.roundToInt()
-            }
-            text = SpannableStringBuilder()
-            runStyle = null; runStart = 0; minimumHeightPx = 0f; runLink = null; linkStart = 0
-            hasShiftedText = false
-            decorations.clear()
-            inlineImages.clear()
-            spacing.reset()
+            flushed = true
+            val paragraph = readyParagraph?.also { checkCancellation() } ?: builder.finish(textIndent, rubyExtra) ?: return
+            retainParagraph?.invoke(paragraph)
+            retainParagraph = null
+            y = paragraphLayout.place(paragraph, x, width, y, interactive,
+                intrinsic = measuringIntrinsic, tableCell = tableCellDepth > 0,
+                rubyLineHeight = rubyLineHeight, output = output)
+            readyParagraph = null
         }
+
         fun finish(): Float {
             flush()
-            // CSS 2.1 8.3.1: the last child's bottom margin collapses with its parent's, and the
-            // chain collapses out of the document. The reference capture is cropped to the body
-            // box, so a trailing margin is outside it. Adding the margin at every nested flow
-            // multiplied a three-div gloss by three: 三省堂国語辞典 case 27 was 32 device px
-            // taller than the reference with identical line positions.
+            // A trailing collapsed margin is outside this flow's content box.
             return y
         }
     }
 
-    private data class InlineDecoration(val start: Int, val end: Int, val box: BoxStyle, val ascent: Float, val descent: Float)
-    private data class InlineImage(val start: Int, val width: Int, val height: Int, val shift: Int,
-        val node: StructuredNode.Element)
+    /** Owned by one cell's intrinsic/final negotiation, never retained across documents. */
+    private class TableParagraphInput(val paragraph: NativeParagraph, val style: NativeTextStyle,
+        val vertical: Boolean, val indent: Int, val before: NativeCssDeclarations?,
+        val whiteSpace: String, val trim: String, val rubyCount: Int)
 
     /** True when the element's own declarations ask for a vertical writing mode. */
-    private fun isVerticalWriting(own: Map<String, String>): Boolean =
-        own["writingMode"]?.trim()?.lowercase()?.startsWith("vertical") == true
+    private fun isVerticalWriting(own: NativeCssDeclarations): Boolean =
+        own[NativeCssProperty.WritingMode]?.trim()?.lowercase()?.startsWith("vertical") == true
     companion object {
         private val IMAGE_CONTAINER_DATA = mapOf("class" to "gloss-image-container")
-        private const val SPAN_FLAGS = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
         private val HIDDEN = setOf("hidden", "collapse")
         private val INLINE_TEXT_ALIGNMENTS = setOf("baseline", "text-bottom", "text-top", "middle", "super", "sub")
     }

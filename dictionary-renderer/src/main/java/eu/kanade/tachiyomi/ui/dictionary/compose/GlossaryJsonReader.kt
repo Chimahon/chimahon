@@ -1,10 +1,9 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
-import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** Reads content directly into renderer nodes. Only small data/style objects use JSON maps. */
+/** Streams content, metadata and styles directly into renderer nodes and their attribute maps. */
 public class GlossaryJsonReader(raw: String) {
     private val input = JSONTokener(raw)
 
@@ -38,7 +37,16 @@ public class GlossaryJsonReader(raw: String) {
         }
     }
 
-    private fun content(): List<StructuredNode> = ArrayList<StructuredNode>().also(::value)
+    private fun content(): List<StructuredNode> {
+        val first = input.nextClean()
+        input.back()
+        if (first == '[' || first == '{') return ArrayList<StructuredNode>().also(::value)
+        return when (val scalar = input.nextValue()) {
+            is String -> if (scalar.isEmpty()) emptyList() else listOf(StructuredNode.Text(scalar))
+            is Number, is Boolean -> listOf(StructuredNode.Text(scalar.toString()))
+            else -> emptyList()
+        }
+    }
 
     private inline fun members(consume: (String) -> Unit): Int {
         if (input.nextClean() == '}') return 0
@@ -101,7 +109,8 @@ public class GlossaryJsonReader(raw: String) {
                 (props["path"] ?: props["src"])?.let { put("path", it) }
                 props["title"]?.let { put("title", it) }
             }))
-        if (text != null) return StructuredNode.Element(StructuredTag.Span, text!!, StructuredAttributes(style = style))
+        if (text != null) return StructuredNode.Element(StructuredTag.Span, text!!,
+            StructuredAttributes.create(emptyMap(), style, emptyMap()))
         if (ruby != null) {
             val base = buildString { ruby!!.first.forEach { it.appendCollectedTo(this) } }
             val reading = buildString { ruby!!.second.forEach { it.appendCollectedTo(this) } }
@@ -117,7 +126,7 @@ public class GlossaryJsonReader(raw: String) {
             remove("src")
             (props["path"] ?: props["src"])?.let { put("path", it) }
         } else if (props.keys.all { it in TEXT_PROPERTIES }) props else props.filterKeys { it in TEXT_PROPERTIES }
-        return StructuredNode.Element(resolvedTag, children, StructuredAttributes(data, style, filtered))
+        return StructuredNode.Element(resolvedTag, children, StructuredAttributes.create(data, style, filtered))
     }
 
     private fun ruby(): Pair<List<StructuredNode>, List<StructuredNode>> {
@@ -138,19 +147,28 @@ public class GlossaryJsonReader(raw: String) {
 
     private fun scalarString(): String = input.nextValue().let { if (it == JSONObject.NULL) "" else it.toString() }
 
+    private fun scalarValue(): Any? = when (input.nextClean()) {
+        '{', '[' -> { input.back(); skipValue(); null }
+        else -> { input.back(); input.nextValue().takeUnless { it == JSONObject.NULL } }
+    }
+
     private fun metadata(): Map<String, String> {
-        val obj = input.nextValue() as? JSONObject ?: return emptyMap()
-        if (obj.length() == 0) return emptyMap()
+        if (input.nextClean() != '{') {
+            input.back()
+            skipValue()
+            return emptyMap()
+        }
         // Empty values are meaningful: the structured payload marks attributes by presence
         // (`"headword": ""` -> `data-sc-headword=""`), and the dictionary CSS selects on them.
-        return buildMap {
-            obj.keys().forEach { key ->
-                val v = obj.opt(key)
-                if (v != null && v != JSONObject.NULL && v !is JSONObject && v !is JSONArray) {
-                    put(toCamelCase(key), v.toString())
-                }
+        val out = LinkedHashMap<String, String>()
+        members { key ->
+            val name = structuredDataName(key)
+            val value = scalarValue()
+            if (name != null) {
+                if (value == null) out.remove(name) else out[name] = value.toString()
             }
         }
+        return if (out.isEmpty()) emptyMap() else out
     }
 
     /**
@@ -161,29 +179,56 @@ public class GlossaryJsonReader(raw: String) {
      * Numbers are only meaningful for the four margin sides, which renderer.js turns into `em`.
      */
     private fun inlineStyle(): Map<String, String> {
-        val obj = input.nextValue() as? JSONObject ?: return emptyMap()
-        if (obj.length() == 0) return emptyMap()
+        if (input.nextClean() != '{') {
+            input.back()
+            skipValue()
+            return emptyMap()
+        }
         val out = LinkedHashMap<String, String>()
         var decorationLine = ""
-        for (key in obj.keys()) {
+        members { key ->
             val name = toCamelCase(key)
-            val value = obj.opt(key) ?: continue
-            if (value == JSONObject.NULL) continue
-            when {
-                name == "textDecorationLine" -> decorationLine = when {
-                    value is JSONArray -> (0 until value.length()).joinToString(" ") { value.optString(it) }
-                    value is String -> value
-                    else -> ""
+            when (name) {
+                "textDecorationLine" -> decorationLine = readDecorationLine()
+                in PAYLOAD_STYLE_MARGINS -> {
+                    val value = scalarValue()
+                    when {
+                        value is Number -> out[name] = "${value}em"
+                        value is String && value.isNotEmpty() -> out[name] = value
+                        else -> out.remove(name)
+                    }
                 }
-                name in PAYLOAD_STYLE_MARGINS -> when {
-                    value is Number -> out[name] = "${value.toString()}em"
-                    value is String && value.isNotEmpty() -> out[name] = value
+                in PAYLOAD_STYLE_PROPERTIES -> {
+                    val value = scalarValue()
+                    if (value is String && value.isNotEmpty()) out[name] = value else out.remove(name)
                 }
-                name in PAYLOAD_STYLE_PROPERTIES && value is String && value.isNotEmpty() -> out[name] = value
+                else -> skipValue()
             }
         }
         if (out["textDecoration"].isNullOrEmpty() && decorationLine.isNotEmpty()) out["textDecoration"] = decorationLine
-        return out
+        return if (out.isEmpty()) emptyMap() else out
+    }
+
+    private fun readDecorationLine(): String {
+        if (input.nextClean() != '[') {
+            input.back()
+            return scalarValue() as? String ?: ""
+        }
+        if (input.nextClean() == ']') return ""
+        input.back()
+        return buildString {
+            var first = true
+            while (true) {
+                if (!first) append(' ')
+                append(input.nextValue().toString())
+                first = false
+                when (input.nextClean()) {
+                    ']' -> return@buildString
+                    ',' -> Unit
+                    else -> error("Expected decoration array separator")
+                }
+            }
+        }
     }
 
     private fun skipValue() {

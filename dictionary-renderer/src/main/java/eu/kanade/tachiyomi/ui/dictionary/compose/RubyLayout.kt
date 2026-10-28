@@ -51,13 +51,13 @@ public fun RubyTextRenderer.column(
     reading: String,
     style: TextStyle,
     readingStyle: TextStyle,
-    baseSegments: List<RubyTextSegment> = emptyList(),
-    readingSegments: List<RubyTextSegment> = emptyList(),
+    baseRuns: List<RubyTextRun> = emptyList(),
+    readingRuns: List<RubyTextRun> = emptyList(),
 ): RubyMetrics {
     val baseResource = resources(style)
     val readingResource = resources(readingStyle)
-    val baseRun = prepare(base, style, baseSegments, baseResource)
-    val readingRun = prepare(reading, readingStyle, readingSegments, readingResource)
+    val baseRun = prepare(base, style, baseRuns, baseResource)
+    val readingRun = prepare(reading, readingStyle, readingRuns, readingResource)
     val height = ceil(readingRun.heightPx).toInt().coerceAtLeast(1)
     val baseEmAscent = baseRun.emAscentPx
     val readingEmDescent = readingRun.emDescentPx

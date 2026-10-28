@@ -8,6 +8,213 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class DictionaryCssParserTest {
+    @Test fun nativePresenceBitsPreserveCandidateOrderAcrossElements() {
+        val css = parseDictionaryCss("""
+            [data-sc-a] { color: red; }
+            [data-sc-b][data-sc-a] { font-weight: bold; }
+            span[data-sc-c] { color: green; }
+            [data-sc-b] { background-color: yellow; }
+        """.trimIndent())
+        val bits = BitSet()
+        val random = Random(428)
+        repeat(300) {
+            val data = listOf("a", "b", "c", "unrelated").shuffled(random)
+                .filter { random.nextBoolean() }.associateWith { "" }
+            val expected = css.presenceCandidates(data)
+            val actual = ArrayList<CssPresenceRule>()
+            css.presenceCandidates(data, bits)
+            var index = bits.nextSetBit(0)
+            while (index >= 0) {
+                actual.add(css.presenceRules[index])
+                index = bits.nextSetBit(index + 1)
+            }
+            assertEquals(expected, actual)
+        }
+    }
+
+    @Test fun incrementalSiblingsMatchHistoryIncludingEmptyAndClassElements() {
+        val css = parseDictionaryCss("""
+            [data-sc-a] + [data-sc-b] { color: red; }
+            [data-sc-a] ~ [data-sc-b] { font-weight: bold; }
+            .alpha + .beta { margin-left: 2px; }
+            .alpha ~ .beta { text-decoration: underline; }
+            [data-sc-kind="start"] ~ [data-sc-kind="end"] { color: green; }
+        """.trimIndent())
+        val random = Random(429)
+        repeat(30) {
+            val context = NativeCssContext(css)
+            val siblings = NativeCssSiblings(css.nativeSiblingSelectors)
+            val history = ArrayList<Map<String, String>>()
+            repeat(80) {
+                val data = when (random.nextInt(6)) {
+                    0 -> emptyMap()
+                    1 -> mapOf("a" to "")
+                    2 -> mapOf("b" to "")
+                    3 -> mapOf("class" to "alpha\tother alpha")
+                    4 -> mapOf("class" to "beta")
+                    else -> mapOf("kind" to if (random.nextBoolean()) "start" else "end")
+                }
+                val node = StructuredNode.Element(StructuredTag.Span,
+                    attributes = StructuredAttributes(data = data))
+                assertEquals(context.declarations(node, history), context.declarations(node, siblings))
+                siblings.append(node.attributes)
+                history.add(0, data)
+            }
+        }
+    }
+
+    @Test fun siblingDispatchPreservesOrderBeyondOneMachineWordAndResetsAdjacency() {
+        val css = parseDictionaryCss(buildString {
+            repeat(96) { append("[data-sc-p$it] ~ [data-sc-target] { margin-left: ${it}px; }\n") }
+            append("[data-sc-p95] + [data-sc-target] { color: red; }")
+        })
+        val context = NativeCssContext(css)
+        val siblings = NativeCssSiblings(css.nativeSiblingSelectors)
+        val first = StructuredAttributes(data = mapOf("p0" to "", "p65" to "", "p95" to ""))
+        val target = StructuredNode.Element(StructuredTag.Span,
+            attributes = StructuredAttributes(data = mapOf("target" to "")))
+        siblings.append(first)
+        val adjacent = context.declarations(target, siblings)
+        assertEquals(context.declarations(target, listOf(first.data)), adjacent)
+        assertEquals("95px", adjacent["marginLeft"])
+        assertEquals("red", adjacent["color"])
+        siblings.append(StructuredAttributes.Empty)
+        val separated = context.declarations(target, siblings)
+        assertEquals(context.declarations(target, listOf(emptyMap(), first.data)), separated)
+        assertEquals("95px", separated["marginLeft"])
+        assertEquals(null, separated["color"])
+    }
+
+    @Test fun incrementalAncestorProgressMatchesBacktrackingAcrossRandomPushAndPopPaths() {
+        val css = parseDictionaryCss("""
+            .a .b > span { color: red; }
+            .a > .b span { color: blue; }
+            .a .b .a > span { font-weight: bold; }
+            div > div > span { padding: 2px; }
+            div:not(.b) .a span { margin-left: 3px; }
+            [data-sc-marker] > div span { text-decoration: underline; }
+            section div:nth-child(2) span { color: green; }
+        """.trimIndent())
+        val random = Random(97)
+        repeat(300) {
+            val context = NativeCssContext(css)
+            fun compare() = assertEquals(getNestedStyles("span", emptyMap(), context.ancestors(), css),
+                context.nestedStyles("span", emptyMap()), "ancestors=${context.ancestors()}")
+            compare()
+            val depth = random.nextInt(1, 12)
+            repeat(depth) {
+                val data = when (random.nextInt(5)) {
+                    0 -> mapOf("class" to "a")
+                    1 -> mapOf("class" to "b")
+                    2 -> mapOf("class" to "a b")
+                    3 -> mapOf("marker" to "")
+                    else -> emptyMap()
+                }
+                context.push(dataValueKeys(data), listOf("div", "section", "span")[random.nextInt(3)],
+                    random.nextInt(1, 4), false)
+                compare()
+            }
+            repeat(depth) { context.pop(); compare() }
+        }
+    }
+
+    @Test fun shippingResetOutranksTypeOnlyBoxRulesButNotAttributeRulesOrPseudoContent() {
+        val sheet = parseDictionaryCss("""
+            details { margin: .1em; padding: 9px; }
+            details summary { padding: .1em; color: gray; }
+            details > *:not(summary) { margin-left: .9em; padding-left: .5em; border-left: 1px solid gray; }
+            summary, [data-sc-mark] { padding: .2em; }
+            details summary::before { content: "x"; margin-right: .3em; }
+        """.trimIndent())
+        val context = NativeCssContext(sheet)
+        val details = StructuredNode.Element(StructuredTag.Details)
+        assertEquals(null, context.declarations(details)["margin"])
+        assertEquals(null, context.declarations(details)["padding"])
+        context.push(details)
+        val summary = context.declarations(StructuredNode.Element(StructuredTag.Summary))
+        assertEquals(null, summary["padding"])
+        assertEquals("gray", summary["color"])
+        assertEquals(".3em", summary.before?.get("marginRight"))
+        val marked = StructuredNode.Element(StructuredTag.Summary,
+            attributes = StructuredAttributes(data = mapOf("mark" to "")))
+        assertEquals(".2em", context.declarations(marked)["padding"])
+        val body = context.declarations(StructuredNode.Element(StructuredTag.Div))
+        assertEquals(null, body["marginLeft"])
+        assertEquals(null, body["paddingLeft"])
+        assertEquals("1px solid gray", body["borderLeft"])
+    }
+
+    @Test fun disclosureGeneratedContentUsesStateAndDoesNotStyleSummaryText() {
+        val sheet = parseDictionaryCss("""
+            details summary { color: gray; }
+            details summary::before { content: "${'\u25b8'}"; display: inline-block; width: .75em; margin-right: .3em; color: red; }
+            details[open] summary::before { content: "${'\u25be'}"; }
+            details[open] > *:not(summary) { margin-left: .9em; }
+        """.trimIndent())
+        val context = NativeCssContext(sheet)
+        val summary = StructuredNode.Element(StructuredTag.Summary)
+        context.push(StructuredNode.Element(StructuredTag.Details))
+        val closed = context.declarations(summary)
+        assertEquals("gray", closed[NativeCssProperty.Color])
+        assertEquals("\u25b8", closed.before?.get("content"))
+        assertEquals(".75em", closed.before?.get("width"))
+        assertEquals("red", closed.before?.get(NativeCssProperty.Color))
+        context.pop()
+        context.push(StructuredNode.Element(StructuredTag.Details,
+            attributes = StructuredAttributes(properties = mapOf("open" to "true"))))
+        assertEquals("\u25be", context.declarations(summary).before?.get("content"))
+        assertEquals(null, context.declarations(summary)["marginLeft"])
+        assertEquals(".9em", context.declarations(StructuredNode.Element(StructuredTag.Div))["marginLeft"])
+    }
+
+    @Test fun compiledCascadeSharesStylesWithoutRetainingAncestorState() {
+        val sheet = parseDictionaryCss("span { color: black; } [data-sc-parent] span { color: red; }")
+        val cascade = NativeCssCascade()
+        val first = NativeCssContext(sheet, cascade)
+        val second = NativeCssContext(sheet, cascade)
+        val node = StructuredNode.Element(StructuredTag.Span)
+        val outside = first.declarations(node)
+        assertSame(outside, second.declarations(node))
+        first.push(dataValueKeys(mapOf("parent" to "")), "div")
+        val inside = first.declarations(node)
+        assertEquals("red", inside[NativeCssProperty.Color])
+        assertEquals("black", outside[NativeCssProperty.Color])
+        assertSame(outside, second.declarations(node))
+        first.pop()
+        assertSame(outside, first.declarations(node))
+        assertEquals(inside.hashCode(), mapOf("color" to "red").hashCode())
+    }
+
+    @Test fun compiledCascadeKeepsStructuralMarginsAndInlineOverridesInOrder() {
+        val sheet = parseDictionaryCss("""
+            div { margin: 4px; border: 1px solid black; }
+            [data-sc-section] { margin-top: 9px; color: red; }
+            div[data-sc-section] { border-color: blue; }
+        """.trimIndent())
+        val context = NativeCssContext(sheet)
+        val node = StructuredNode.Element(StructuredTag.Div, attributes = StructuredAttributes(
+            data = mapOf("section" to ""), style = linkedMapOf("marginTop" to "2px", "color" to "green")))
+        val expected = mergeCssStyles(getCssStyles(node.attributes.data, sheet, "div", structuralMargins = true),
+            context.nestedStyles("div", node.attributes.data), context.hasStyles(node), node.attributes.style)
+        val actual = context.declarations(node)
+        assertEquals(expected, actual)
+        assertEquals(expected.entries.toList(), actual.entries.toList())
+        val expectedBox = analyzeBoxProps(expected, 16f)
+        val actualBox = analyzeBoxProps(actual, 16f)
+        for (property in listOf(
+            BoxProps::hasBackground, BoxProps::hasBorder, BoxProps::leftAccent,
+            BoxProps::borderRadius, BoxProps::paddingStart, BoxProps::paddingEnd,
+            BoxProps::paddingTop, BoxProps::paddingBottom, BoxProps::marginStart,
+            BoxProps::marginEnd, BoxProps::marginTop, BoxProps::marginBottom,
+            BoxProps::borderColor, BoxProps::borderWidth, BoxProps::backgroundColor,
+            BoxProps::opacity, BoxProps::textAlign, BoxProps::verticalAlign,
+            BoxProps::wordBreak, BoxProps::fitContent,
+        )) {
+            assertEquals(property.get(expectedBox), property.get(actualBox), property.name)
+        }
+        assertSame(actual, context.declarations(node.copy(attributes = node.attributes.copy())))
+    }
+
     @Test fun nestedDispatchSkipsUnrelatedValuesAndKeepsCascadeOrder() {
         val rules = (0 until 100).map { index ->
             NestedTagRule(ancestors = setOf("root"), tag = "span",
@@ -73,8 +280,9 @@ class DictionaryCssParserTest {
             [data-sc-item]:has(ruby) { color: purple; }
         """.trimIndent())
         val random = Random(31)
+        val cascade = NativeCssCascade()
         repeat(200) {
-            val context = NativeCssContext(css)
+            val context = NativeCssContext(css, cascade)
             val parent = if (random.nextBoolean()) mapOf("parent" to "") else emptyMap()
             context.push(dataValueKeys(parent), "div")
             val data = if (random.nextBoolean()) mapOf("item" to "") else emptyMap()
@@ -106,6 +314,26 @@ class DictionaryCssParserTest {
         assertEquals("red", scoped["color"])
         assertEquals("white", outside["backgroundColor"])
         assertEquals("black", inline["backgroundColor"])
+    }
+
+    @Test fun declarationsKeepPresenceNamesTagsAndStylesheetsIndependent() {
+        val css = parseDictionaryCss("""
+            [data-sc-a] { color: red; }
+            [data-sc-b] { color: blue; }
+            span[data-sc-a] { font-weight: bold; }
+        """.trimIndent())
+        val cascade = NativeCssCascade()
+        fun node(tag: StructuredTag, key: String) = StructuredNode.Element(tag,
+            attributes = StructuredAttributes(data = mapOf(key to "same")))
+        val first = NativeCssContext(css, cascade).declarations(node(StructuredTag.Span, "a"))
+        val other = NativeCssContext(css, cascade)
+        assertSame(first, other.declarations(node(StructuredTag.Span, "a")))
+        assertEquals("bold", first["fontWeight"])
+        assertEquals("blue", other.declarations(node(StructuredTag.Span, "b"))["color"])
+        assertEquals(null, other.declarations(node(StructuredTag.Div, "a"))["fontWeight"])
+        val differentSheet = parseDictionaryCss("[data-sc-a] { color: green; }")
+        assertEquals("green", NativeCssContext(differentSheet, cascade)
+            .declarations(node(StructuredTag.Span, "a"))["color"])
     }
 
     @Test fun moreSpecificTableCornerBeatsLaterFirstColumnRule() {
@@ -376,6 +604,50 @@ class DictionaryCssParserTest {
         }
         while (ancestors.isNotEmpty()) { context.pop(); ancestors.removeAt(ancestors.lastIndex) }
         compare(context, emptyList())
+    }
+
+    @Test fun ancestorDispatchKeepsResidualKeysAndNodePredicates() {
+        val scopes = listOf(
+            CssCompound(tag = "div", values = setOf("outer")),
+            CssCompound(values = setOf("outer", ".marked"), presences = setOf("flag", "other")),
+            CssCompound(presences = setOf("flag", "other")),
+            CssCompound(values = setOf("outer"), requiresOpen = true),
+            CssCompound(values = setOf("outer"), excluded = listOf(CssCompound(presences = setOf("blocked")))),
+            CssCompound(tag = "div", has = listOf(CssRelativeSelector(CssCompound(tag = "b")))),
+        )
+        val css = ParsedCss(nestedTagRules = scopes.mapIndexed { index, compound ->
+            NestedTagRule(tag = "span", scopes = listOf(CssAncestorSelector(compound)),
+                styles = mapOf("test$index" to "matched"))
+        })
+        for (tag in listOf(StructuredTag.Div, StructuredTag.Span)) {
+            for (marked in listOf(false, true)) for (other in listOf(false, true)) {
+                for (open in listOf(false, true)) for (blocked in listOf(false, true)) {
+                    val data = buildMap {
+                        put("content", "outer")
+                        put("flag", "")
+                        if (marked) put("class", "marked")
+                        if (other) put("other", "")
+                        if (blocked) put("blocked", "")
+                    }
+                    val node = StructuredNode.Element(tag, listOf(StructuredNode.Element(StructuredTag.Bold)),
+                        StructuredAttributes(data = data, properties = if (open) mapOf("open" to "true") else emptyMap()))
+                    val context = NativeCssContext(css)
+                    context.push(node)
+                    val result = context.nestedStyles("span", emptyMap())
+                    val expected = buildMap {
+                        if (tag == StructuredTag.Div) put("test0", "matched")
+                        if (marked && other) put("test1", "matched")
+                        if (other) put("test2", "matched")
+                        if (open) put("test3", "matched")
+                        if (!blocked) put("test4", "matched")
+                        if (tag == StructuredTag.Div) put("test5", "matched")
+                    }
+                    assertEquals(expected, result)
+                    context.pop()
+                    assertEquals(emptyMap<String, String>(), context.nestedStyles("span", emptyMap()))
+                }
+            }
+        }
     }
 
     @Test fun declarationsOnlyFlatMatchDoesNotChangeEitherCascadeTier() {
