@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "hoshidicts/include/hoshidicts.h"
+#include "hoshidicts_profile.hpp"
 
 namespace {
     struct Slot {
@@ -404,6 +405,18 @@ Java_chimahon_HoshiDicts_lookup(JNIEnv *env, jobject, jlong session, jstring tex
     auto result = obj->lookup->lookup(text_str, static_cast<int>(max_results),
                                       static_cast<size_t>(scan_length));
     return new_lookup_result_array(env, result);
+}
+
+// DICT_PROFILE: separate entry point keeps the ordinary lookup path unchanged.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_chimahon_HoshiDicts_lookupProfiled(JNIEnv *env, jobject, jlong session, jstring text,
+                                      jint max_results, jint scan_length, jlong request_id) {
+    dict_profile::Context context(request_id);
+    dict_profile::Scope total("native.total");
+    LookupObject *obj = as_object(session);
+    auto text_str = dict_profile::measure("jni.input", [&] { return jstring_to_std_string(env, text); });
+    auto result = obj->lookup->lookup(text_str, static_cast<int>(max_results), static_cast<size_t>(scan_length));
+    return dict_profile::measure("jni.results", [&] { return new_lookup_result_array(env, result); });
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL

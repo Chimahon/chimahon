@@ -1,0 +1,95 @@
+# Perfetto config for attributing jank in the Compose dictionary popup.
+#
+# The load-bearing line is `track_event`. androidx.compose.runtime:runtime-tracing emits composable
+# function names as track events, and without this data source Perfetto silently drops every one of
+# them - a plain atrace capture shows Choreographer and draw phases but no composables at all.
+#
+# The rest is the normal "why was this frame slow" stack:
+#   linux.ftrace + atrace_categories -> View system (Choreographer, syncAndMeasureFrame, draw),
+#                                       sched/freq/am/wm/binder_driver context, and dalvik
+#                                       (JIT compilation + GC slices)
+#   android.surfaceflinger.frametimeline -> per-frame red/yellow FrameTimeline classification
+#   linux.process_stats              -> thread/priority attribution for the Main thread
+#
+# Usage from the command line: see tools/perf/capture-compose-trace.ps1
+# Usage in the UI: Perfetto -> Open a Trace -> paste this file.
+
+buffers {
+  size_kb: 131072
+  fill_policy: RING_BUFFER
+}
+# Keep low-volume metadata/frame events separate from scheduler traffic.
+buffers {
+  size_kb: 32768
+  fill_policy: RING_BUFFER
+}
+
+data_sources {
+  config {
+    name: "track_event"
+    target_buffer: 1
+  }
+}
+
+data_sources {
+  config {
+    name: "android.surfaceflinger.frametimeline"
+    target_buffer: 1
+  }
+}
+
+data_sources {
+  config {
+    name: "android.gpu.memory"
+    target_buffer: 1
+  }
+}
+
+data_sources {
+  config {
+    name: "linux.process_stats"
+    target_buffer: 1
+    process_stats_config {
+      scan_all_processes_on_start: true
+    }
+  }
+}
+
+data_sources {
+  config {
+    name: "linux.ftrace"
+    ftrace_config {
+      # Scoping atrace to "*" is what brings in the View-system traces for our own app process.
+      # Without atrace_apps these categories are filtered to system_server and the popup's own
+      # Choreographer/draw slices go missing.
+      atrace_apps: "*"
+      atrace_categories: "sched"
+      atrace_categories: "freq"
+      atrace_categories: "idle"
+      atrace_categories: "am"
+      atrace_categories: "wm"
+      atrace_categories: "gfx"
+      atrace_categories: "view"
+      atrace_categories: "binder_driver"
+      # dalvik is where JIT compiler threads and GC show up. This is the only source that can
+      # confirm or kill the "JIT is on the critical path" theory.
+      atrace_categories: "dalvik"
+      buffer_size_kb: 32768
+      drain_period_ms: 250
+      ftrace_events: "power/gpu_frequency"
+      ftrace_events: "power/suspend_resume"
+      ftrace_events: "power/cpu_frequency"
+      ftrace_events: "sched/sched_switch"
+      ftrace_events: "sched/sched_process_exit"
+      ftrace_events: "ftrace/print"
+    }
+  }
+}
+
+duration_ms: 15000
+write_into_file: true
+file_write_period_ms: 5000
+flush_period_ms: 30000
+incremental_state_config {
+  clear_period_ms: 5000
+}

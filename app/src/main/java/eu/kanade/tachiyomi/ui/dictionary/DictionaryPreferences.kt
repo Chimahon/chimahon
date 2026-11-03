@@ -4,6 +4,11 @@ import chimahon.anki.AnkiProfile
 import chimahon.anki.AnkiProfileStore
 import chimahon.audio.WordAudioPreferences
 import chimahon.dictionary.ko.KoreanParserMode
+import android.os.Build
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
@@ -117,6 +122,22 @@ class DictionaryPreferences(
     fun volumeKeyNavigation() = preferenceStore.getBoolean("pref_dictionary_volume_key_navigation", true)
 
     fun customCss() = preferenceStore.getString("pref_dictionary_custom_css", "")
+
+    /** One of [RENDERER_WEBVIEW] (default), [RENDERER_COMPOSE], or [RENDERER_PLAIN_TEXT]. */
+    private val rendererPreference by lazy {
+        val stored = if (eu.kanade.tachiyomi.BuildConfig.NATIVE_RENDERER_DIAGNOSTICS) {
+            preferenceStore.getString("pref_dictionary_renderer_native_diagnostics", RENDERER_COMPOSE)
+        } else preferenceStore.getString("pref_dictionary_renderer", RENDERER_WEBVIEW)
+        if (supportsNativeRenderer) stored else object : Preference<String> by stored {
+            override fun get() = RENDERER_WEBVIEW
+            override fun defaultValue() = RENDERER_WEBVIEW
+            override fun set(value: String) = stored.set(RENDERER_WEBVIEW)
+            override fun changes() = stored.changes().map { RENDERER_WEBVIEW }
+            override fun stateIn(scope: CoroutineScope) = changes().stateIn(scope, SharingStarted.Eagerly, get())
+        }
+    }
+
+    fun renderer(): Preference<String> = rendererPreference
 
     // -------------------------------------------------------------------------
     // Profile storage (raw pref keys — consumed by AnkiProfileStore and settings UI)
@@ -312,6 +333,11 @@ class DictionaryPreferences(
 
         const val SCROLL_SMOOTH = "smooth"
         const val SCROLL_INSTANT = "instant"
+
+        const val RENDERER_WEBVIEW = "webview"
+        val supportsNativeRenderer: Boolean get() = Build.VERSION.SDK_INT >= 29
+        const val RENDERER_COMPOSE = "compose"
+        const val RENDERER_PLAIN_TEXT = "plain_text"
     }
 
     // -------------------------------------------------------------------------

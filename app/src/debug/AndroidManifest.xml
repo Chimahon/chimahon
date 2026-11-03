@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".ui.dictionary.bench.LookupReplayActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Tachiyomi"
+            android:label="Lookup Replay" />
+    </application>
+
+</manifest>

@@ -1,0 +1,296 @@
+span[title] {
+    cursor: help;
+}
+
+ul[data-sc-content="sense-groups"] {
+    list-style-type: "＊";
+}
+
+li[data-sc-content="sense-group"],
+li[data-sc-content="forms"] {
+    padding-left: 0.25em;
+}
+
+div[data-sc-content="sense-group"],
+li[data-sc-content="sense-group"]:first-child {
+    margin-top: 0.1em;
+}
+
+li[data-sc-content="sense-group"] + li[data-sc-content="sense-group"],
+div[data-sc-content="forms"],
+li[data-sc-content="forms"] {
+    margin-top: 0.5em;
+}
+
+li[data-sc-content="sense"] {
+    padding-left: 0.25em;
+    & ul[data-sc-content="glossary"] {
+        list-style-type: none;
+        padding-left: 0.25em;
+    }
+}
+
+span[data-sc-class="tag"] {
+    border-radius: 0.3em;
+    font-size: 0.8em;
+    font-weight: bold;
+    margin-right: 0.5em;
+    padding: 0.2em 0.3em;
+    vertical-align: text-bottom;
+    word-break: keep-all;
+}
+
+span[data-sc-content="part-of-speech-info"] {
+    background-color: #565656;
+    color: white;
+}
+
+span[data-sc-content="misc-info"] {
+    background-color: brown;
+    color: white;
+}
+
+span[data-sc-content="field-info"] {
+    background-color: purple;
+    color: white;
+}
+
+span[data-sc-content="dialect-info"] {
+    background-color: green;
+    color: white;
+}
+
+span[data-sc-content="lang-source-wasei"] {
+    background-color: orange;
+    color: black;
+    margin-left: 0.5em;
+    margin-right: 0;
+}
+
+span[data-sc-content="forms-label"] {
+    background-color: #565656;
+    color: white;
+}
+
+ul[data-sc-content="glossary"] {
+    list-style-type: disc;
+}
+
+span[data-sc-content="registered-trademark"] {
+    vertical-align: super;
+    font-size: 0.6em;
+}
+
+div[data-sc-class="extra-box"] {
+    border-radius: 0.4rem;
+    border-style: none none none solid;
+    border-width: calc(3em / var(--font-size-no-units, 14));
+    margin-bottom: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    width: fit-content;
+}
+
+div[data-sc-class="extra-content"] {
+    margin-left: 0.5rem;
+}
+
+div[data-sc-content="info-gloss"] {
+    border-color: green;
+    background-color: color-mix(in srgb, green 5%, transparent);
+}
+
+div[data-sc-content="sense-note"] {
+    border-color: goldenrod;
+    background-color: color-mix(in srgb, goldenrod 5%, transparent);
+}
+
+div[data-sc-content="lang-source"] {
+    border-color: purple;
+    background-color: color-mix(in srgb, purple 5%, transparent);
+}
+
+div[data-sc-content="xref"] {
+    border-color: #1A73E8;
+    background-color: color-mix(in srgb, #1A73E8 5%, transparent);
+    & span[data-sc-content="reference-label"] {
+        color: #1A73E8;
+    }
+}
+
+div[data-sc-content="antonym"] {
+    border-color: brown;
+    background-color: color-mix(in srgb, brown 5%, transparent);
+    & span[data-sc-content="reference-label"] {
+        color: brown;
+    }
+}
+
+div[data-sc-content="example-sentence"] {
+    border-color: var(--text-color, var(--fg, #333));
+    background-color: color-mix(in srgb, var(--text-color, var(--fg, #333)) 5%, transparent);
+}
+
+div[data-sc-content="extra-info"] {
+    margin-left: 0.5em;
+}
+
+div[data-sc-class="extra-label"] {
+    color: #777;
+    font-size: 0.8em;
+    font-style: italic;
+}
+
+span[data-sc-content="reference-label"] {
+    font-size: 0.8em;
+    margin-right: 0.5rem;
+}
+
+div[data-sc-content="xref-content"],
+div[data-sc-content="antonym-content"] {
+    font-size: 1.3em;
+}
+
+div[data-sc-content="xref-glossary"],
+div[data-sc-content="antonym-glossary"] {
+    font-size: 0.8rem;
+}
+
+div[data-sc-content="example-sentence-a"] {
+    font-size: 1.3em;
+}
+
+div[data-sc-content="example-sentence-b"] {
+    font-size: 0.8em;
+}
+
+span[data-sc-content="example-keyword"] {
+    color: color-mix(in srgb, lime, var(--text-color, var(--fg, #333)));
+}
+
+span[data-sc-content="attribution-footnote"] {
+    color: #777;
+    font-size: 0.8em;
+    margin-left: 0.25rem;
+    vertical-align: top;
+}
+
+div[data-sc-content="graphic"] {
+    margin-bottom: 0.5rem;
+    margin-top: 0.5rem;
+    & .gloss-image-container {
+        border: solid calc(42em / var(--font-size-no-units, 14)) var(--text-color, var(--fg, #333));
+        border-radius: 3%;
+    }
+}
+
+div[data-sc-content="graphic-attribution"] {
+    font-size: 70%;
+    margin-top: 0.25rem;
+}
+
+/* The "forms" section may be contained in a <div> or a <li> depending on the content of the entry. */
+div[data-sc-content="forms"],
+li[data-sc-content="forms"] {
+    & ul {
+        font-size: 1.2em;
+        list-style-type: circle;
+    }
+    & table {
+        margin-top: 0.2em;
+    }
+    & tr {
+        border-width: 1px;
+    }
+    & th {
+        border-width: 1px;
+        font-weight: normal;
+    }
+    & td {
+        border-width: 1px;
+        text-align: center;
+        & span {
+            clip-path: circle();
+            display: block;
+            font-weight: bold;
+            padding: 0 0.5em;
+        }
+    }
+}
+
+/* For the display of sense number restrictions in forms tables */
+th[data-sc-content="forms-row-senses"],
+tr[data-sc-content="forms-col-senses-row"] th {
+    text-align: center;
+}
+
+tr[data-sc-content="forms-header-row"] th {
+    font-size: 1.2em;
+    text-align: center;
+    vertical-align: text-bottom;
+    & span[data-sc-class="old-character"] {
+        text-emphasis-style: dot;
+    }
+}
+
+span[data-sc-class="form-special"] {
+    color: crimson;
+}
+
+td[data-sc-class="form-pri"] > span {
+    color: white;
+    background: radial-gradient(green 50%, white 100%);
+    &::before {
+        content: "△";
+    }
+}
+
+td[data-sc-class="form-irr"] > span {
+    color: white;
+    background: radial-gradient(crimson 50%, white 100%);
+    &::before {
+        content: "✕";
+    }
+}
+
+td[data-sc-class="form-out"] > span {
+    color: white;
+    background: radial-gradient(blue 50%, white 100%);
+    &::before {
+        content: "古";
+    }
+}
+
+td[data-sc-class="form-old"] > span {
+    color: white;
+    background: radial-gradient(blue 50%, white 100%);
+    &::before {
+        content: "旧";
+    }
+}
+
+td[data-sc-class="form-rare"] > span {
+    color: white;
+    background: radial-gradient(purple 50%, white 100%);
+    &::before {
+        content: "▽";
+    }
+}
+
+td[data-sc-class="form-valid"] > span {
+    color: var(--background-color, var(--canvas, #f8f9fa));
+    background: radial-gradient(var(--text-color, var(--fg, #333)) 50%, white 100%);
+    &::before {
+        content: "◇";
+    }
+}
+
+div[data-sc-content="attribution"] {
+    font-size: 0.7em;
+    text-align: right;
+}
+
+div[data-sc-content="redirect-glossary"] {
+    font-size: 180%;
+    margin-top: 0.2em;
+}

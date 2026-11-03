@@ -3,7 +3,6 @@ package eu.kanade.tachiyomi.ui.dictionary
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -97,12 +96,7 @@ class CameraOcrScreen : Screen() {
         val profileStore = dictionaryPreferences.profileStore
         val activeProfile = remember(rawProfiles, rawActiveProfileId) { profileStore.getActiveProfile() }
 
-        val webView: WebView = remember(activeProfile.languageCode) {
-            DictionaryPopupWebViewWarmup.acquire(context, activeProfile.languageCode)
-        }
-        DisposableEffect(webView) {
-            onDispose { DictionaryPopupWebViewWarmup.recycle(context, webView) }
-        }
+        val webView = rememberDictionaryPopupWebView(activeProfile.languageCode)
 
         LaunchedEffect(activeProfile) {
             withContext(Dispatchers.IO) {

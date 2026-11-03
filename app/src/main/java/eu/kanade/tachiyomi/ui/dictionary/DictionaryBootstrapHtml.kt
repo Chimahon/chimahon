@@ -162,16 +162,33 @@ private val dictionaryBaseCss = java.util.concurrent.ConcurrentHashMap<Unit, Str
 private val dictionaryRendererJs = java.util.concurrent.ConcurrentHashMap<Unit, String>()
 private val dictionaryKanjiRendererJs = java.util.concurrent.ConcurrentHashMap<Unit, String>()
 
+private class DictionaryColorSchemeSnapshot(
+    val isDark: Boolean,
+    val isAmoled: Boolean,
+    val seedColor: Int,
+    val scheme: ColorScheme,
+) {
+    fun matches(dark: Boolean, amoled: Boolean, seed: Int) =
+        isDark == dark && isAmoled == amoled && seedColor == seed
+}
+
+private val dictionaryColorSchemeLock = Any()
+@Volatile private var dictionaryColorSchemeSnapshot: DictionaryColorSchemeSnapshot? = null
+
 fun getDictionaryColorScheme(
     isDark: Boolean,
     isAmoled: Boolean,
     seedColor: Int,
 ): ColorScheme {
-    val baseScheme = CustomColorScheme(
-        seed = Color(seedColor),
-        style = PaletteStyle.TonalSpot,
-    )
-    return baseScheme.getColorScheme(isDark, isAmoled, false)
+    dictionaryColorSchemeSnapshot?.let { if (it.matches(isDark, isAmoled, seedColor)) return it.scheme }
+    return synchronized(dictionaryColorSchemeLock) {
+        dictionaryColorSchemeSnapshot?.takeIf { it.matches(isDark, isAmoled, seedColor) }?.scheme ?: run {
+            val scheme = CustomColorScheme(Color(seedColor), PaletteStyle.TonalSpot)
+                .getColorScheme(isDark, isAmoled, false)
+            dictionaryColorSchemeSnapshot = DictionaryColorSchemeSnapshot(isDark, isAmoled, seedColor, scheme)
+            scheme
+        }
+    }
 }
 
 fun getAppThemeColorScheme(context: Context, isDark: Boolean, isAmoled: Boolean): ColorScheme {

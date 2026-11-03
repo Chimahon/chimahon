@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +34,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +51,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.text.style.TextOverflow
 import eu.kanade.domain.ui.UiPreferences
 import chimahon.DictionaryRepository
@@ -59,18 +62,23 @@ import chimahon.MediaInfo
 import chimahon.anki.AnkiCardCreator
 import chimahon.anki.AnkiMediaRequest
 import chimahon.anki.AnkiMediaWarning
-import chimahon.anki.AnkiProfile
 import chimahon.anki.AnkiResult
-import chimahon.ocr.effectiveSearchResolution
-import chimahon.ocr.nextWordBoundarySubstring
 import chimahon.util.ImageEncoder
 import eu.kanade.tachiyomi.ui.dictionary.buildKanjiEntryJson
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryEntryWebView
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryCardPreparation
+import eu.kanade.tachiyomi.ui.dictionary.compose.prepareDictionaryCards
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryPlanPreparation
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryPlanBuilder
+import eu.kanade.tachiyomi.ui.dictionary.compose.rememberDictionaryPlanBuilder
+import eu.kanade.tachiyomi.ui.dictionary.compose.GlossTab
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.resolveDictionaryTheme
 import eu.kanade.tachiyomi.ui.dictionary.TabInfo
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
+import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import eu.kanade.tachiyomi.ui.dictionary.stopDictionaryAudio
 import eu.kanade.tachiyomi.util.system.toast
@@ -98,6 +106,111 @@ import kotlin.math.roundToInt
 /** Fire-and-forget scope for Anki mining jobs — survives popup dismissals */
 private val miningScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+/**
+ * Tracks ready-container drawing and subsequent callback activity. This is not proof of display
+ * presentation or completion of every visible glossary/image. Native glossary first-draw and
+ * frame-commit events are emitted by NativeGlossaryView and correlated separately in the report.
+ */
+private object ContentFrameTracer {
+    private var profilingId = 0L
+    /** Consecutive frames that drew nothing new before the popup counts as settled. */
+    private const val SETTLE_FRAMES = 4
+
+    /** Give up watching after this long so a permanently animating popup cannot log forever. */
+    private const val WATCH_MS = 4000L
+
+    // System.nanoTime() when armed. Choreographer's frameTimeNanos uses the same CLOCK_MONOTONIC
+    // domain, so popupToContent/Settled are real durations. SystemClock.elapsedRealtime() is a
+    // different domain (advances during deep sleep) and produced multi-day negatives against it.
+    private var start = 0L
+    private var label = ""
+    private var terms = 0
+    private var armed = false
+    private var sawContent = false
+    private var frames = 0
+    private var stable = 0
+    private var lastHeight = Int.MIN_VALUE
+    private var drewSinceFrame = false
+    private var settledLogged = false
+
+    private val callback = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!armed) return
+            val elapsedMs = (frameTimeNanos - start) / 1_000_000L
+
+            if (!sawContent) {
+                // Only claim a content frame once a draw has proven content exists. Until then this
+                // is still the spinner, and reporting it is exactly the bug this replaced.
+                if (drewSinceFrame) {
+                    sawContent = true
+                    chimahon.diagnostics.LookupProfiler.mark(profilingId, "content.container.callback")
+                    Log.i(
+                        "DictPerf",
+                        "containerFrame lookup='$label' popupToReadyContainerCallbackMs=$elapsedMs terms=$terms notPresentation=true",
+                    )
+                }
+            } else {
+                frames++
+                if (stable >= SETTLE_FRAMES && !settledLogged) {
+                    settledLogged = true
+                    Log.i(
+                        "DictPerf",
+                        "settled lookup='$label' popupToSettledMs=$elapsedMs terms=$terms frames=$frames",
+                    )
+                }
+                if (elapsedMs > WATCH_MS) {
+                    Log.i(
+                        "DictPerf",
+                        "watchTimeout lookup='$label' afterMs=$elapsedMs frames=$frames settled=$settledLogged",
+                    )
+                    armed = false
+                    return
+                }
+            }
+
+            drewSinceFrame = false
+            android.view.Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
+
+    fun arm(startAt: Long, query: String, termCount: Int, requestId: Long = 0) {
+        profilingId = requestId
+        if (startAt == 0L) return
+        armed = false
+        start = startAt
+        label = query
+        terms = termCount
+        sawContent = false
+        frames = 0
+        stable = 0
+        lastHeight = Int.MIN_VALUE
+        drewSinceFrame = false
+        settledLogged = false
+        armed = true
+        android.view.Choreographer.getInstance().postFrameCallback(callback)
+    }
+
+    fun disarm() {
+        armed = false
+    }
+
+    /**
+     * Invoked from `drawWithContent` on the results container, so it only runs when that container
+     * actually drew. A height change means content is still arriving (media decoded, ruby rewrapped,
+     * a table finished measuring), which resets the settle counter.
+     */
+    fun onContentDraw(heightPx: Int) {
+        if (!armed) return
+        if (!sawContent && !drewSinceFrame) chimahon.diagnostics.LookupProfiler.mark(profilingId, "content.container.draw", "height=$heightPx")
+        drewSinceFrame = true
+        if (heightPx != lastHeight) {
+            lastHeight = heightPx
+            stable = 0
+            settledLogged = false
+        }
+    }
+}
+
 /** One entry in the recursive-lookup history stack. */
 private data class LookupFrame(
     val id: String = UUID.randomUUID().toString(),
@@ -110,6 +223,7 @@ private data class LookupFrame(
     val existingExpressions: Set<String>,
     val existingCardIds: Map<String, Long> = emptyMap(),
     val entryJsons: List<String>? = null,
+    val profilingId: Long = 0,
 )
 
 private data class RecursivePopupRequest(
@@ -133,7 +247,7 @@ fun OcrLookupPopup(
     fullText: String,
     charOffset: Int,
     onDismiss: () -> Unit,
-    webView: WebView,
+    webView: WebView?,
     repository: DictionaryRepository,
     anchorX: Float,
     anchorY: Float,
@@ -161,7 +275,23 @@ fun OcrLookupPopup(
     titleId: String? = null,
 ) {
     val context = LocalContext.current
+    remember(context) { eu.kanade.tachiyomi.ui.dictionary.LookupProfilingAndroid.install(context) }
     val scope = rememberCoroutineScope()
+    val dictionaryPrefs = remember { Injekt.get<DictionaryPreferences>() }
+    val rendererMode by dictionaryPrefs.renderer().collectAsState()
+    val rendererLabel = when (rendererMode) {
+        DictionaryPreferences.RENDERER_COMPOSE -> "native"
+        DictionaryPreferences.RENDERER_WEBVIEW -> "webview"
+        else -> "plain-text"
+    }
+    LaunchedEffect(rendererMode) {
+        if (eu.kanade.tachiyomi.BuildConfig.DEBUG) {
+            Log.i("DictProfile", org.json.JSONObject().put("phase", "popup.renderer.selected")
+                .put("renderer", rendererLabel)
+                .put("source_sha256", eu.kanade.tachiyomi.BuildConfig.DICTIONARY_REPLAY_SOURCE_SHA256)
+                .put("start_ns", android.os.SystemClock.elapsedRealtimeNanos()).toString())
+        }
+    }
     var isLoading by remember {
         mutableStateOf(initialLookupDeferred?.isCompleted != true)
     }
@@ -185,22 +315,26 @@ fun OcrLookupPopup(
     val existingExpressions = currentFrame?.existingExpressions ?: emptySet()
     val entryJsons = currentFrame?.entryJsons
     var childPopupRequest by remember { mutableStateOf<RecursivePopupRequest?>(null) }
-    val childPopupWebView = remember(context) { WebView(context) }
     var contentReady by remember(visible) { mutableStateOf(false) }
     // Tracks the lookupGeneration value at the time content was last painted.
     // Used to distinguish a fresh lookup (hide stale content) from a same-lookup
     // invalidation like an Anki-status patch (keep content visible).
     var lastRenderedLookupGeneration by remember { mutableIntStateOf(-1) }
     var lookupGeneration by remember { mutableIntStateOf(0) }
-
-    androidx.compose.runtime.DisposableEffect(childPopupWebView) {
-        onDispose { childPopupWebView.destroy() }
-    }
+    // The lookup this popup started itself, so a newer keystroke can abandon it instead of letting a
+    // stale query run to completion. Caller-supplied deferreds are never cancelled - the caller may
+    // still want that result.
+    var ownedLookup by remember { mutableStateOf<kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>?>(null) }
+    var cardPreparation by remember { mutableStateOf<DictionaryCardPreparation?>(null) }
+    var renderPreparation by remember { mutableStateOf<DictionaryPlanPreparation?>(null) }
+    var resultPreparation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val nativePlanBuilder = remember { java.util.concurrent.atomic.AtomicReference<DictionaryPlanBuilder>() }
+    val visibleRef = rememberUpdatedState(visible)
 
     fun dismissPopup() {
         if (!isRecursiveChild) {
             childPopupRequest = null
-            webView.evaluateJavascript(
+            webView?.evaluateJavascript(
                 "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                 null,
             )
@@ -210,15 +344,15 @@ fun OcrLookupPopup(
 
     androidx.compose.runtime.DisposableEffect(webView, childPopupRequest) {
         if (childPopupRequest != null) {
-            webView.setOnScrollChangeListener { _, _, _, _, _ ->
+            webView?.setOnScrollChangeListener { _, _, _, _, _ ->
                 childPopupRequest = null
-                webView.evaluateJavascript(
+                webView?.evaluateJavascript(
                     "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                     null,
                 )
             }
         }
-        onDispose { webView.setOnScrollChangeListener(null) }
+        onDispose { webView?.setOnScrollChangeListener(null) }
     }
 
 
@@ -338,13 +472,30 @@ fun OcrLookupPopup(
         }
 
         val finalQuery = if (isRecursive) cleanQuery else query
+        val nativeLookup = rendererMode == DictionaryPreferences.RENDERER_COMPOSE
         val generation = ++lookupGeneration
+        resultPreparation?.cancel()
+        resultPreparation = null
+        cardPreparation?.cancel()
+        cardPreparation = null
+        renderPreparation?.cancel()
+        renderPreparation = null
         contentReady = false
         val shouldShowLoading = !isRecursive && lastRenderedLookupGeneration < 0
 
-        fun handleResult(result: chimahon.DictionaryRepository.LookupResult2, orderedResults: List<LookupResult>, phaseStart: Long) {
-            if (generation != lookupGeneration) return
+        fun handleResult(result: chimahon.DictionaryRepository.LookupResult2, orderedResults: List<LookupResult>, lookupStart: Long,
+            preparedCards: DictionaryCardPreparation? = null, preparedPlan: DictionaryPlanPreparation? = null) {
+            chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.main.resume")
+            chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.renderer",
+                "renderer=$rendererLabel generation=$generation recursive=$isRecursive")
+            if (generation != lookupGeneration || nativeLookup && !visibleRef.value) {
+                preparedCards?.cancel()
+                preparedPlan?.cancel()
+                return
+            }
             if (isRecursive && result.results.isEmpty()) {
+                preparedCards?.cancel()
+                preparedPlan?.cancel()
                 if (shouldShowLoading) isLoading = false
                 return
             }
@@ -359,12 +510,27 @@ fun OcrLookupPopup(
                 styles = result.styles,
                 mediaDataUris = result.mediaDataUris,
                 existingExpressions = emptySet(),
+                profilingId = result.profilingId,
             )
 
             // Truncate any forward history past the current index, then push
-            val truncated = lookupStackState.stack.take(lookupStackState.activeIndex + 1) + frame
+            val truncated = (if (nativeLookup && !isRecursive) emptyList()
+                else lookupStackState.stack.take(lookupStackState.activeIndex + 1)) + frame
+            cardPreparation = preparedCards
+            renderPreparation = preparedPlan
             lookupStackState = LookupStackState(stack = truncated, activeIndex = truncated.size - 1)
+            chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "results.publish")
             errorMessage = result.error
+
+            // Arm popup -> content-frame tracing now that results are published. The popup owns this
+            // clock: traversal, composition and draw happen here, while lookup origin timestamps live
+            // in whichever host opened the popup.
+            ContentFrameTracer.arm(
+                java.lang.System.nanoTime(),
+                finalQuery,
+                orderedResults.size,
+                result.profilingId,
+            )
 
             isLoading = false
 
@@ -383,12 +549,14 @@ fun OcrLookupPopup(
             if (ankiEnabled && orderedResults.isNotEmpty()) {
                 val uniqueExpressions = orderedResults.map { it.term.expression }.distinct()
                 scope.launch(Dispatchers.IO) {
-                    val existingCardIds = AnkiCardCreator.checkExistingCardIds(
-                        context = context,
-                        expressions = uniqueExpressions,
-                        deckName = ankiDeck,
-                        dupScope = ankiDupScope,
-                    )
+                    val existingCardIds = chimahon.diagnostics.LookupProfiler.elapsedSection(result.profilingId, "work.popup.anki.check") {
+                        AnkiCardCreator.checkExistingCardIds(
+                            context = context,
+                            expressions = uniqueExpressions,
+                            deckName = ankiDeck,
+                            dupScope = ankiDupScope,
+                        )
+                    }
                     withContext(Dispatchers.Main) {
                         val stack = lookupStackState.stack.toMutableList()
                         val frameIndex = stack.indexOfFirst { it.id == frame.id }
@@ -401,7 +569,7 @@ fun OcrLookupPopup(
                         }
                         Log.i(
                             "DictionaryPopup",
-                            "anki_check_ms=${android.os.SystemClock.elapsedRealtime() - phaseStart} expressions=${uniqueExpressions.size}",
+                            "anki_check_ms=${android.os.SystemClock.elapsedRealtime() - lookupStart} expressions=${uniqueExpressions.size}",
                         )
                     }
                 }
@@ -409,7 +577,9 @@ fun OcrLookupPopup(
 
             // Load media in background
             scope.launch(Dispatchers.IO) {
-                val media = repository.loadMediaAsync(finalQuery, orderedResults)
+                val media = chimahon.diagnostics.LookupProfiler.operation("popup.media.load") {
+                    chimahon.diagnostics.LookupProfiler.section(result.profilingId, "media.load") { repository.loadMediaAsync(finalQuery, orderedResults) }
+                }
                 if (media.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         val stack = lookupStackState.stack.toMutableList()
@@ -423,62 +593,100 @@ fun OcrLookupPopup(
             }
         }
 
-        val deferred = deferredResult ?: if (isRecursive) {
-            // Recursive lookups: session is warm (~5-20ms), run synchronously
-            // to avoid coroutine dispatch overhead. getDictionaryPaths has
-            // internal caching so the stat call is fast.
-            val termPaths = getDictionaryPaths(context, activeProfile)
-            val result = runCatching {
-                lookupWithSearchResolution(repository, finalQuery, termPaths, activeProfile)
-            }.getOrElse {
-                chimahon.DictionaryRepository.LookupResult2(
-                    results = emptyList(),
-                    styles = emptyList(),
-                    mediaDataUris = emptyMap(),
-                    error = it.message,
-                )
-            }
-            val orderedResults = orderLookupResultsForDisplay(result.results, activeProfile, context)
-            handleResult(result, orderedResults, android.os.SystemClock.elapsedRealtime())
-            return
-        } else {
-            scope.async(Dispatchers.IO) {
-                val termPaths = getDictionaryPaths(context, activeProfile)
-                lookupWithSearchResolution(repository, finalQuery, termPaths, activeProfile)
-            }
-        }
+        // Every lookup now goes through Dispatchers.IO, recursive ones included. This used to run
+        // inline on the calling thread - a click handler, so the native lookup AND
+        // orderLookupResultsForDisplay executed on the main thread, blocking on the
+        // DictionaryRepository monitor whenever a background lookup already held it. The "skip the
+        // dispatch, it only costs ~5-20ms" comment described the uncontended case; contended, it
+        // meant a frozen UI on every word tap.
+        val lookupStart = android.os.SystemClock.elapsedRealtime()
+        // Abandon the previous popup-owned lookup. Cancelling cannot interrupt an in-flight JNI
+        // call, so this does not cut short the native query itself - it does stop the deinflection
+        // loop, skips result handling, and prevents a backlog of stale queries piling up while the
+        // user types.
+        ownedLookup?.cancel()
+        val profilingId = if (deferredResult == null) chimahon.diagnostics.LookupProfiler.start(finalQuery) else 0L
+        chimahon.diagnostics.LookupProfiler.mark(profilingId, "repo.queued")
+        val deferred = deferredResult ?: scope.async(Dispatchers.IO) {
+            val termPaths = chimahon.diagnostics.LookupProfiler.section(profilingId, "popup.paths") { getDictionaryPaths(context, activeProfile) }
+            repository.lookupWithSearchResolution(finalQuery, termPaths, activeProfile, profilingId)
+        }.also { if (deferredResult == null) ownedLookup = it }
 
-        if (!deferred.isCompleted) {
+        if (!deferred.isCompleted || nativeLookup) {
+            // Await and start renderer work without a trip through Main. Publishing still
+            // belongs to Main, but popup composition/animation cannot delay preparation.
+            val planBuilder = if (nativeLookup) nativePlanBuilder.get() else null
+            val preparing = scope.async(Dispatchers.Default) {
+                var preparation: DictionaryCardPreparation? = null
+                try {
+                    val result = deferred.await()
+                    val ordered = chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") {
+                        orderLookupResultsForDisplay(result.results, activeProfile, context)
+                    }
+                    preparation = if (nativeLookup && generation == lookupGeneration && visibleRef.value) {
+                        scope.prepareDictionaryCards(ordered, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
+                            getDictionaryTitle(context, it)
+                        }
+                    } else null
+                    val plan = if (preparation != null) {
+                        checkNotNull(planBuilder).start(scope, ordered, result.styles,
+                            result.profilingId, preparation, entryJsons)
+                    } else null
+                    Result.success(result to Triple(ordered, preparation, plan))
+                } catch (error: Exception) {
+                    preparation?.cancel()
+                    if (error is CancellationException) throw error
+                    Result.failure(error)
+                }
+            }
+            resultPreparation = preparing
             // Must await in a coroutine
             scope.launch {
                 if (shouldShowLoading) {
                     isLoading = true
                 }
                 errorMessage = null
-                val phaseStart = android.os.SystemClock.elapsedRealtime()
                 try {
-                    val result = deferred.await()
-                    val orderedResults = withContext(Dispatchers.Default) {
-                        orderLookupResultsForDisplay(result.results, activeProfile, context)
-                    }
-                    handleResult(result, orderedResults, phaseStart)
+                    val (result, prepared) = preparing.await().getOrThrow()
+                    val (orderedResults, preparedCards, preparedPlan) = prepared
+                    Log.i(
+                        "DictPerf",
+                        "popup lookup='$finalQuery' recursive=$isRecursive " +
+                            "ms=${android.os.SystemClock.elapsedRealtime() - lookupStart} " +
+                            "terms=${result.results.size} " +
+                            "dicts=${result.results.flatMap { r -> r.term.glossaries.map { it.dictName } }.distinct().size} " +
+                            "cssBytes=${result.styles.sumOf { it.styles.length }} " +
+                            "stale=${generation != lookupGeneration}",
+                    )
+                    if (generation == lookupGeneration) ownedLookup = null
+                    handleResult(result, orderedResults, lookupStart, preparedCards, preparedPlan)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     if (generation != lookupGeneration) return@launch
                     errorMessage = e.message ?: "Lookup failed"
                     isLoading = false
+                } finally {
+                    if (resultPreparation === preparing) resultPreparation = null
                 }
             }
         } else {
-            // Synchronous lookup (no nested coroutine)
-            // Session is warm, lookup is fast (~10-20ms) — no need for Dispatchers.IO hop
+            // Deferred already finished, so there is nothing to wait for and no blocking risk. Kept
+            // synchronous deliberately: this is the WebView main path, and routing it through a
+            // launch would add a dispatch before handleResult updates state - a frame of extra
+            // latency on the hot initial-load path for no benefit.
             errorMessage = null
-            val phaseStart = android.os.SystemClock.elapsedRealtime()
             try {
                 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
                 val result = deferred.getCompleted()
-                val orderedResults = orderLookupResultsForDisplay(result.results, activeProfile, context)
-                handleResult(result, orderedResults, phaseStart)
+                val orderedResults = chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") { orderLookupResultsForDisplay(result.results, activeProfile, context) }
+                if (generation == lookupGeneration) ownedLookup = null
+                Log.i(
+                    "DictPerf",
+                    "popup(pre-completed) lookup='$finalQuery' recursive=$isRecursive " +
+                        "ms=${android.os.SystemClock.elapsedRealtime() - lookupStart} " +
+                        "terms=${result.results.size}",
+                )
+                handleResult(result, orderedResults, lookupStart)
             } catch (e: Exception) {
                 if (generation != lookupGeneration) return
                 errorMessage = e.message ?: "Lookup failed"
@@ -741,12 +949,24 @@ fun OcrLookupPopup(
         }
     }
 
-    val onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = if (ankiEnabled) {
+    // Impl stays fresh per recomposition (it captures the current `performAnkiLookup`
+    // instance, which closes over the current results/frame/field-map); the ref + remembered
+    // wrapper give downstream a stable identity. Remembering the forwarding lambda directly
+    // would pin the first lookup's results and mine the wrong card after a re-lookup.
+    val onAnkiLookupImpl: ((Int, Int?, String?, String?, Boolean) -> Unit)? = if (ankiEnabled) {
         { index, glossaryIndex, selectedDict, popupSelection, forceOpen ->
             performAnkiLookup(index, glossaryIndex, selectedDict, popupSelection, forceOpen)
         }
     } else {
         null
+    }
+    val onAnkiLookupRef = rememberUpdatedState(onAnkiLookupImpl)
+    val onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = remember(ankiEnabled) {
+        if (ankiEnabled) {
+            { a, b, c, d, e -> onAnkiLookupRef.value?.invoke(a, b, c, d, e) }
+        } else {
+            null
+        }
     }
 
     // === Popup Positioning: priority-based 4-direction ===
@@ -855,14 +1075,24 @@ fun OcrLookupPopup(
 
     val actualWidthDp = with(density) { layoutResult.widthPx.toDp() }
     val actualHeightDp = with(density) { layoutResult.heightPx.toDp() }
+    val configuredPlanBuilder = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) rememberDictionaryPlanBuilder(
+        with(density) { actualWidthDp.roundToPx() }, popupFontSizePref, eInkMode, customCss, activeProfile, groupTerms,
+    ) else null
+    nativePlanBuilder.set(configuredPlanBuilder)
 
 
     LaunchedEffect(visible) {
         if (!visible) {
-            stopDictionaryAudio(webView)
+            resultPreparation?.cancel()
+            resultPreparation = null
+            cardPreparation?.cancel()
+            cardPreparation = null
+            renderPreparation?.cancel()
+            renderPreparation = null
+            webView?.let { stopDictionaryAudio(it) }
             if (!isRecursiveChild) {
                 childPopupRequest = null
-                webView.evaluateJavascript(
+                webView?.evaluateJavascript(
                     "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                     null,
                 )
@@ -870,7 +1100,10 @@ fun OcrLookupPopup(
         }
     }
 
-    LaunchedEffect(lookupString, ankiEnabled, ankiModel, visible) {
+    // Keys are exactly what determines the lookup: Anki flags only affect the status patch
+    // applied after results land, so toggling them must not repeat the native query (it used to
+    // re-fire the whole lookup each time the model or deck changed while open).
+    LaunchedEffect(lookupString, visible, initialLookupDeferred) {
         if (!visible) return@LaunchedEffect
         if (lookupString.isBlank()) {
             lookupGeneration++
@@ -880,12 +1113,9 @@ fun OcrLookupPopup(
             lastRenderedLookupGeneration = -1
             return@LaunchedEffect
         }
-        // Reset the stack and load the initial term.
-        // contentReady is intentionally NOT reset here — the warm shell keeps
-        // the popup visible between lookups so the WebView never goes blank.
-        // The renderer's onContentInvalidated callback will hide stale content
-        // when a genuinely new lookup generation begins (see onContentReadyChange).
-        lookupStackState = LookupStackState()
+        // Native keeps the previous subtree mounted until replacement results arrive;
+        // handleResult resets top-level history atomically with publishing the new frame.
+        if (rendererMode != DictionaryPreferences.RENDERER_COMPOSE) lookupStackState = LookupStackState()
         isLoading = false
         pushLookup(lookupString, deferredResult = initialLookupDeferred, entryJsons = initialEntryJsons)
     }
@@ -902,7 +1132,7 @@ fun OcrLookupPopup(
     }
 
     // Callbacks forwarded from the WebView bridge
-    val onRecursiveLookup: (String, String?, Int?, Float?, Float?, String?) -> Unit = { word, sentence, offset, x, y, type ->
+    val onRecursiveLookupImpl: (String, String?, Int?, Float?, Float?, String?) -> Unit = { word, sentence, offset, x, y, type ->
         val targetSentence = recursiveSentence(sentence)
         val targetOffset = recursiveOffset(sentence, offset)
         if (type == "kanji") {
@@ -966,9 +1196,7 @@ fun OcrLookupPopup(
                         ),
                     )
                     val matchedLength = matched.codePointCount(0, matched.length)
-                    webView.evaluateJavascript(
-                        "window.DictionaryRenderer && window.DictionaryRenderer.resolveRecursiveSelection($matchedLength);",
-                    ) { encodedRect ->
+                    val openChild: (String?) -> Unit = { encodedRect ->
                         val rect = runCatching {
                             val decoded = org.json.JSONTokener(encodedRect).nextValue() as? String
                             decoded?.let { org.json.JSONObject(it) }
@@ -985,8 +1213,16 @@ fun OcrLookupPopup(
                             deferredResult = resolvedResult,
                         )
                     }
+                    if (webView == null) {
+                        openChild(null)
+                    } else {
+                        webView.evaluateJavascript(
+                            "window.DictionaryRenderer && window.DictionaryRenderer.resolveRecursiveSelection($matchedLength);",
+                            openChild,
+                        )
+                    }
                 } else {
-                    webView.evaluateJavascript(
+                    webView?.evaluateJavascript(
                         "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                         null,
                     )
@@ -1001,16 +1237,77 @@ fun OcrLookupPopup(
             )
         }
     }
-    val onTabSelect: (Int) -> Unit = { idx ->
-        if (idx in lookupStackState.stack.indices) {
-            lookupStackState = lookupStackState.copy(activeIndex = idx)
+    // Stable identity across recompositions. The body above dereferences current state at call
+    // time, so taps always see fresh data while remember keys and strong skipping stay calm -
+    // without this every popup recomposition (e.g. an Anki-status patch) hands a fresh lambda
+    // down and recomposes the whole card tree.
+    val onRecursiveLookupRef = rememberUpdatedState(onRecursiveLookupImpl)
+    val onRecursiveLookup: (String, String?, Int?, Float?, Float?, String?) -> Unit = remember {
+        { word, sentence, offset, x, y, type ->
+            onRecursiveLookupRef.value(word, sentence, offset, x, y, type)
         }
     }
-    val onBack: () -> Unit = {
-        if (lookupStackState.activeIndex > 0) lookupStackState = lookupStackState.copy(activeIndex = lookupStackState.activeIndex - 1)
+    val onTabSelect: (Int) -> Unit = remember {
+        { idx ->
+            if (idx in lookupStackState.stack.indices) {
+                lookupStackState = lookupStackState.copy(activeIndex = idx)
+            }
+        }
+    }
+    val onBack: () -> Unit = remember {
+        {
+            if (lookupStackState.activeIndex > 0) lookupStackState = lookupStackState.copy(activeIndex = lookupStackState.activeIndex - 1)
+        }
+    }
+    // Same stability treatment for the ready callbacks crossing into both renderer branches:
+    // all state reads happen at callback time, so the remembered instances always see fresh
+    // data while the renderer itself can skip. The outer host callback goes through a ref so
+    // its identity never matters downstream.
+    val contentReadyChangeRef = rememberUpdatedState(onContentReadyChange)
+    // Keyed on `visible` to match `contentReady`'s own `remember(visible)`: visibility swaps the
+    // state object, so an unkeyed callback would keep writing the detached one and the popup
+    // would stick in the wrong readiness. Identity still never changes within a visibility
+    // epoch, which is all downstream skipping needs.
+    val composeContentReady: (Boolean) -> Unit = remember(visible) {
+        { ready ->
+            // Only the "not ready" edge comes from the loading flag. The ready
+            // edge comes from onPlanReady below, because the flag clears while
+            // the render plan is still being built - reporting ready there
+            // published an empty popup a frame before any glossary existed,
+            // which the user saw as a blank surface flash.
+            if (!ready && lookupGeneration != lastRenderedLookupGeneration) {
+                contentReady = false
+            }
+            if (!ready) contentReadyChangeRef.value?.invoke(false)
+        }
+    }
+    val composePlanReady: () -> Unit = remember(visible) {
+        {
+            contentReady = true
+            lastRenderedLookupGeneration = lookupGeneration
+            chimahon.diagnostics.LookupProfiler.mark(lookupStackState.currentFrame?.profilingId ?: 0L, "popup.plan.ready")
+            contentReadyChangeRef.value?.invoke(true)
+        }
+    }
+    val webContentReady: (Boolean) -> Unit = remember(visible) {
+        { ready ->
+            if (ready) {
+                contentReady = true
+                lastRenderedLookupGeneration = lookupGeneration
+            } else {
+                // Hide stale content only when a new top-level lookup
+                // has started. Same-generation invalidations (e.g. Anki
+                // status patches) keep the current content visible.
+                if (lookupGeneration != lastRenderedLookupGeneration) {
+                    contentReady = false
+                }
+            }
+            contentReadyChangeRef.value?.invoke(ready)
+        }
     }
 
     val outsideTapInteraction = remember { MutableInteractionSource() }
+    val revealedFrame = remember { longArrayOf(0L) }
     val recursiveTabs = lookupStackState.buildTabs()
     val showRecursiveChrome = when (recursiveNavMode) {
         "stack" -> lookupStackState.activeIndex > 0
@@ -1180,11 +1477,20 @@ fun OcrLookupPopup(
     @Composable
     fun PopupContent() {
         val swipeThreshold = with(density) { popupSwipeThresholdPref.dp.toPx() }
+        val revealContent = contentReady || isLoading || errorMessage != null
+        val readyRequestId = if (visible && contentReady && !isLoading) currentFrame?.profilingId ?: 0L else 0L
         Surface(
             modifier = modifier
                 .width(actualWidthDp)
                 .height(actualHeightDp)
-                .alpha(if (contentReady || isLoading || errorMessage != null) 1f else 0f)
+                .alpha(if (revealContent) 1f else 0f)
+                .drawWithContent {
+                    drawContent()
+                    if (revealContent && readyRequestId != 0L && revealedFrame[0] != readyRequestId) {
+                        revealedFrame[0] = readyRequestId
+                        chimahon.diagnostics.LookupProfiler.mark(readyRequestId, "popup.ready_container.draw")
+                    }
+                }
                 .pointerInput(Unit) {
                     if (!popupSwipeToDismissPref) return@pointerInput
                     awaitPointerEventScope {
@@ -1236,56 +1542,99 @@ fun OcrLookupPopup(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    DictionaryEntryWebView(
-                    results = results,
-                    styles = styles,
-                    mediaDataUris = mediaDataUris,
-                    placeholder = if (isLoading || currentFrame == null) "" else "No results found",
-                    headerText = lookupString.take(20) + if (lookupString.length > 20) "…" else "",
-                    fontSize = popupFontSizePref,
-                    showFrequencyHarmonic = showFreqHarmonic,
-                    showFrequencyAverage = showFreqAverage,
-                    groupTerms = groupTerms,
-                    showPitchDiagram = showPitchDiagram,
-                    showPitchNumber = showPitchNumber,
-                    showPitchText = showPitchText,
-                    activeProfile = activeProfile,
-                    existingExpressions = existingExpressions,
-                    tabs = lookupStackState.buildTabs(),
-                    recursiveNavMode = recursiveNavMode,
-                    renderRecursiveChrome = false,
-                    customCss = customCss,
-                    wordAudioEnabled = wordAudioEnabled,
-                    // Suppress autoplay when the popup is hidden (warm shell still in
-                    // composition). Without this the WebView fires audio on a new lookup
-                    // result even while the popup is invisible to the user.
-                    wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
-                    groupPitches = groupPitches,
-                    requestFocusOnMount = true,
-                    entryJsons = entryJsons,
-                    webViewProvider = { webView },
-                    onAnkiLookup = onAnkiLookup,
-                    onRecursiveLookup = onRecursiveLookup,
-                    onTabSelect = onTabSelect,
-                    onBack = onBack,
-                    hideOnContentInvalidated = true,
-                    isLoading = isLoading,
-                    onContentReadyChange = { ready ->
-                        if (ready) {
-                            contentReady = true
-                            lastRenderedLookupGeneration = lookupGeneration
-                        } else {
-                            // Hide stale content only when a new top-level lookup
-                            // has started. Same-generation invalidations (e.g. Anki
-                            // status patches) keep the current content visible.
-                            if (lookupGeneration != lastRenderedLookupGeneration) {
-                                contentReady = false
-                            }
+                    val plainText = rendererMode == DictionaryPreferences.RENDERER_PLAIN_TEXT
+                    val nativeContent = rendererMode == DictionaryPreferences.RENDERER_COMPOSE || plainText
+                    if (nativeContent && !visible) {
+                        // Only WebView needs a warm offscreen shell. Cleared preparation handles
+                        // must not make a hidden native entry rebuild the previous lookup.
+                        Spacer(Modifier.fillMaxSize())
+                    } else if (nativeContent) {
+                        DictionaryEntryCompose(
+                            cardPreparation = cardPreparation,
+                            renderPreparation = renderPreparation,
+                            viewportWidthPx = with(density) { actualWidthDp.roundToPx() },
+                            profilingId = currentFrame?.profilingId ?: 0L,
+                            results = results,
+                            styles = styles,
+                            mediaDataUris = mediaDataUris,
+                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                            fontSize = popupFontSizePref,
+                            showFrequencyHarmonic = showFreqHarmonic,
+                            showFrequencyAverage = showFreqAverage,
+                            groupTerms = groupTerms,
+                            showPitchDiagram = showPitchDiagram,
+                            showPitchNumber = showPitchNumber,
+                            showPitchText = showPitchText,
+                            activeProfile = activeProfile,
+                            existingExpressions = existingExpressions,
+                            entryJsons = entryJsons,
+                            customCss = customCss,
+                            eInkMode = eInkMode,
+                            recursiveNavMode = recursiveNavMode,
+                            // Empty: RecursiveLookupChrome() above already renders the tab strip
+                            // for every mode. Passing tabs here as well made the renderer draw a
+                            // second RecursiveNavBar, so "tabs" mode showed two chrome bars.
+                            tabs = emptyList(),
+                            wordAudioEnabled = wordAudioEnabled,
+                            wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
+                            groupPitches = groupPitches,
+                            onAnkiLookup = onAnkiLookup,
+                            onRecursiveLookup = onRecursiveLookup,
+                            onTabSelect = onTabSelect,
+                            onBack = onBack,
+                            isLoading = isLoading,
+                            usePlainTextBody = plainText,
+                            resultsAreOrdered = true,
+                            onContentReadyChange = composeContentReady,
+                            onPlanReady = composePlanReady,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // Gate container callbacks on readiness; actual glossary drawing is
+                                // measured inside NativeGlossaryView, not inferred from this box.
+                                .drawWithContent {
+                                    drawContent()
+                                    if (contentReady && !isLoading) ContentFrameTracer.onContentDraw(size.height.toInt())
+                                },
+                        )
+                    } else if (webView != null) {
+                        DictionaryEntryWebView(
+                            results = results,
+                            styles = styles,
+                            mediaDataUris = mediaDataUris,
+                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                            headerText = lookupString.take(20) + if (lookupString.length > 20) "…" else "",
+                            fontSize = popupFontSizePref,
+                            showFrequencyHarmonic = showFreqHarmonic,
+                            showFrequencyAverage = showFreqAverage,
+                            groupTerms = groupTerms,
+                            showPitchDiagram = showPitchDiagram,
+                            showPitchNumber = showPitchNumber,
+                            showPitchText = showPitchText,
+                            activeProfile = activeProfile,
+                            existingExpressions = existingExpressions,
+                            tabs = lookupStackState.buildTabs(),
+                            recursiveNavMode = recursiveNavMode,
+                            renderRecursiveChrome = false,
+                            customCss = customCss,
+                            wordAudioEnabled = wordAudioEnabled,
+                            // Suppress autoplay when the popup is hidden (warm shell still in
+                            // composition). Without this the WebView fires audio on a new lookup
+                            // result even while the popup is invisible to the user.
+                            wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
+                            groupPitches = groupPitches,
+                            requestFocusOnMount = true,
+                            entryJsons = entryJsons,
+                            webViewProvider = { webView },
+                            onAnkiLookup = onAnkiLookup,
+                            onRecursiveLookup = onRecursiveLookup,
+                            onTabSelect = onTabSelect,
+                            onBack = onBack,
+                            hideOnContentInvalidated = true,
+                            isLoading = isLoading,
+                            onContentReadyChange = webContentReady,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                         }
-                        onContentReadyChange?.invoke(ready)
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
 
                 if (errorMessage != null) {
                     Text(
@@ -1348,6 +1697,7 @@ fun OcrLookupPopup(
     }
 
     childPopupRequest?.let { request ->
+        val childPopupWebView = eu.kanade.tachiyomi.ui.dictionary.rememberDictionaryPopupWebView(activeProfile.languageCode)
         val closeChromePx = if (dismissOnOutsideTap && recursiveNavMode == "popup") {
             with(density) { 32.dp.toPx() }
         } else {
@@ -1362,7 +1712,7 @@ fun OcrLookupPopup(
             charOffset = request.sentenceOffset,
             onDismiss = {
                 childPopupRequest = null
-                webView.evaluateJavascript(
+                webView?.evaluateJavascript(
                     "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                     null,
                 )
@@ -1393,38 +1743,4 @@ fun OcrLookupPopup(
             titleId = titleId,
         )
     }
-}
-
-/**
- * Runs [repository.lookup] honoring the profile's effective search resolution.
- * With "word" resolution (yomitan `translation.searchResolution='word'`), when
- * a query yields no results it is retried cutting at word boundaries. Returns
- * the last empty (or first non-empty) result.
- */
-private fun lookupWithSearchResolution(
-    repository: DictionaryRepository,
-    query: String,
-    termPaths: chimahon.DictionaryPaths,
-    activeProfile: AnkiProfile,
-): chimahon.DictionaryRepository.LookupResult2 {
-    fun lookupOne(text: String) = repository.lookup(text, termPaths, activeProfile.languageCode)
-
-    if (effectiveSearchResolution(activeProfile.searchResolution, activeProfile.languageCode) != AnkiProfile.SEARCH_RESOLUTION_WORD) {
-        return lookupOne(query)
-    }
-
-    var current = query
-    var result = lookupOne(current)
-    var guard = 0
-    while (
-        current.isNotEmpty() &&
-        result.error == null &&
-        result.results.isEmpty() &&
-        guard++ < 8
-    ) {
-        current = nextWordBoundarySubstring(current)
-        if (current.isEmpty()) break
-        result = lookupOne(current)
-    }
-    return result
 }

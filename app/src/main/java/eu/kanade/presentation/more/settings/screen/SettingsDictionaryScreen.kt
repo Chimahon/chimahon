@@ -670,6 +670,20 @@ object SettingsDictionaryScreen : SearchableSettings {
                 ),
             )
             add(
+                Preference.PreferenceItem.ListPreference(
+                    preference = dictionaryPreferences.renderer(),
+                    entries = persistentListOf(
+                        DictionaryPreferences.RENDERER_WEBVIEW to "WebView (default)",
+                        DictionaryPreferences.RENDERER_COMPOSE to "Compose (native)",
+                        DictionaryPreferences.RENDERER_PLAIN_TEXT to "Plain Text",
+                    ).filter { (renderer, _) ->
+                        DictionaryPreferences.supportsNativeRenderer || renderer == DictionaryPreferences.RENDERER_WEBVIEW
+                    }.associate { it.first to it.second }.toPersistentMap(),
+                    title = "Renderer",
+                    subtitle = "Compose renders entries with native text layout instead of a WebView",
+                ),
+            )
+            add(
                 Preference.PreferenceItem.SwitchPreference(
                     preference = dictionaryPreferences.popupSwipeToDismiss(),
                     title = stringResource(MR.strings.pref_dict_popup_swipe_to_dismiss),

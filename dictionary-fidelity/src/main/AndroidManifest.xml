@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:label="DictFidelity"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Slow full-document WebView drawing is confined to this process. -->
+        <activity
+            android:name="eu.kanade.tachiyomi.ui.dictionary.bench.DictionaryFidelityActivity"
+            android:exported="true"
+            android:process=":dictionaryFidelity" />
+    </application>
+</manifest>

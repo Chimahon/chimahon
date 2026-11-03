@@ -3,6 +3,7 @@ agp_version = "8.13.2"
 lifecycle_version = "2.10.0"
 paging_version = "3.4.1"
 interpolator_version = "1.0.0"
+tracing_version = "1.0.1"
 
 [libraries]
 gradle = { module = "com.android.tools.build:gradle", version.ref = "agp_version" }
@@ -26,6 +27,12 @@ paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "pag
 paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging_version" }
 
 interpolator = { group = "androidx.interpolator", name = "interpolator", version.ref = "interpolator_version" }
+
+# Perfetto SDK needed on top of androidx.compose.runtime:runtime-tracing so composable
+# functions appear as named slices in a capture taken from the command line rather than
+# only from Android Studio. -binary is the packaged Perfetto it falls back to.
+tracing-perfetto = { module = "androidx.tracing:tracing-perfetto", version.ref = "tracing_version" }
+tracing-perfetto-binary = { module = "androidx.tracing:tracing-perfetto-binary", version.ref = "tracing_version" }
 
 benchmark-macro = "androidx.benchmark:benchmark-macro-junit4:1.4.1"
 test-ext = "androidx.test.ext:junit-ktx:1.3.0"

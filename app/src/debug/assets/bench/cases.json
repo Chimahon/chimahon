@@ -1,0 +1,2189 @@
+[
+ {
+  "id": "01_cc-cedict-canto-2026-05-11",
+  "dictName": "CC-CEDICT Canto [2026-05-11]",
+  "dictSubdir": "-ZH-EN- CC-CEDICT.Canto (2026-05-12)",
+  "term": "澈底",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"div\",\"lang\":\"zh\",\"content\":[{\"tag\":\"div\",\"data\":{\"cccedict\":\"headword\"},\"content\":[\"【\",[{\"tag\":\"span\",\"content\":\"澈底\",\"lang\":\"zh-Hans\",\"data\":{\"cccedict\":\"headword-simp\"}}],\"】\"]},{\"tag\":\"ul\",\"data\":{\"cccedict\":\"definition\"},\"content\":[{\"tag\":\"li\",\"content\":\"variant of 徹底|彻底[chèdǐ]\"}]}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "CC-CEDICT Canto [2026-05-11]",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "澈底",
+     "deinflected": "澈底",
+     "process": [],
+     "term": {
+      "expression": "澈底",
+      "reading": "cit3 dai2",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "CC-CEDICT Canto [2026-05-11]",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"div\",\"lang\":\"zh\",\"content\":[{\"tag\":\"div\",\"data\":{\"cccedict\":\"headword\"},\"content\":[\"【\",[{\"tag\":\"span\",\"content\":\"澈底\",\"lang\":\"zh-Hans\",\"data\":{\"cccedict\":\"headword-simp\"}}],\"】\"]},{\"tag\":\"ul\",\"data\":{\"cccedict\":\"definition\"},\"content\":[{\"tag\":\"li\",\"content\":\"variant of 徹底|彻底[chèdǐ]\"}]}]}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "02_oxford-zh-en",
+  "dictName": "oxford-zh-en",
+  "dictSubdir": "-ZH-EN- oxford-zh-en",
+  "term": "出气筒",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"noun \"],\"data\":{\"content\":\"ps\"}},{\"tag\":\"span\",\"content\":[\"figurative \"],\"data\":{\"content\":\"lev\"}},{\"tag\":\"span\",\"content\":[\"  \"],\"data\":{\"content\":\"gp\"}}],\"data\":{\"content\":\"x_xdh\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"punch bag \"],\"data\":{\"content\":\"trans\"}}],\"data\":{\"content\":\"trg x_xd2\"}},{\"tag\":\"details\",\"content\":[{\"tag\":\"summary\",\"content\":[\"example\"],\"data\":{\"content\":\"summary-entry\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"▸ \"],\"data\":{\"content\":\"sn\"}},{\"tag\":\"span\",\"content\":[\"秘书成了他的出气筒。 \"],\"data\":{\"content\":\"ex\"}}],\"data\":{\"content\":\"x_xdh\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"His secretary had to bear the brunt of his temper. \"],\"data\":{\"content\":\"trans\"}}],\"data\":{\"content\":\"trg x_xd3\"}}],\"data\":{\"content\":\"example-item\"}}],\"data\":{\"content\":\"exg x_xd2 hasSn\"}}],\"data\":{\"content\":\"details-entry\"}}],\"data\":{\"content\":\"semb x_xd1\"}}]}",
+  "dictCss": "dictcss_oxford-zh-en.css",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "oxford-zh-en",
+     "styles": "span[data-sc-content=\"hw\"],\nspan[data-sc-content=\"pr\"],\nspan[data-sc-content=\"ps\"],\nspan[data-sc-content=\"hwg x_xh0\"],\nspan[data-sc-content=\"gp sn ty_label tg_gramb\"] {\n  display: none;\n}\n/* examples */\n\nspan[data-sc-content=\"exg x_xd2 hasSn\"] {\n  display: block;\n  padding: 0.25em;\n  padding-left: 0.5em;\n  border-style: none none none solid;\n  border-radius: 5px;\n  border-color: var(--shadow-color-light);\n  margin: 0.5em;\n}\n\nspan[data-sc-content=\"sn\"] {\n  display: none;\n}\n\nspan[data-sc-content=\"example-item\"] span[data-sc-content=\"trans\"] {\n  opacity: 0.5;\n}\n\nspan[data-sc-content=\"example-item\"] {\n  display: block;\n  margin: 0.5em 0;\n}\n\n.gloss-list[data-count=\"1\"] details[data-sc-content=\"details-entry\"] {\n  padding: 0 2em;\n}\n\n.gloss-list[data-count=\"1\"] span[data-sc-content=\"semb x_xd1\"] details[data-sc-content=\"details-entry\"] {\n  padding: 0;\n}\n\ndetails[data-sc-content=\"details-entry\"] {\n  padding: 0 1em;\n}\n\nsummary[data-sc-content=\"summary-entry\"] {\n  user-select: none;\n  width: max-content;\n}\n\nul.gloss-list[data-count=\"1\"] summary[data-sc-content=\"summary-entry\"] {\n  list-style-position: inside;\n}\n\nsummary[data-sc-content=\"summary-entry\"]::marker {\n  color: var(--checkbox-disabled-color);\n}\n\nsummary[data-sc-content=\"summary-entry\"] {\n  color: var(--text-color-light4);\n}\n\ndetails[data-sc-content^=\"details-entry\"][open=\"\"] summary[data-sc-content=\"summary-entry\"],\ndetails[data-sc-content^=\"details-entry\"][open=\"\"] summary[data-sc-content=\"summary-entry\"]::marker {\n  color: var(--text-color);\n}\n\nsummary[data-sc-content=\"summary-entry\"]:hover {\n  cursor: pointer;\n}\n\n/* senses */\n\nspan[data-sc-content=\"semb x_xd1 hasSn\"] {\n  display: block;\n  margin: 1em 0;\n}\n\nspan[data-sc-content=\"gp x_xdh sn ty_label tg_semb\"],\nspan[data-sc-content=\"gp ty_label tg_semb\"],\nspan[data-sc-content=\"gp sn ty_label tg_semb\"] {\n  opacity: 0.5;\n  user-select: none;\n  margin-right: 0.5em;\n  vertical-align: middle;\n}\n\nspan[data-sc-content=\"lev\"] {\n  opacity: 0.7;\n  font-style: italic;\n}\n\nspan[data-sc-content=\"gl\"] {\n  opacity: 0.8;\n}\n\nspan[data-sc-content=\"ind\"] {\n  opacity: 0.7;\n}\n\nli[data-sc-content=\"hypo-item\"] {\n  list-style: circle;\n}\n\nli[data-sc-content=\"hypo-item\"]::marker {\n  color: var(--text-color-light1);\n}\n\nspan[data-sc-content=\"semb x_xd2 hasSn\"],\nspan[data-sc-content=\"semb hasSn\"] {\n  display: block;\n  margin: 1em;\n}"
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "出气筒",
+     "deinflected": "出气筒",
+     "process": [],
+     "term": {
+      "expression": "出气筒",
+      "reading": "chūqìtǒnɡ",
+      "rules": "n",
+      "ruleTags": [
+       "n"
+      ],
+      "glossaries": [
+       {
+        "dictName": "oxford-zh-en",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"noun \"],\"data\":{\"content\":\"ps\"}},{\"tag\":\"span\",\"content\":[\"figurative \"],\"data\":{\"content\":\"lev\"}},{\"tag\":\"span\",\"content\":[\"  \"],\"data\":{\"content\":\"gp\"}}],\"data\":{\"content\":\"x_xdh\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"punch bag \"],\"data\":{\"content\":\"trans\"}}],\"data\":{\"content\":\"trg x_xd2\"}},{\"tag\":\"details\",\"content\":[{\"tag\":\"summary\",\"content\":[\"example\"],\"data\":{\"content\":\"summary-entry\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"▸ \"],\"data\":{\"content\":\"sn\"}},{\"tag\":\"span\",\"content\":[\"秘书成了他的出气筒。 \"],\"data\":{\"content\":\"ex\"}}],\"data\":{\"content\":\"x_xdh\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[\"His secretary had to bear the brunt of his temper. \"],\"data\":{\"content\":\"trans\"}}],\"data\":{\"content\":\"trg x_xd3\"}}],\"data\":{\"content\":\"example-item\"}}],\"data\":{\"content\":\"exg x_xd2 hasSn\"}}],\"data\":{\"content\":\"details-entry\"}}],\"data\":{\"content\":\"semb x_xd1\"}}]}",
+        "definitionTags": "n",
+        "definitionTagList": [
+         "n"
+        ],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "03_jmdict",
+  "dictName": "JMdict",
+  "dictSubdir": "JMdictLight_2026-04-30",
+  "term": "多体問題",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[\"〔n〕\",{\"tag\":\"br\"},\"n-body problem | many-body problem\"]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "JMdict",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "多体問題",
+     "deinflected": "多体問題",
+     "process": [],
+     "term": {
+      "expression": "多体問題",
+      "reading": "たたいもんだい",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "JMdict",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[\"〔n〕\",{\"tag\":\"br\"},\"n-body problem | many-body problem\"]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "04_jmdict",
+  "dictName": "JMdict",
+  "dictSubdir": "JMdictPlainText",
+  "term": "陶土",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[\"〔n〕\",{\"tag\":\"br\"},\"potter's clay | kaolin | china clay\"]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "JMdict",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "陶土",
+     "deinflected": "陶土",
+     "process": [],
+     "term": {
+      "expression": "陶土",
+      "reading": "とうど",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "JMdict",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[\"〔n〕\",{\"tag\":\"br\"},\"potter's clay | kaolin | china clay\"]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "05_jmdict-2026-05-10",
+  "dictName": "JMdict [2026-05-10]",
+  "dictSubdir": "JMdict_english",
+  "term": "民度",
+  "glossary": "{\"content\":{\"content\":{\"content\":\"standard of living\",\"tag\":\"li\"},\"data\":{\"content\":\"glossary\"},\"lang\":\"en\",\"style\":{\"listStyleType\":\"circle\"},\"tag\":\"ul\"},\"type\":\"structured-content\"}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "JMdict [2026-05-10]",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "民度",
+     "deinflected": "民度",
+     "process": [],
+     "term": {
+      "expression": "民度",
+      "reading": "みんど",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "JMdict [2026-05-10]",
+        "glossary": "{\"content\":{\"content\":{\"content\":\"standard of living\",\"tag\":\"li\"},\"data\":{\"content\":\"glossary\"},\"lang\":\"en\",\"style\":{\"listStyleType\":\"circle\"},\"tag\":\"ul\"},\"type\":\"structured-content\"}",
+        "definitionTags": "2 n",
+        "definitionTagList": [
+         "2",
+         "n"
+        ],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "06_krdict-en",
+  "dictName": "KRDICT EN",
+  "dictSubdir": "KO-EN.KRDICT.No.Examples",
+  "term": "孕胎하다",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"잉태하다\",\"lang\":\"ko\"},{\"tag\":\"span\",\"content\":\" 〔孕胎하다〕\",\"lang\":\"ko\"}],\"lang\":\"ko\"},{\"tag\":\"div\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"1. \"},{\"tag\":\"span\",\"content\":\"be pregnant; conceive\",\"lang\":\"en\"}],\"lang\":\"en\"},{\"tag\":\"div\",\"content\":\"To bear a child or young in the womb.\",\"lang\":\"en\"},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"backgroundColor\":\"#666666\",\"padding\":\"2px 6px\",\"marginRight\":\"5px\",\"marginLeft\":\"1.9px\",\"color\":\"#fff\",\"borderRadius\":\"3px\"},\"content\":\"Sentence\",\"lang\":\"en\"},{\"tag\":\"span\",\"content\":\"1이 2를 잉태하다\",\"lang\":\"ko\"}]},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"2. \"},{\"tag\":\"span\",\"content\":\"conceive; be conceived\",\"lang\":\"en\"}],\"lang\":\"en\"},{\"tag\":\"div\",\"content\":\"For a certain phenomenon or fact to be created and develop within something.\",\"lang\":\"en\"},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"backgroundColor\":\"#666666\",\"padding\":\"2px 6px\",\"marginRight\":\"5px\",\"marginLeft\":\"1.9px\",\"color\":\"#fff\",\"borderRadius\":\"3px\"},\"content\":\"Sentence\",\"lang\":\"en\"},{\"tag\":\"span\",\"content\":\"1이 2를 잉태하다\",\"lang\":\"ko\"}]}],\"lang\":\"en\"}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "KRDICT EN",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "孕胎하다",
+     "deinflected": "孕胎하다",
+     "process": [],
+     "term": {
+      "expression": "孕胎하다",
+      "reading": "",
+      "rules": "v",
+      "ruleTags": [
+       "v"
+      ],
+      "glossaries": [
+       {
+        "dictName": "KRDICT EN",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"잉태하다\",\"lang\":\"ko\"},{\"tag\":\"span\",\"content\":\" 〔孕胎하다〕\",\"lang\":\"ko\"}],\"lang\":\"ko\"},{\"tag\":\"div\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"1. \"},{\"tag\":\"span\",\"content\":\"be pregnant; conceive\",\"lang\":\"en\"}],\"lang\":\"en\"},{\"tag\":\"div\",\"content\":\"To bear a child or young in the womb.\",\"lang\":\"en\"},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"backgroundColor\":\"#666666\",\"padding\":\"2px 6px\",\"marginRight\":\"5px\",\"marginLeft\":\"1.9px\",\"color\":\"#fff\",\"borderRadius\":\"3px\"},\"content\":\"Sentence\",\"lang\":\"en\"},{\"tag\":\"span\",\"content\":\"1이 2를 잉태하다\",\"lang\":\"ko\"}]},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"2. \"},{\"tag\":\"span\",\"content\":\"conceive; be conceived\",\"lang\":\"en\"}],\"lang\":\"en\"},{\"tag\":\"div\",\"content\":\"For a certain phenomenon or fact to be created and develop within something.\",\"lang\":\"en\"},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"style\":{\"backgroundColor\":\"#666666\",\"padding\":\"2px 6px\",\"marginRight\":\"5px\",\"marginLeft\":\"1.9px\",\"color\":\"#fff\",\"borderRadius\":\"3px\"},\"content\":\"Sentence\",\"lang\":\"en\"},{\"tag\":\"span\",\"content\":\"1이 2를 잉태하다\",\"lang\":\"ko\"}]}],\"lang\":\"en\"}]}",
+        "definitionTags": "Verb",
+        "definitionTagList": [
+         "Verb"
+        ],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "07_1d81217a",
+  "dictName": "全国方言辞典",
+  "dictSubdir": "[Dialect] 全国方言辞典",
+  "term": "は",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"は\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"意味\"},\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":[\"毛先・枝先などを切る。\",{\"tag\":\"ul\",\"style\":{\"listStyleType\":\"none\"},\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"circle\"},\"content\":[\"あだまみちかぐはってこー\",{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":\"（髪の毛を短く刈ってこい）\"}]}]}]}]}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "全国方言辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "は",
+     "deinflected": "は",
+     "process": [],
+     "term": {
+      "expression": "は",
+      "reading": "は",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "全国方言辞典",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"は\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"意味\"},\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":[\"毛先・枝先などを切る。\",{\"tag\":\"ul\",\"style\":{\"listStyleType\":\"none\"},\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"circle\"},\"content\":[\"あだまみちかぐはってこー\",{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":\"（髪の毛を短く刈ってこい）\"}]}]}]}]}]}]}",
+        "definitionTags": "茨城の方言",
+        "definitionTagList": [
+         "茨城の方言"
+        ],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "08_5f07ba77",
+  "dictName": "日本語文法辞典(全集)",
+  "dictSubdir": "[Grammar] Dictionary of Japanese Grammar 日本語文法辞典 (Recommended)",
+  "term": "つつ",
+  "glossary": "文法項目 | つつ | 中級編 \n [解説] \n  (1) an auxiliary which expresses an action in progress; (2) a conjunction which is used to present two concurrent actions. \n\n [意味]\n -ing; while; although \n\n [例文A] \n  (ksa).　台風が九州に接近しつつある。\n A typhoon is approaching Kyushu.\n \n \n[例文B]\n (ksb).　彼女は夫の無罪を信じつつ息を引き取った。\n She died believing that her husband was innocent.\n \n (ksc).　煙草は体によくないと分かりつつなかなか辞められない。\n Although I know that smoking is harmful to my health, I just cannot quit.\n \n (a).　新しい本社ビルが完成しつつある。\n The new headquarters building is drawing to completion.\n \n (b).　オリンピックの施設が出来つつある。\n The Olympic facilities are being completed.\n \n (c).　この大学は現在キャンパスの移転を検討しつつある。\n This university is considering moving its campus now.\n \n (d).　甘い物を食べると太ると分かりつつ、つい手が出てします。\n Although I know that eating sweets makes me gain more weight, I unintentionally reach out for them.\n \n (e).　悪いことと知りつつ、友達に嘘をついてしまった。\n Knowing that it was a bad thing, I told my friend a lie.\n \n (f).　早く論文を書かなければいけないと思いつつ、今日もテレビを見てしまった。\n Although I was thinking that I had to write the paper soon, I watched TV today, too.\n \n (g).　私は父の無事を祈りつつ病院に急いだ。\n I hurried to the hospital hoping that my father was all right.\n \n (h).　彼は最後まで自分の学説が正しいことを主張しつつこの世を去った。\n He died while insisting until the last moment that his theory was correct.\n \n\n [接続] \n \nVます | つつ | | \n | 思いつつ | While thinking | \n ",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "日本語文法辞典(全集)",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "つつ",
+     "deinflected": "つつ",
+     "process": [],
+     "term": {
+      "expression": "つつ",
+      "reading": "つつ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "日本語文法辞典(全集)",
+        "glossary": "文法項目 | つつ | 中級編 \n [解説] \n  (1) an auxiliary which expresses an action in progress; (2) a conjunction which is used to present two concurrent actions. \n\n [意味]\n -ing; while; although \n\n [例文A] \n  (ksa).　台風が九州に接近しつつある。\n A typhoon is approaching Kyushu.\n \n \n[例文B]\n (ksb).　彼女は夫の無罪を信じつつ息を引き取った。\n She died believing that her husband was innocent.\n \n (ksc).　煙草は体によくないと分かりつつなかなか辞められない。\n Although I know that smoking is harmful to my health, I just cannot quit.\n \n (a).　新しい本社ビルが完成しつつある。\n The new headquarters building is drawing to completion.\n \n (b).　オリンピックの施設が出来つつある。\n The Olympic facilities are being completed.\n \n (c).　この大学は現在キャンパスの移転を検討しつつある。\n This university is considering moving its campus now.\n \n (d).　甘い物を食べると太ると分かりつつ、つい手が出てします。\n Although I know that eating sweets makes me gain more weight, I unintentionally reach out for them.\n \n (e).　悪いことと知りつつ、友達に嘘をついてしまった。\n Knowing that it was a bad thing, I told my friend a lie.\n \n (f).　早く論文を書かなければいけないと思いつつ、今日もテレビを見てしまった。\n Although I was thinking that I had to write the paper soon, I watched TV today, too.\n \n (g).　私は父の無事を祈りつつ病院に急いだ。\n I hurried to the hospital hoping that my father was all right.\n \n (h).　彼は最後まで自分の学説が正しいことを主張しつつこの世を去った。\n He died while insisting until the last moment that his theory was correct.\n \n\n [接続] \n \nVます | つつ | | \n | 思いつつ | While thinking | \n ",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": "DOJG中級編"
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "09_1d81217a",
+  "dictName": "全国方言辞典",
+  "dictSubdir": "[JA-JA Dialect] 全国方言辞典",
+  "term": "あらくる",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"あらくる\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"地域\"},\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"地域 \",{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\"},\"content\":[{\"tag\":\"span\",\"content\":\" \"},{\"tag\":\"a\",\"href\":\"?query=紀中&wildcards=off\",\"content\":\"紀中\"}]}]}]},{\"tag\":\"div\",\"data\":{\"name\":\"意味\"},\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":[\"整理する。掃除する。\",{\"tag\":\"ul\",\"style\":{\"listStyleType\":\"none\"},\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"circle\"},\"content\":[\"先祖の墓をあらくる\",{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":\"（先祖の墓を掃除する）\"}]}]}]}]}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "全国方言辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "あらくる",
+     "deinflected": "あらくる",
+     "process": [],
+     "term": {
+      "expression": "あらくる",
+      "reading": "あらくる",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "全国方言辞典",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"あらくる\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"地域\"},\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"地域 \",{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\"},\"content\":[{\"tag\":\"span\",\"content\":\" \"},{\"tag\":\"a\",\"href\":\"?query=紀中&wildcards=off\",\"content\":\"紀中\"}]}]}]},{\"tag\":\"div\",\"data\":{\"name\":\"意味\"},\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":[\"整理する。掃除する。\",{\"tag\":\"ul\",\"style\":{\"listStyleType\":\"none\"},\"content\":[{\"tag\":\"li\",\"style\":{\"listStyleType\":\"circle\"},\"content\":[\"先祖の墓をあらくる\",{\"tag\":\"li\",\"style\":{\"listStyleType\":\"none\"},\"content\":\"（先祖の墓を掃除する）\"}]}]}]}]}]}]}",
+        "definitionTags": "和歌山の方言",
+        "definitionTagList": [
+         "和歌山の方言"
+        ],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "10_pixiv-light-2026-01-08",
+  "dictName": "Pixiv Light [2026-01-08]",
+  "dictSubdir": "[JA-JA Encyclopedia] PixivLight_2026-01-08",
+  "term": "サイコロガンダム",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"div\",\"data\":{\"pixiv\":\"parent-link\"},\"style\":{\"fontWeight\":\"bold\"},\"content\":{\"tag\":\"a\",\"content\":\"←ガチャポン戦士\",\"href\":\"?query=ガチャポン戦士\"}},{\"tag\":\"ul\",\"content\":[{\"tag\":\"li\",\"content\":\"ゲーム『SDガンダムワールド ガチャポン戦士 スクランブルウォーズ』に登場するモビルスーツ（MS）。\"}],\"data\":{\"pixiv\":\"summary\"}},{\"tag\":\"div\",\"data\":{\"pixiv\":\"footer\"},\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"img\",\"path\":\"assets/pixiv-logo.png\",\"alt\":\"pixiv\",\"collapsed\":false,\"collapsible\":false,\"height\":1,\"width\":1,\"sizeUnits\":\"em\",\"verticalAlign\":\"middle\"},\" \",{\"tag\":\"a\",\"href\":\"https://dic.pixiv.net/a/サイコロガンダム\",\"content\":\"pixivで読む\"}],\"data\":{\"pixiv\":\"read-more-link\"}}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "Pixiv Light [2026-01-08]",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "サイコロガンダム",
+     "deinflected": "サイコロガンダム",
+     "process": [],
+     "term": {
+      "expression": "サイコロガンダム",
+      "reading": "サイコロガンダム",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "Pixiv Light [2026-01-08]",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"div\",\"data\":{\"pixiv\":\"parent-link\"},\"style\":{\"fontWeight\":\"bold\"},\"content\":{\"tag\":\"a\",\"content\":\"←ガチャポン戦士\",\"href\":\"?query=ガチャポン戦士\"}},{\"tag\":\"ul\",\"content\":[{\"tag\":\"li\",\"content\":\"ゲーム『SDガンダムワールド ガチャポン戦士 スクランブルウォーズ』に登場するモビルスーツ（MS）。\"}],\"data\":{\"pixiv\":\"summary\"}},{\"tag\":\"div\",\"data\":{\"pixiv\":\"footer\"},\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"img\",\"path\":\"assets/pixiv-logo.png\",\"alt\":\"pixiv\",\"collapsed\":false,\"collapsible\":false,\"height\":1,\"width\":1,\"sizeUnits\":\"em\",\"verticalAlign\":\"middle\"},\" \",{\"tag\":\"a\",\"href\":\"https://dic.pixiv.net/a/サイコロガンダム\",\"content\":\"pixivで読む\"}],\"data\":{\"pixiv\":\"read-more-link\"}}]}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "11_jlpt",
+  "dictName": "JLPT文法解説まとめ",
+  "dictSubdir": "[JA-JA Grammar] 日本語NET(nihongo_kyoushi)_v1_03",
+  "term": "からといって",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[\"【   【JLPT N２】文法・例文：〜からといって   】\\n\\n\\n[意味]\\n たとえ〜という理由があっても\\n\\n[英訳]\\n just because\\n\\n[接続]\\n 普通形 + からといって\\n\\n[備考]\\n 文末には「〜とは限らない」や「〜わけではない」、「〜とはいえない」などの部分否定の表現使われることが多い。\\n\\n[JLPT レベル]\\n N2\\n\\n\\n類似文型\\n関連記事【JLPT N３】文法・例文：〜とは限らない\\n関連記事【JLPT N３】文法・例文：わけではない / わけじゃない\\n\",{\"tag\":\"a\",\"href\":\"https://nihongokyoshi-net.com/2019/02/27/jlptn2-grammar-karatoitte/\",\"content\":\"nihongo kyoushi link\"}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "JLPT文法解説まとめ",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "からといって",
+     "deinflected": "からといって",
+     "process": [],
+     "term": {
+      "expression": "からといって",
+      "reading": "からといって",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "JLPT文法解説まとめ",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[\"【   【JLPT N２】文法・例文：〜からといって   】\\n\\n\\n[意味]\\n たとえ〜という理由があっても\\n\\n[英訳]\\n just because\\n\\n[接続]\\n 普通形 + からといって\\n\\n[備考]\\n 文末には「〜とは限らない」や「〜わけではない」、「〜とはいえない」などの部分否定の表現使われることが多い。\\n\\n[JLPT レベル]\\n N2\\n\\n\\n類似文型\\n関連記事【JLPT N３】文法・例文：〜とは限らない\\n関連記事【JLPT N３】文法・例文：わけではない / わけじゃない\\n\",{\"tag\":\"a\",\"href\":\"https://nihongokyoshi-net.com/2019/02/27/jlptn2-grammar-karatoitte/\",\"content\":\"nihongo kyoushi link\"}]}",
+        "definitionTags": "・〜からといって",
+        "definitionTagList": [
+         "・〜からといって"
+        ],
+        "termTags": "日本語NET―N2文法"
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "12_jp",
+  "dictName": "用例.jp",
+  "dictSubdir": "[JA-JA Sentences] 用例.jp",
+  "term": "故人",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"こじん\",\"style\":{\"fontWeight\":\"bold\"}},{\"tag\":\"span\",\"content\":\"【故人】\"},{\"tag\":\"a\",\"content\":\"詳細\",\"href\":\"https://yourei.jp/故人\"}],\"data\":{\"name\":\"header\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"ul\",\"content\":[{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"出演者の大半が\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"だった故各声優の部分は別の声優が代役を務めている。なお当初はバック役の大平透のみ再登板が予定されていたものの、大平の体調不良で実現がかなわなかった。\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"大将は夢を思うと贈られた横笛ももてあまされる気がした。\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の強い愛着の遺のこった品がやりたく思う人の手に行っていぬものらしい。しかも宮の御もとへ置きたく思う理由もない。\"},{\"tag\":\"a\",\"content\":\"与謝野晶子『源氏物語』\",\"href\":\"https://www.amazon.co.jp/s?k=与謝野晶子『源氏物語』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"戦いに臨む際には敵意を剥き出しにした言葉を吐き、相手を打ち負かすと格闘家を野蛮であると蔑み嘲笑う。父への反発と同時に、既に\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"である姉には特別な執着を抱いている。レミーは姉の遺体を氷漬けにし、ビスケー湾にある海底の洞窟に沈めて美しいままの姿で保存している。\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"監督の川越淳が「懐かしいキャラが総登場のお祭り企画」と発言するように、本作は過去のアニメシリーズのゲストキャラクターが数多く登場し、再度ルパンに戦いを挑む形となっている。ただし、各ゲストの声優は\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"であるために全員交代となっている。\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"国鉄五十万人と運命をともにした\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"。世間に暗い衝撃を与えることは、\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の望むところでなかったろう。自殺と直感した、といわれたときこそその人の妻らしい悲しみのありかたとして、すべての人にも肯かれたのに、いつか、他殺説を固執するようになった夫人の態度。\"},{\"tag\":\"a\",\"content\":\"宮本百合子『権力の悲劇』\",\"href\":\"https://www.amazon.co.jp/s?k=宮本百合子『権力の悲劇』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"筆力は垂死の病人とは思えぬ程慥である。余は此手紙を見る度たびに何だか\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"に対して済まぬ事をしたような気がする。\"},{\"tag\":\"a\",\"content\":\"夏目漱石『『吾輩は猫である』中篇自序』\",\"href\":\"https://www.amazon.co.jp/s?k=夏目漱石『『吾輩は猫である』中篇自序』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"ダルタニャンはひとりになると、はじめて夜になったことに気がついた。\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"のことばかり考えて、時刻の過ぎるのを忘れていたのだった。彼は礼拝堂の樫材の腰掛けから立ち上がり、司祭のしたように亡き友が葬ってある、二つの墓に最後の別れを告げに行った。\"},{\"tag\":\"a\",\"content\":\"アレクサンドル・デュマ／石川登志夫訳『鉄仮面(下)』\",\"href\":\"https://www.amazon.co.jp/s?k=アレクサンドル・デュマ／石川登志夫訳『鉄仮面(下)』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"女一の宮のお相手として置くのによい貴女と思召して、特別な御待遇を賜わって侍しているのであったが、お仕えする身であるかぎり、やはり宮の君などと言われ、唐衣までは着ぬが裳だけはつけて勤めているのは哀れなことであった。兵部卿ひょうぶきょうの宮は、この人だけは恋しい\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"に似た顔をしているであろう。式部卿の宮と八の宮は御兄弟なのであるからなどと、例の多情なお心は、昔の人の恋しいために、新たな好奇心もお起こしになることがやまず、いつとなく宮の君を恋の対象としてお考えになるようになった。\"},{\"tag\":\"a\",\"content\":\"与謝野晶子『源氏物語』\",\"href\":\"https://www.amazon.co.jp/s?k=与謝野晶子『源氏物語』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"短い庇の山荘の軒は空をたくさんに座敷へ入れて、月の顔と向かい合っているようなのが恥ずかしくて、その光から隠れるように紛らしておいでになる宮の御様子が非常に艶であった。\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の話も少ししだして、閑雅な態度で大将は語っているのであった。しかもその中で\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"に対してよりも劣ったお取り扱いを恨めしがった。\"},{\"tag\":\"a\",\"content\":\"与謝野晶子『源氏物語』\",\"href\":\"https://www.amazon.co.jp/s?k=与謝野晶子『源氏物語』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"本来は橙色のカボチャではなく、白いカブを使うものであるが、それも本来は\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の白い頭蓋骨を模したものであると考えられる。さらにそれも本来は、本物の\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の白い頭蓋骨を使用していたと考えられる。現在でも中南米には、\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の頭蓋骨内に蝋燭を灯して頭蓋骨が光り輝くことで、頭蓋骨に\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の魂=霊が宿り、\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"が生き返ったものとして扱い、家族で頭蓋骨を囲んで祝う風習がある。\"}]}]}],\"style\":{\"listStyleType\":\"square\"}}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "用例.jp",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "故人",
+     "deinflected": "故人",
+     "process": [],
+     "term": {
+      "expression": "故人",
+      "reading": "こじん",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "用例.jp",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"こじん\",\"style\":{\"fontWeight\":\"bold\"}},{\"tag\":\"span\",\"content\":\"【故人】\"},{\"tag\":\"a\",\"content\":\"詳細\",\"href\":\"https://yourei.jp/故人\"}],\"data\":{\"name\":\"header\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"ul\",\"content\":[{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"出演者の大半が\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"だった故各声優の部分は別の声優が代役を務めている。なお当初はバック役の大平透のみ再登板が予定されていたものの、大平の体調不良で実現がかなわなかった。\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"大将は夢を思うと贈られた横笛ももてあまされる気がした。\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の強い愛着の遺のこった品がやりたく思う人の手に行っていぬものらしい。しかも宮の御もとへ置きたく思う理由もない。\"},{\"tag\":\"a\",\"content\":\"与謝野晶子『源氏物語』\",\"href\":\"https://www.amazon.co.jp/s?k=与謝野晶子『源氏物語』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"戦いに臨む際には敵意を剥き出しにした言葉を吐き、相手を打ち負かすと格闘家を野蛮であると蔑み嘲笑う。父への反発と同時に、既に\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"である姉には特別な執着を抱いている。レミーは姉の遺体を氷漬けにし、ビスケー湾にある海底の洞窟に沈めて美しいままの姿で保存している。\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"監督の川越淳が「懐かしいキャラが総登場のお祭り企画」と発言するように、本作は過去のアニメシリーズのゲストキャラクターが数多く登場し、再度ルパンに戦いを挑む形となっている。ただし、各ゲストの声優は\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"であるために全員交代となっている。\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"国鉄五十万人と運命をともにした\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"。世間に暗い衝撃を与えることは、\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の望むところでなかったろう。自殺と直感した、といわれたときこそその人の妻らしい悲しみのありかたとして、すべての人にも肯かれたのに、いつか、他殺説を固執するようになった夫人の態度。\"},{\"tag\":\"a\",\"content\":\"宮本百合子『権力の悲劇』\",\"href\":\"https://www.amazon.co.jp/s?k=宮本百合子『権力の悲劇』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"筆力は垂死の病人とは思えぬ程慥である。余は此手紙を見る度たびに何だか\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"に対して済まぬ事をしたような気がする。\"},{\"tag\":\"a\",\"content\":\"夏目漱石『『吾輩は猫である』中篇自序』\",\"href\":\"https://www.amazon.co.jp/s?k=夏目漱石『『吾輩は猫である』中篇自序』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"ダルタニャンはひとりになると、はじめて夜になったことに気がついた。\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"のことばかり考えて、時刻の過ぎるのを忘れていたのだった。彼は礼拝堂の樫材の腰掛けから立ち上がり、司祭のしたように亡き友が葬ってある、二つの墓に最後の別れを告げに行った。\"},{\"tag\":\"a\",\"content\":\"アレクサンドル・デュマ／石川登志夫訳『鉄仮面(下)』\",\"href\":\"https://www.amazon.co.jp/s?k=アレクサンドル・デュマ／石川登志夫訳『鉄仮面(下)』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"女一の宮のお相手として置くのによい貴女と思召して、特別な御待遇を賜わって侍しているのであったが、お仕えする身であるかぎり、やはり宮の君などと言われ、唐衣までは着ぬが裳だけはつけて勤めているのは哀れなことであった。兵部卿ひょうぶきょうの宮は、この人だけは恋しい\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"に似た顔をしているであろう。式部卿の宮と八の宮は御兄弟なのであるからなどと、例の多情なお心は、昔の人の恋しいために、新たな好奇心もお起こしになることがやまず、いつとなく宮の君を恋の対象としてお考えになるようになった。\"},{\"tag\":\"a\",\"content\":\"与謝野晶子『源氏物語』\",\"href\":\"https://www.amazon.co.jp/s?k=与謝野晶子『源氏物語』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"短い庇の山荘の軒は空をたくさんに座敷へ入れて、月の顔と向かい合っているようなのが恥ずかしくて、その光から隠れるように紛らしておいでになる宮の御様子が非常に艶であった。\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の話も少ししだして、閑雅な態度で大将は語っているのであった。しかもその中で\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"に対してよりも劣ったお取り扱いを恨めしがった。\"},{\"tag\":\"a\",\"content\":\"与謝野晶子『源氏物語』\",\"href\":\"https://www.amazon.co.jp/s?k=与謝野晶子『源氏物語』\"}]}]},{\"tag\":\"li\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"本来は橙色のカボチャではなく、白いカブを使うものであるが、それも本来は\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の白い頭蓋骨を模したものであると考えられる。さらにそれも本来は、本物の\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の白い頭蓋骨を使用していたと考えられる。現在でも中南米には、\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の頭蓋骨内に蝋燭を灯して頭蓋骨が光り輝くことで、頭蓋骨に\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"の魂=霊が宿り、\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\",\"color\":\"red\"},\"content\":\"故人\"},{\"tag\":\"span\",\"content\":\"が生き返ったものとして扱い、家族で頭蓋骨を囲んで祝う風習がある。\"}]}]}],\"style\":{\"listStyleType\":\"square\"}}]}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "13_cb3c6729",
+  "dictName": "学研 四字熟語辞典",
+  "dictSubdir": "[JA-JA Yoji] 学研 四字熟語辞典",
+  "term": "棃園弟子",
+  "glossary": "りえんのていし【梨園弟子】\n歌舞伎役者のこと。広く、俳優や役者をさすこともある。\n\n注記: 「梨園」は、中国唐 (とう) の玄宗 (げんそう) が、宮中の梨の庭園で青年や官女に音楽や舞踊を習わせたことから、日本では歌舞伎役者の社会のこと。「梨園子弟 (りえんしてい) 」ともいう。",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "学研 四字熟語辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "棃園弟子",
+     "deinflected": "棃園弟子",
+     "process": [],
+     "term": {
+      "expression": "棃園弟子",
+      "reading": "りえんのていし",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "学研 四字熟語辞典",
+        "glossary": "りえんのていし【梨園弟子】\n歌舞伎役者のこと。広く、俳優や役者をさすこともある。\n\n注記: 「梨園」は、中国唐 (とう) の玄宗 (げんそう) が、宮中の梨の庭園で青年や官女に音楽や舞踊を習わせたことから、日本では歌舞伎役者の社会のこと。「梨園子弟 (りえんしてい) 」ともいう。",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "14_d8b428c4",
+  "dictName": "三省堂国語辞典　第八版",
+  "dictSubdir": "[JA-JA] 三省堂国語辞典　第八版",
+  "term": "自己顕示",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"data\":{\"name\":\"見出部\"},\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"data\":{\"name\":\"見出仮名\"},\"content\":[\"じこ\",{\"tag\":\"span\",\"style\":{\"marginRight\":0.5},\"data\":{\"name\":\"語構成\"}},\"け\",{\"tag\":\"span\",\"data\":{\"name\":\"アクセント\"},\"content\":{\"tag\":\"span\",\"style\":{\"verticalAlign\":\"text-bottom\"},\"content\":{\"tag\":\"img\",\"height\":1.0,\"width\":0.5,\"sizeUnits\":\"em\",\"appearance\":\"auto\",\"collapsible\":false,\"collapsed\":false,\"background\":false,\"path\":\"sankoku8/svg-accent/アクセント.svg\"}}},\"んじ\"]},{\"tag\":\"span\",\"data\":{\"name\":\"表記G\"},\"content\":[\"［\",{\"tag\":\"span\",\"data\":{\"name\":\"表記\"},\"content\":[{\"tag\":\"span\",\"data\":{\"name\":\"教育漢字\"},\"content\":\"自己\"},\"顕\",{\"tag\":\"span\",\"data\":{\"name\":\"教育漢字\"},\"content\":\"示\"}]},\"］\"]},{\"tag\":\"span\",\"data\":{\"name\":\"品詞G\"},\"content\":{\"tag\":\"span\",\"data\":{\"name\":\"品詞subG\"},\"content\":[\"｟\",{\"tag\":\"span\",\"data\":{\"name\":\"品詞\"},\"content\":\"名\"},\"｠\"]}}]},{\"tag\":\"div\",\"data\":{\"name\":\"解説部\"},\"content\":{\"tag\":\"div\",\"data\":{\"name\":\"大語義\"},\"content\":{\"tag\":\"div\",\"data\":{\"name\":\"語義\"},\"content\":[{\"tag\":\"span\",\"data\":{\"name\":\"専門G\"},\"content\":[\"〘\",{\"tag\":\"span\",\"data\":{\"name\":\"専門\"},\"content\":\"心\"},\"〙\"]},{\"tag\":\"span\",\"data\":{\"name\":\"語釈\"},\"content\":[\"社会生活で自分を目立たせるように\",{\"tag\":\"span\",\"style\":{\"marginRight\":0.5},\"data\":{\"name\":\"分書\"}},\"すること。\"]},{\"tag\":\"div\",\"data\":{\"name\":\"用例G\"},\"content\":[\"「\",{\"tag\":\"span\",\"data\":{\"name\":\"用例\"},\"content\":[{\"tag\":\"span\",\"style\":{\"marginRight\":0.125,\"marginLeft\":0.125},\"data\":{\"name\":\"見出相当部\"},\"content\":\"━\"},\"欲の強い人\"]},\"」\"]}]}}}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "三省堂国語辞典　第八版",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "自己顕示",
+     "deinflected": "自己顕示",
+     "process": [],
+     "term": {
+      "expression": "自己顕示",
+      "reading": "じこけんじ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "三省堂国語辞典　第八版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"data\":{\"name\":\"見出部\"},\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"data\":{\"name\":\"見出仮名\"},\"content\":[\"じこ\",{\"tag\":\"span\",\"style\":{\"marginRight\":0.5},\"data\":{\"name\":\"語構成\"}},\"け\",{\"tag\":\"span\",\"data\":{\"name\":\"アクセント\"},\"content\":{\"tag\":\"span\",\"style\":{\"verticalAlign\":\"text-bottom\"},\"content\":{\"tag\":\"img\",\"height\":1.0,\"width\":0.5,\"sizeUnits\":\"em\",\"appearance\":\"auto\",\"collapsible\":false,\"collapsed\":false,\"background\":false,\"path\":\"sankoku8/svg-accent/アクセント.svg\"}}},\"んじ\"]},{\"tag\":\"span\",\"data\":{\"name\":\"表記G\"},\"content\":[\"［\",{\"tag\":\"span\",\"data\":{\"name\":\"表記\"},\"content\":[{\"tag\":\"span\",\"data\":{\"name\":\"教育漢字\"},\"content\":\"自己\"},\"顕\",{\"tag\":\"span\",\"data\":{\"name\":\"教育漢字\"},\"content\":\"示\"}]},\"］\"]},{\"tag\":\"span\",\"data\":{\"name\":\"品詞G\"},\"content\":{\"tag\":\"span\",\"data\":{\"name\":\"品詞subG\"},\"content\":[\"｟\",{\"tag\":\"span\",\"data\":{\"name\":\"品詞\"},\"content\":\"名\"},\"｠\"]}}]},{\"tag\":\"div\",\"data\":{\"name\":\"解説部\"},\"content\":{\"tag\":\"div\",\"data\":{\"name\":\"大語義\"},\"content\":{\"tag\":\"div\",\"data\":{\"name\":\"語義\"},\"content\":[{\"tag\":\"span\",\"data\":{\"name\":\"専門G\"},\"content\":[\"〘\",{\"tag\":\"span\",\"data\":{\"name\":\"専門\"},\"content\":\"心\"},\"〙\"]},{\"tag\":\"span\",\"data\":{\"name\":\"語釈\"},\"content\":[\"社会生活で自分を目立たせるように\",{\"tag\":\"span\",\"style\":{\"marginRight\":0.5},\"data\":{\"name\":\"分書\"}},\"すること。\"]},{\"tag\":\"div\",\"data\":{\"name\":\"用例G\"},\"content\":[\"「\",{\"tag\":\"span\",\"data\":{\"name\":\"用例\"},\"content\":[{\"tag\":\"span\",\"style\":{\"marginRight\":0.125,\"marginLeft\":0.125},\"data\":{\"name\":\"見出相当部\"},\"content\":\"━\"},\"欲の強い人\"]},\"」\"]}]}}}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "15_01b5615b",
+  "dictName": "実用日本語表現辞典",
+  "dictSubdir": "[JA-JA] 実用日本語表現辞典",
+  "term": "変革期",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"へんかくき\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\"},\"content\":\"【変革期】\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"definition\"},\"content\":\"「変革」は、物事の仕組みや制度を大きく変えて、新しくすること。企業や社会において、変革が盛んに行われている、または行われるべき時期のこと。\"}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "実用日本語表現辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "変革期",
+     "deinflected": "変革期",
+     "process": [],
+     "term": {
+      "expression": "変革期",
+      "reading": "へんかくき",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "実用日本語表現辞典",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"へんかくき\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\"},\"content\":\"【変革期】\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"definition\"},\"content\":\"「変革」は、物事の仕組みや制度を大きく変えて、新しくすること。企業や社会において、変革が盛んに行われている、または行われるべき時期のこと。\"}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "16_a7bfa32e",
+  "dictName": "新明解国語辞典　第八版",
+  "dictSubdir": "[JA-JA] 新明解国語辞典　第八版",
+  "term": "愚行",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"ぐ こ\",{\"tag\":\"ruby\",\"content\":[\"う\",{\"tag\":\"rt\",\"content\":\"オ\"}]}]},{\"tag\":\"span\",\"style\":{\"verticalAlign\":\"super\",\"fontSize\":\"0.7em\"},\"content\":\"⓪\"},{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.6em\",\"fontWeight\":\"normal\"},\"content\":\"(─カウ)\"},\"【愚\",{\"tag\":\"span\",\"style\":{\"color\":\"color-mix(in srgb, lime, var(--text-color, var(--fg, #333)))\"},\"content\":\"行\"},\"】\",{\"tag\":\"div\",\"content\":{\"tag\":\"div\",\"content\":{\"tag\":\"div\",\"content\":[\"ばかげていて、人の笑いものになるような行動。\",{\"tag\":\"div\",\"content\":{\"tag\":\"div\",\"content\":\"「━を重ねる」\"}}]}}}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "新明解国語辞典　第八版",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "愚行",
+     "deinflected": "愚行",
+     "process": [],
+     "term": {
+      "expression": "愚行",
+      "reading": "ぐこう",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "新明解国語辞典　第八版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"ぐ こ\",{\"tag\":\"ruby\",\"content\":[\"う\",{\"tag\":\"rt\",\"content\":\"オ\"}]}]},{\"tag\":\"span\",\"style\":{\"verticalAlign\":\"super\",\"fontSize\":\"0.7em\"},\"content\":\"⓪\"},{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.6em\",\"fontWeight\":\"normal\"},\"content\":\"(─カウ)\"},\"【愚\",{\"tag\":\"span\",\"style\":{\"color\":\"color-mix(in srgb, lime, var(--text-color, var(--fg, #333)))\"},\"content\":\"行\"},\"】\",{\"tag\":\"div\",\"content\":{\"tag\":\"div\",\"content\":{\"tag\":\"div\",\"content\":[\"ばかげていて、人の笑いものになるような行動。\",{\"tag\":\"div\",\"content\":{\"tag\":\"div\",\"content\":\"「━を重ねる」\"}}]}}}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "17_d002b024",
+  "dictName": "日本語俗語辞書",
+  "dictSubdir": "[JA-JA] 日本語俗語辞書",
+  "term": "がりル",
+  "glossary": "ガリる\nKaryû Roujin\n\n下流老人とは、下流な生活を強いられている老人の高齢者のこと。\n\n《年代》 2015年　　　《種類》 －\n\n『下流老人』の解説\n下流老人とはNPO法人ほっとプラス代表理事の藤田孝典による造語で、一般的な生活が出来ない下流な生活を強いられている老人を意味する。藤田氏は「生活保護基準相当で暮らす高齢者およびその恐れがある高齢者」と定義しているが、収入や貯蓄が著しく少なく、仲間や家族といった頼れる人もない高齢者がこれにあたる。藤田氏のところには3食まともに食べられない老人や治療費がなく医者に行けない老人、生活のために万引きをする老人など、下流老人からの相談が後をたたないという。\n\n下流老人は2015年の新語・流行語大賞にノミネート語に選ばれている（ただし、受賞はしていない）。\n\nGariru\n\nガリるとは、勉強ばかりすること。痩せること。\n\n《年代》 平成時代～　　　《種類》 若者言葉\n\n『ガリる』の解説\n《1》 ガリるとは「ガリ勉する（＝ガリガリ勉強する）」の略で、勉強ばかりすることをいう。自身が「試験に向けてガリる（勉強に集中する）」といった使い方をする。また、他者が使う場合、勉強ばかりしている友人・クラスメートを嘲ったり、皮肉を込めて使うことが多い。\n\n《2》 ガリるとは「ガリガリになる」の略で、ダイエットなどで急激に痩せること。\n\nその他、「ガリガリ（ガリッと）擦る」の略など、複数の意味を持つ（調査中）。\n\n",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "日本語俗語辞書",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "がりル",
+     "deinflected": "がりル",
+     "process": [],
+     "term": {
+      "expression": "がりル",
+      "reading": "",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "日本語俗語辞書",
+        "glossary": "ガリる\nKaryû Roujin\n\n下流老人とは、下流な生活を強いられている老人の高齢者のこと。\n\n《年代》 2015年　　　《種類》 －\n\n『下流老人』の解説\n下流老人とはNPO法人ほっとプラス代表理事の藤田孝典による造語で、一般的な生活が出来ない下流な生活を強いられている老人を意味する。藤田氏は「生活保護基準相当で暮らす高齢者およびその恐れがある高齢者」と定義しているが、収入や貯蓄が著しく少なく、仲間や家族といった頼れる人もない高齢者がこれにあたる。藤田氏のところには3食まともに食べられない老人や治療費がなく医者に行けない老人、生活のために万引きをする老人など、下流老人からの相談が後をたたないという。\n\n下流老人は2015年の新語・流行語大賞にノミネート語に選ばれている（ただし、受賞はしていない）。\n\nGariru\n\nガリるとは、勉強ばかりすること。痩せること。\n\n《年代》 平成時代～　　　《種類》 若者言葉\n\n『ガリる』の解説\n《1》 ガリるとは「ガリ勉する（＝ガリガリ勉強する）」の略で、勉強ばかりすることをいう。自身が「試験に向けてガリる（勉強に集中する）」といった使い方をする。また、他者が使う場合、勉強ばかりしている友人・クラスメートを嘲ったり、皮肉を込めて使うことが多い。\n\n《2》 ガリるとは「ガリガリになる」の略で、ダイエットなどで急激に痩せること。\n\nその他、「ガリガリ（ガリッと）擦る」の略など、複数の意味を持つ（調査中）。\n\n",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "18_b7e2e90f",
+  "dictName": "旺文社国語辞典 第十二版",
+  "dictSubdir": "[JA-JA] 旺文社国語辞典 第十二版[2025-04-29]",
+  "term": "深厚",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"しん\"},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"–\"}],\"data\":{\"hyphen\":\"\"}},{\"tag\":\"span\",\"content\":\"こう\"}],\"data\":{\"headword\":\"\",\"かな\":\"\",\"class\":\"かな\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"【深厚】\"}],\"data\":{\"headword\":\"\",\"表記\":\"\",\"class\":\"表記\"}}],\"data\":{\"head2-inner\":\"\"}}],\"data\":{\"head2\":\"\",\"標準\":\"\",\"id\":\"\",\"class\":\"標準\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"（名・形動ダ）\"}],\"data\":{\"pos\":\"\",\"href\":\"appendix/MAE003.html#001\"}}],\"data\":{\"meaning\":\"\",\"id\":\"37836-F001\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"①\"}],\"data\":{\"num\":\"\",\"valt\":\"まる1 \"}}],\"data\":{\"gaiji\":\"\"}},{\"tag\":\"span\",\"content\":\"気持ちや情が深く厚いこと。また、そのさま。\"}],\"data\":{\"meaning\":\"\",\"no\":\"\",\"id\":\"37836-F002\",\"class\":\"no\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"②\"}],\"data\":{\"num\":\"\",\"valt\":\"まる2 \"}}],\"data\":{\"gaiji\":\"\"}},{\"tag\":\"span\",\"content\":\"意味や内容が奥深いこと。また、そのさま。\"}],\"data\":{\"meaning\":\"\",\"no\":\"\",\"id\":\"37836-F003\",\"class\":\"no\"}}],\"data\":{\"dic-item\":\"\",\"標準\":\"\",\"class\":\"標準\"}}],\"data\":{\"body\":\"\",\"標準\":\"\",\"class\":\"標準\"}}],\"data\":{\"html\":\"\",\"hmhtml\":\"5\",\"lang\":\"ja\"}}]}",
+  "dictCss": "dictcss_____________.css",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "旺文社国語辞典 第十二版",
+     "styles": "[data-sc-body] {\n    font-size: 2em;\n    /* font-family: \"Hiragino Mincho ProN\", \"Yu Mincho\", \"MS Mincho\", \"IPAMincho\",\n        serif; */\n}\n\na {\n    text-decoration: none;\n}\n\na:hover {\n    color: var(--text-color);\n    filter: brightness(1.3);\n    text-decoration: underline;\n    text-decoration-color: oklch(65% 0.2 260);\n}\n\n[data-sc-gaiji]>a:hover {\n    color: transparent !important;\n    filter: none !important;\n    text-decoration: none !important;\n}\n\n[data-sc-bg] {\n    font-weight: bold;\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n}\n\n[data-sc-bs] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    margin-inline-end: 0.25em;\n    padding: 0.1em;\n    font-weight: bold;\n    font-size: 0.8em;\n    color: var(--background-color-light);\n    background-color: var(--text-color);\n    border-radius: 0.15em;\n}\n\n[data-sc-p-o-s] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    margin-inline-end: 0.25em;\n    padding: 0.1em;\n    font-size: 0.8em;\n    color: var(--text-color);\n    border-width: 0.05em;\n    border-style: solid;\n    border-color: var(--text-color);\n    word-break: keep-all;\n    border-radius: 0.2em;\n}\n\n[data-sc-caption] {\n    margin-block-start: 0.5em;\n}\n\n[data-sc-column] {\n    margin-block-start: 0.5em;\n}\n\n[data-sc-column][data-sc使い分け],\n[data-sc-column][data-scちがい] {\n    padding: 0.5em;\n    border: solid 2px var(--oko12-light-red, var(--danger-color-lighter, #FFCCCC));\n}\n\n[data-sc-column][data-sc使い分け] [data-sc-meaning][data-scコラム],\n[data-sc-column][data-scちがい],\n[data-sc-meaning][data-scコラム] {\n    text-indent: 1em;\n}\n\n[data-sc-column],\n[data-sc-meaning]:first-child {\n    margin-block-start: 0;\n}\n\n[data-sc-div] {\n    margin-block-start: 0.5em;\n}\n\n[data-sc-em][data-sc傍線] {\n    text-decoration: underline;\n    text-decoration-color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n}\n\n[data-sc-headword][data-scかな],\n[data-sc-headword][data-sc慣用] {\n    font-weight: bold;\n}\n\n[data-sc-dic_item][data-sc漢字],\n[data-sc-headword][data-sc表記] {\n    font-size: 1.5em;\n}\n\n[data-sc-headword][data-sc許容体],\n[data-sc-headword][data-sc旧字] {\n    font-size: 1.2em;\n}\n\n[data-sc-headword][data-sc歴史かな],\n[data-sc-headword][data-sc現代かな] {\n    font-size: 0.5em;\n}\n\n[data-sc-headword][data-sc慣用] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n}\n\n[data-sc-headword][data-sc和歌] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    font-weight: bold;\n}\n\n[data-sc-headword][data-sc-a-b-c] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    font-weight: bold;\n}\n\n[data-sc図] {\n    margin-block-start: 0.5em;\n    margin-block-end: 0;\n}\n\n[data-sc-kaeri] {\n    font-size: 0.5em;\n    vertical-align: -1em;\n}\n\n[data-sc-katsuyo] {\n    margin: 0 0.25em;\n    font-size: 0.6em;\n}\n\n[data-sc-kigo] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    margin-inline-end: 0.25em;\n    padding: 0.1em;\n    font-size: 0.8em;\n    color: var(--text-color);\n    border-width: 0.05em;\n    border-style: solid;\n    border-color: var(--text-color);\n    word-break: keep-all;\n    border-radius: 0.2em;\n}\n\n[data-sc-lang] {\n    font-size: 0.5em;\n}\n\n[data-sc-lang][data-sc-plain] {\n    display: inline;\n}\n\n[data-sc-logo] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    margin-inline-end: 0.25em;\n    padding: 0.1em;\n    font-size: 0.8em;\n    color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n    border-width: 0.05em;\n    border-style: solid;\n    border-color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n    word-break: keep-all;\n    border-radius: 0.2em;\n    word-break: keep-all;\n}\n\n[data-sc-logo][data-sc-fill] {\n    color: var(--background-color-light);\n    border-style: none;\n    background-color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n}\n\n[data-sc-logo][data-sc-round] {\n    padding-block: 0.1em;\n    padding-inline: 0.5em;\n    border-radius: 0.625em;\n}\n\n[data-sc-logo][data-sc-round] {\n    color: var(--background-color-light);\n    border-style: none;\n    background-color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n}\n\n[data-sc-logo][data-sc配当学年] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    padding: 0.1em;\n    font-size: 0.8em;\n    color: var(--text-color);\n    border-width: 0.05em;\n    border-style: solid;\n    border-color: var(--text-color);\n    word-break: keep-all;\n    border-radius: 0.5em;\n}\n\n[data-sc-logo][data-sc読み] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    font-size: 0.8em;\n    color: var(--text-color);\n    border-width: 0.06em;\n    border-color: var(--text-color);\n}\n\n[data-sc-maru] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    padding: 0.095em;\n    font-weight: normal;\n    font-size: 0.8em;\n    border-width: 0.05em;\n    border-style: solid;\n    border-color: var(--text-color);\n    border-radius: 0.67em;\n}\n\n[data-sc-maru][data-sc-small] {\n    font-size: 0.6em;\n    vertical-align: 1em;\n}\n\n[data-sc-meaning] {\n    margin-block-start: 0.2em;\n}\n\n[data-sc-meaning][data-sc-no] {\n    margin-inline-start: 0.125em;\n}\n\n[data-sc-meaning][data-sc語源2] {\n    margin-inline-start: -0.125em;\n    padding-inline-start: 0.2em;\n    border-inline-start: solid 0.3em var(--oko12-light-red, var(--danger-color-lighter, #FFCCCC));\n}\n\n[data-sc-meaning][data-sc和歌作者] {\n    margin-inline-end: 1em;\n    text-align: right;\n}\n\n[data-sc-meaning][data-sc中心義] {\n    font-weight: bold;\n}\n\n[data-sc-mlg] {\n    font-size: 0.5em;\n}\n\n[data-sc-ninoji2] {\n    font-size: 0.5em;\n}\n\n[data-sc-nobr] {\n    word-break: keep-all;\n}\n\n[data-sc-num] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    margin-inline-end: 0.125em;\n}\n\n[data-sc-subnum] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    font-weight: bold;\n}\n\n[data-sc-red] {\n    color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n}\n\n[data-sc-gred] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    color: var(--oko12-red, var(--sidebar-button-danger-background-color-hover, var(--tag-archaism-background-color, var(--danger-color, #FF3333))));\n}\n\n[data-sc-spellout] {\n    font-weight: bold;\n}\n\n[data-sc-sub] {\n    font-size: 0.5em;\n}\n\n[data-sc-sup] {\n    font-size: 0.5em;\n}\n\ntable {\n    margin-block: 0.5em;\n    margin-inline: 0;\n}\n\ntd,\nth {\n    padding: 0.25em;\n    vertical-align: top;\n}\n\ntd[data-sc-middle] {\n    vertical-align: middle;\n}\n\nth {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    text-align: center;\n}\n\n[data-sc-title2]+[data-sc-meaning] {\n    margin-block-start: 0;\n}\n\n[data-sc-column][data-sc使い分け] [data-sc-title2],\n[data-sc-column][data-scちがい] [data-sc-title2],\n[data-sc-column][data-sc下接語] [data-sc-title2] {\n    /* font-family: \"Hiragino Kaku Gothic ProN\", \"Meiryo\", \"Yu Gothic\", \"MS Gothic\",\n        sans-serif; */\n    font-weight: bold;\n}\n\ntd[data-sc表現と類語] {\n    padding-inline-start: 1em;\n}\n\n[data-sc-u] {\n    text-decoration: none;\n    border-block-end: solid 0.05em var(--text-color);\n}\n\n[data-sc-warichu] {\n    font-size: 0.5em;\n}\n\n[data-sc-ws] {\n    /* font-family: \"Hiragino Mincho ProN\", \"Yu Mincho\", \"MS Mincho\", \"IPAMincho\",\n        serif; */\n    margin-inline-end: 0.25em;\n    padding: 0.1em;\n    font-size: 0.8em;\n    color: var(--text-color);\n    border-width: 0.05em;\n    border-style: solid;\n    border-color: var(--text-color);\n    border-radius: 0.15em;\n}\n\n[data-sc-yomi] {\n    font-size: 0.5em;\n}\n\n[data-sc筆順] {\n    display: block;\n    margin-block-start: 0.5em;\n}\n\n[data-sc筆順] table {\n    margin: 0;\n    border-block-start: solid 0.5px var(--text-color);\n    border-inline-start: solid 0.5px black;\n    overflow: scroll;\n}\n\n[data-sc筆順] td {\n    padding: 0.25em;\n    border-inline-end: solid 0.5px var(--text-color);\n    border-block-end: solid 0.5px var(--text-color);\n    min-width: 1em;\n    font-size: 1.5em;\n}\n\n[data-sc-class=\"ICAR12\"] {\n    font-family: \"OT-GHitujyun2Std-ICAR12\", \"GHitujyun2Std-ICAR12\", \"G-OTF Hitujyun2 ICA Std R12\",\n        \"G-OTF 筆順2ICA Std\" !important;\n}\n\n[data-sc-class=\"ICAR34\"] {\n    font-family: \"OT-GHitujyun2Std-ICAR34\", \"GHitujyun2Std-ICAR34\", \"G-OTF Hitujyun2 ICA Std R34\",\n        \"G-OTF 筆順2ICA Std\" !important;\n}\n\n[data-sc-class=\"ICAR56\"] {\n    font-family: \"OT-GHitujyun2Std-ICAR56\", \"GHitujyun2Std-ICAR56\", \"G-OTF Hitujyun2 ICA Std R56\",\n        \"G-OTF 筆順2ICA Std\" !important;\n}\n\n[data-sc-class=\"ICAR1\"] {\n    font-family: \"OT-GHitu2jyoStdN-ICAR1\", \"GHitu2jyoStdN-ICAR1\", \"G-OTF Hitu2jyo ICA StdN R1\",\n        \"G-OTF 筆順2常用ICA StdN\" !important;\n}\n\n[data-sc-class=\"ICAR2\"] {\n    font-family: \"OT-GHitu2jyoStdN-ICAR2\", \"GHitu2jyoStdN-ICAR2\", \"G-OTF Hitu2jyo ICA StdN R2\",\n        \"G-OTF 筆順2常用ICA StdN\" !important;\n}\n\n[data-sc-class=\"ICAR3\"] {\n    font-family: \"OT-GHitu2jyoStdN-ICAR3\", \"GHitu2jyoStdN-ICAR3\", \"G-OTF Hitu2jyo ICA StdN R3\",\n        \"G-OTF 筆順2常用ICA StdN\" !important;\n}\n\n[data-sc簡体字] {\n    font-family: \"Songti SC\" !important;\n}\n\n[data-sc-repeat]+[data-sc-repeat] {\n    margin-inline-start: 0.25em;\n}\n\n[data-sc-img] a {\n    max-height: 100%;\n    max-width: 100%;\n}\n\n[data-sc-img] .gloss-image-container {\n    max-width: 100%;\n    max-height: 100% !important;\n    background-color: transparent !important;\n}\n\n[data-sc-img][data-sc-gaiji] .gloss-image-container,\n[data-sc-img][data-sc-gaiji] .gloss-image {\n    width: 15em !important;\n}\n\n[data-sc-gaiji][data-sc矢印],\n[data-sc-gaiji][data-sc大矢印] {\n    margin-inline: 0.1em;\n}\n\n@media (max-width: 500px) {\n    [data-sc図] [data-sc-img] a {\n        max-width: 75% !important;\n    }\n\n    [data-sc-img][data-sc-gaiji] .gloss-image-container,\n    [data-sc-img][data-sc-gaiji] .gloss-image {\n        width: 10em !important;\n    }\n}\n\n[data-sc縦中横] {\n    position: relative;\n    padding: 0;\n}\n\n[data-sc縦中横]>.gloss-sc-span {\n    writing-mode: vertical-rl;\n    position: absolute;\n    top: 50%;\n    left: 50%;\n    transform: translate(-50%, -50%);\n    width: max-content;\n    height: max-content;\n}\n\ntable>tr>td>span {\n    display: block;\n}\n\ntd:has([data-sc-logo]) {\n    border: none;\n}"
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "深厚",
+     "deinflected": "深厚",
+     "process": [],
+     "term": {
+      "expression": "深厚",
+      "reading": "しんこう",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "旺文社国語辞典 第十二版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"しん\"},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"–\"}],\"data\":{\"hyphen\":\"\"}},{\"tag\":\"span\",\"content\":\"こう\"}],\"data\":{\"headword\":\"\",\"かな\":\"\",\"class\":\"かな\"}},{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"【深厚】\"}],\"data\":{\"headword\":\"\",\"表記\":\"\",\"class\":\"表記\"}}],\"data\":{\"head2-inner\":\"\"}}],\"data\":{\"head2\":\"\",\"標準\":\"\",\"id\":\"\",\"class\":\"標準\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"（名・形動ダ）\"}],\"data\":{\"pos\":\"\",\"href\":\"appendix/MAE003.html#001\"}}],\"data\":{\"meaning\":\"\",\"id\":\"37836-F001\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"①\"}],\"data\":{\"num\":\"\",\"valt\":\"まる1 \"}}],\"data\":{\"gaiji\":\"\"}},{\"tag\":\"span\",\"content\":\"気持ちや情が深く厚いこと。また、そのさま。\"}],\"data\":{\"meaning\":\"\",\"no\":\"\",\"id\":\"37836-F002\",\"class\":\"no\"}},{\"tag\":\"div\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"content\":\"②\"}],\"data\":{\"num\":\"\",\"valt\":\"まる2 \"}}],\"data\":{\"gaiji\":\"\"}},{\"tag\":\"span\",\"content\":\"意味や内容が奥深いこと。また、そのさま。\"}],\"data\":{\"meaning\":\"\",\"no\":\"\",\"id\":\"37836-F003\",\"class\":\"no\"}}],\"data\":{\"dic-item\":\"\",\"標準\":\"\",\"class\":\"標準\"}}],\"data\":{\"body\":\"\",\"標準\":\"\",\"class\":\"標準\"}}],\"data\":{\"html\":\"\",\"hmhtml\":\"5\",\"lang\":\"ja\"}}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "19_weblio",
+  "dictName": "weblio古語辞典",
+  "dictSubdir": "[Monolingual Kobun] Weblio古語辞典_2",
+  "term": "宮腹",
+  "glossary": "みや－ばら 【宮腹】\n名詞\n皇女の子として生まれること。また、その子。皇女腹（みこばら）。\n　※ 源氏物語　帚木\n　「みやばらの中将は」\n　訳 皇女の子の中将は。\n",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "weblio古語辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "宮腹",
+     "deinflected": "宮腹",
+     "process": [],
+     "term": {
+      "expression": "宮腹",
+      "reading": "みやばら",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "weblio古語辞典",
+        "glossary": "みや－ばら 【宮腹】\n名詞\n皇女の子として生まれること。また、その子。皇女腹（みこばら）。\n　※ 源氏物語　帚木\n　「みやばらの中将は」\n　訳 皇女の子の中将は。\n",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "20_surasura",
+  "dictName": "surasura 擬声語",
+  "dictSubdir": "[Monolingual Onomatopoeia] surasura",
+  "term": "からから",
+  "glossary": "{\"content\":[{\"content\":[{\"content\":\"金属製や木製のものなど、かたいものが、ふれ合ってたてる明るくひびく音。\",\"tag\":\"li\"},{\"content\":\"高く笑う声。\",\"tag\":\"li\"},{\"content\":\"ものが、乾ききっているさま。\",\"tag\":\"li\"},{\"content\":\"中に何もないさま。\",\"tag\":\"li\"}],\"data\":{\"content\":\"glossaryShortDefinition\"},\"lang\":\"ja\",\"style\":{\"listStyleType\":\"circle\"},\"tag\":\"ul\"},{\"content\":[{\"content\":\"のどがからからに乾く\",\"tag\":\"li\"}],\"data\":{\"content\":\"examples\"},\"lang\":\"ja\",\"style\":{\"listStyleType\":\"\\\"🇯🇵 \\\"\"},\"tag\":\"ul\"}],\"type\":\"structured-content\"}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "surasura 擬声語",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "からから",
+     "deinflected": "からから",
+     "process": [],
+     "term": {
+      "expression": "からから",
+      "reading": "からから",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "surasura 擬声語",
+        "glossary": "{\"content\":[{\"content\":[{\"content\":\"金属製や木製のものなど、かたいものが、ふれ合ってたてる明るくひびく音。\",\"tag\":\"li\"},{\"content\":\"高く笑う声。\",\"tag\":\"li\"},{\"content\":\"ものが、乾ききっているさま。\",\"tag\":\"li\"},{\"content\":\"中に何もないさま。\",\"tag\":\"li\"}],\"data\":{\"content\":\"glossaryShortDefinition\"},\"lang\":\"ja\",\"style\":{\"listStyleType\":\"circle\"},\"tag\":\"ul\"},{\"content\":[{\"content\":\"のどがからからに乾く\",\"tag\":\"li\"}],\"data\":{\"content\":\"examples\"},\"lang\":\"ja\",\"style\":{\"listStyleType\":\"\\\"🇯🇵 \\\"\"},\"tag\":\"ul\"}],\"type\":\"structured-content\"}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "21_d457ea86",
+  "dictName": "ハイブリッド新辞林",
+  "dictSubdir": "[Monolingual] ハイブリッド新辞林 v2_3",
+  "term": "蛇腹",
+  "glossary": "じゃばら【蛇腹】\n(１)蛇の腹のような伸縮する形状，またその模様。\n(２)カメラの暗箱の一部で，自由に伸縮させてピントを合わせるためのもの。\n(３)アコーディオン・提灯（ちようちん）やホースなどの伸縮する部分。\n",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "ハイブリッド新辞林",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "蛇腹",
+     "deinflected": "蛇腹",
+     "process": [],
+     "term": {
+      "expression": "蛇腹",
+      "reading": "じゃばら",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "ハイブリッド新辞林",
+        "glossary": "じゃばら【蛇腹】\n(１)蛇の腹のような伸縮する形状，またその模様。\n(２)カメラの暗箱の一部で，自由に伸縮させてピントを合わせるためのもの。\n(３)アコーディオン・提灯（ちようちん）やホースなどの伸縮する部分。\n",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "22_d8b428c4",
+  "dictName": "三省堂国語辞典　第八版",
+  "dictSubdir": "[Monolingual] 三省堂国語辞典　第八版 plaintext_linked_no_child_phrase",
+  "term": "弄火",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"ろう か\"]},\"［弄火］｟名｠\",{\"tag\":\"br\"},\"〔文〕〔子どもの〕火遊び。\"]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "三省堂国語辞典　第八版",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "弄火",
+     "deinflected": "弄火",
+     "process": [],
+     "term": {
+      "expression": "弄火",
+      "reading": "ろうか",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "三省堂国語辞典　第八版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"ろう か\"]},\"［弄火］｟名｠\",{\"tag\":\"br\"},\"〔文〕〔子どもの〕火遊び。\"]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "23_2facba2d",
+  "dictName": "四字熟語辞典オンライン",
+  "dictSubdir": "[Monolingual] 四字熟語辞典オンライン",
+  "term": "人口膾炙",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":\"【人口膾炙】\"},{\"tag\":\"div\",\"content\":[\"多くの人たちの話題となり、人気を集めること。\",{\"tag\":\"br\"},\"「膾」は生肉を細かく刻んだ食べ物、「炙」は炙り肉のことで、どちらも多くの人がご馳走として好んで食べることから。\",{\"tag\":\"br\"},\"「人口（じんこう）に膾炙（かいしゃ）する」とも読む。\",{\"tag\":\"br\"},\"「膾炙人口」ともいう。\"]},{\"tag\":\"table\",\"content\":[{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"読み方\"},{\"tag\":\"td\",\"content\":\"じんこうかいしゃ（じんこうかいせき）\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"出典\"},{\"tag\":\"td\",\"content\":\"林嵩「周朴詩集序」\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"異形\"},{\"tag\":\"td\",\"content\":\"膾炙人口（かいしゃじんこう）\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"漢検級\"},{\"tag\":\"td\",\"content\":{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/cat/kyu1.html\",\"content\":\"１級\"}}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"場面用途\"},{\"tag\":\"td\",\"content\":[{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list9.html\",\"content\":\"評判\"},\"／\",{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list28.html\",\"content\":\"評判が広まる\"},\"／\",{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list390.html\",\"content\":\"人気が出る\"},\"／\",{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list531.html\",\"content\":\"ことわざ\"}]}]}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "四字熟語辞典オンライン",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "人口膾炙",
+     "deinflected": "人口膾炙",
+     "process": [],
+     "term": {
+      "expression": "人口膾炙",
+      "reading": "じんこうかいしゃ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "四字熟語辞典オンライン",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":\"【人口膾炙】\"},{\"tag\":\"div\",\"content\":[\"多くの人たちの話題となり、人気を集めること。\",{\"tag\":\"br\"},\"「膾」は生肉を細かく刻んだ食べ物、「炙」は炙り肉のことで、どちらも多くの人がご馳走として好んで食べることから。\",{\"tag\":\"br\"},\"「人口（じんこう）に膾炙（かいしゃ）する」とも読む。\",{\"tag\":\"br\"},\"「膾炙人口」ともいう。\"]},{\"tag\":\"table\",\"content\":[{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"読み方\"},{\"tag\":\"td\",\"content\":\"じんこうかいしゃ（じんこうかいせき）\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"出典\"},{\"tag\":\"td\",\"content\":\"林嵩「周朴詩集序」\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"異形\"},{\"tag\":\"td\",\"content\":\"膾炙人口（かいしゃじんこう）\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"漢検級\"},{\"tag\":\"td\",\"content\":{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/cat/kyu1.html\",\"content\":\"１級\"}}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"場面用途\"},{\"tag\":\"td\",\"content\":[{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list9.html\",\"content\":\"評判\"},\"／\",{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list28.html\",\"content\":\"評判が広まる\"},\"／\",{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list390.html\",\"content\":\"人気が出る\"},\"／\",{\"tag\":\"a\",\"href\":\"https://yoji.jitenon.jp/bamen/list531.html\",\"content\":\"ことわざ\"}]}]}]}]}",
+        "definitionTags": null,
+        "definitionTagList": [],
+        "termTags": "１級"
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "24_be61392c",
+  "dictName": "国語辞典オンライン",
+  "dictSubdir": "[Monolingual] 国語辞典オンライン",
+  "term": "戟叉",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":\"げきさ【戟叉】\"},{\"tag\":\"div\",\"content\":\"人を捕らえるための道具。長い棒の先が二またになっているもの。さすまた。\"}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "国語辞典オンライン",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "戟叉",
+     "deinflected": "戟叉",
+     "process": [],
+     "term": {
+      "expression": "戟叉",
+      "reading": "げきさ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "国語辞典オンライン",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":\"げきさ【戟叉】\"},{\"tag\":\"div\",\"content\":\"人を捕らえるための道具。長い棒の先が二またになっているもの。さすまた。\"}]}",
+        "definitionTags": null,
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "25_153325a4",
+  "dictName": "大辞林　第四版",
+  "dictSubdir": "[Monolingual] 大辞林　第四版　plaintext_linked_no_child_phrase",
+  "term": "呈色反応",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"ていしょくはんのう\"]},{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.6em\"},\"content\":\"(—おう)\"},{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.7em\",\"verticalAlign\":\"super\",\"marginRight\":0.25,\"marginLeft\":0.25},\"content\":\"[5]\"},\"【\",{\"tag\":\"a\",\"href\":\"?query=呈色&wildcards=off\",\"content\":\"呈色\"},\"反応】\",{\"tag\":\"br\"},\"ある元素・イオン・化合物が特定の試薬（呈色試薬）に対して発色・変色する反応。主にイオン・元素などの定性分析に利用される。発色反応。\"]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "大辞林　第四版",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "呈色反応",
+     "deinflected": "呈色反応",
+     "process": [],
+     "term": {
+      "expression": "呈色反応",
+      "reading": "ていしょくはんのう",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "大辞林　第四版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":[\"ていしょくはんのう\"]},{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.6em\"},\"content\":\"(—おう)\"},{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.7em\",\"verticalAlign\":\"super\",\"marginRight\":0.25,\"marginLeft\":0.25},\"content\":\"[5]\"},\"【\",{\"tag\":\"a\",\"href\":\"?query=呈色&wildcards=off\",\"content\":\"呈色\"},\"反応】\",{\"tag\":\"br\"},\"ある元素・イオン・化合物が特定の試薬（呈色試薬）に対して発色・変色する反応。主にイオン・元素などの定性分析に利用される。発色反応。\"]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "26_01b5615b",
+  "dictName": "実用日本語表現辞典",
+  "dictSubdir": "[Monolingual] 実用日本語表現辞典 v2 (Recommended)",
+  "term": "免罪特権",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"めんざいとっけん\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\"},\"content\":\"【免罪特権】\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"definition\"},\"content\":\"罪を犯したとしても、罪に問われることがないという特別な権利を意味する語。\"}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "実用日本語表現辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "免罪特権",
+     "deinflected": "免罪特権",
+     "process": [],
+     "term": {
+      "expression": "免罪特権",
+      "reading": "めんざいとっけん",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "実用日本語表現辞典",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"めんざいとっけん\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\"},\"content\":\"【免罪特権】\"}]},{\"tag\":\"div\",\"data\":{\"name\":\"definition\"},\"content\":\"罪を犯したとしても、罪に問われることがないという特別な権利を意味する語。\"}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "27_693fcc78",
+  "dictName": "故事・ことわざ・慣用句オンライン",
+  "dictSubdir": "[Monolingual] 故事・ことわざ・慣用句オンライン",
+  "term": "移れば変わる世の習い",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":\"【移れば変わる世の習い】\"},{\"tag\":\"div\",\"content\":[\"時代が移り変われば世の中も変わっていくのが当然だということ。\",{\"tag\":\"br\"},\"「移り変わるは浮き世の習い」ともいう。\"]},{\"tag\":\"table\",\"content\":[{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"読み方\"},{\"tag\":\"td\",\"content\":\"うつればかわるよのならい\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"異形\"},{\"tag\":\"td\",\"content\":\"移り変わるは浮き世の習い（うつりかわるはうきよのならい）\"}]}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "故事・ことわざ・慣用句オンライン",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "移れば変わる世の習い",
+     "deinflected": "移れば変わる世の習い",
+     "process": [],
+     "term": {
+      "expression": "移れば変わる世の習い",
+      "reading": "うつればかわるよのならい",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "故事・ことわざ・慣用句オンライン",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":\"【移れば変わる世の習い】\"},{\"tag\":\"div\",\"content\":[\"時代が移り変われば世の中も変わっていくのが当然だということ。\",{\"tag\":\"br\"},\"「移り変わるは浮き世の習い」ともいう。\"]},{\"tag\":\"table\",\"content\":[{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"読み方\"},{\"tag\":\"td\",\"content\":\"うつればかわるよのならい\"}]},{\"tag\":\"tr\",\"content\":[{\"tag\":\"th\",\"style\":{\"verticalAlign\":\"middle\",\"textAlign\":\"center\"},\"content\":\"異形\"},{\"tag\":\"td\",\"content\":\"移り変わるは浮き世の習い（うつりかわるはうきよのならい）\"}]}]}]}",
+        "definitionTags": null,
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "28_708a1865",
+  "dictName": "新明解四字熟語辞典",
+  "dictSubdir": "[Monolingual] 新明解四字熟語辞典",
+  "term": "神色自若",
+  "glossary": "しんしょく-じじゃく【神色自若】\n大事にあっても顔色一つ変えず、平然と落ち着いている様子。物事に動揺しないさま。▽「神色」は精神（心）と顔色、「自若」は物事にあわてず落ち着いているさま。\n\n出典: 『晋書 (しんじょ) 』王戎伝 (おうじゅうでん) \n句例: 神色自若たるさま、神色自若として動じない\n用例: 相原の拳銃 (けんじゅう) を持った腕をうんとなぐった。拳銃はばたりと地に墜 (お) ちた。山口は神色自若として相原に言った。<森鴎外・灰燼>\n類語: 神色泰然 (しんしょくたいぜん)  泰然自若 (たいぜんじじゃく) \n対義語: 周章狼狽 (しゅうしょうろうばい) \n活用形: 〈―タル〉 〈―ト〉",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "新明解四字熟語辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "神色自若",
+     "deinflected": "神色自若",
+     "process": [],
+     "term": {
+      "expression": "神色自若",
+      "reading": "しんしょくじじゃく",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "新明解四字熟語辞典",
+        "glossary": "しんしょく-じじゃく【神色自若】\n大事にあっても顔色一つ変えず、平然と落ち着いている様子。物事に動揺しないさま。▽「神色」は精神（心）と顔色、「自若」は物事にあわてず落ち着いているさま。\n\n出典: 『晋書 (しんじょ) 』王戎伝 (おうじゅうでん) \n句例: 神色自若たるさま、神色自若として動じない\n用例: 相原の拳銃 (けんじゅう) を持った腕をうんとなぐった。拳銃はばたりと地に墜 (お) ちた。山口は神色自若として相原に言った。<森鴎外・灰燼>\n類語: 神色泰然 (しんしょくたいぜん)  泰然自若 (たいぜんじじゃく) \n対義語: 周章狼狽 (しゅうしょうろうばい) \n活用形: 〈―タル〉 〈―ト〉",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "29_2e85d162",
+  "dictName": "新語時事用語辞典",
+  "dictSubdir": "[Monolingual] 新語時事用語辞典",
+  "term": "汽車人総動員",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"div\",\"data\":{\"name\":\"meaning\"},\"content\":[\"中国で製作された、カーレースを主題とするアニメ映画のタイトル。2015年初夏に公開・上映された。フルCGで描かれた複数の自動車キャラクターが猛レースを繰り広げる。\\n\\n汽車人総動員は、中国の国産コンテンツとして報じられる一方、世界観や登場キャラクターが米国ピクサーのアニメ映画「カーズ」（Cars）に類似しているとの指摘を受けている。\\n\\n《汽车人总动员》预告\\n - YouTube\\n\\n《汽车人总动员》山寨？导演:又没违法 \\n- 娱乐频道\\n\\n中國動畫《汽車人總動員》 爆抄襲皮克斯\\n - 自由時報 2015年7月7日\",{\"tag\":\"a\",\"href\":\"https://www.youtube.com/watch?v=QWNNpUODHKA\",\"content\":\"\\n《汽车人总动员》预告\"},{\"tag\":\"a\",\"href\":\"http://ent.scol.com.cn/rmysj/201507/10215685.html\",\"content\":\"\\n《汽车人总动员》山寨？导演:又没违法\"},{\"tag\":\"a\",\"href\":\"http://news.ltn.com.tw/news/world/paper/895668\",\"content\":\"\\n中國動畫《汽車人總動員》 爆抄襲皮克斯\"}]}]}]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "新語時事用語辞典",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "汽車人総動員",
+     "deinflected": "汽車人総動員",
+     "process": [],
+     "term": {
+      "expression": "汽車人総動員",
+      "reading": "",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "新語時事用語辞典",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"content\":[{\"tag\":\"div\",\"data\":{\"name\":\"meaning\"},\"content\":[\"中国で製作された、カーレースを主題とするアニメ映画のタイトル。2015年初夏に公開・上映された。フルCGで描かれた複数の自動車キャラクターが猛レースを繰り広げる。\\n\\n汽車人総動員は、中国の国産コンテンツとして報じられる一方、世界観や登場キャラクターが米国ピクサーのアニメ映画「カーズ」（Cars）に類似しているとの指摘を受けている。\\n\\n《汽车人总动员》预告\\n - YouTube\\n\\n《汽车人总动员》山寨？导演:又没违法 \\n- 娱乐频道\\n\\n中國動畫《汽車人總動員》 爆抄襲皮克斯\\n - 自由時報 2015年7月7日\",{\"tag\":\"a\",\"href\":\"https://www.youtube.com/watch?v=QWNNpUODHKA\",\"content\":\"\\n《汽车人总动员》预告\"},{\"tag\":\"a\",\"href\":\"http://ent.scol.com.cn/rmysj/201507/10215685.html\",\"content\":\"\\n《汽车人总动员》山寨？导演:又没违法\"},{\"tag\":\"a\",\"href\":\"http://news.ltn.com.tw/news/world/paper/895668\",\"content\":\"\\n中國動畫《汽車人總動員》 爆抄襲皮克斯\"}]}]}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "30_d002b024",
+  "dictName": "日本語俗語辞書",
+  "dictSubdir": "[Monolingual] 日本語俗語辞書",
+  "term": "ダベル",
+  "glossary": "だべる\nDaberu\n\nだべるとは、むだなおしゃべりをすること。べちゃべちゃ喋くる。\n\n《年代》 明治時代～　　《種類》 －\n\n『だべる』の解説\nだべるとは無駄なおしゃべりという意味の「駄弁」に動詞化する接尾語「る」を付けたもので、むだなおしゃべりをする・べちゃべちゃしゃべくるという意味で使われる（「駄弁を弄する」の略とも考えられる）。だべるは明治時代の学生が使い始めた言葉で、大正～昭和初期に流行語として広く普及している。\n\n最近の若者の中には、複数人で特に何をするでもなく、単に一緒にいてダラダラすることをだべるという場合がある。\n\n",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "日本語俗語辞書",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "ダベル",
+     "deinflected": "ダベル",
+     "process": [],
+     "term": {
+      "expression": "ダベル",
+      "reading": "",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "日本語俗語辞書",
+        "glossary": "だべる\nDaberu\n\nだべるとは、むだなおしゃべりをすること。べちゃべちゃ喋くる。\n\n《年代》 明治時代～　　《種類》 －\n\n『だべる』の解説\nだべるとは無駄なおしゃべりという意味の「駄弁」に動詞化する接尾語「る」を付けたもので、むだなおしゃべりをする・べちゃべちゃしゃべくるという意味で使われる（「駄弁を弄する」の略とも考えられる）。だべるは明治時代の学生が使い始めた言葉で、大正～昭和初期に流行語として広く普及している。\n\n最近の若者の中には、複数人で特に何をするでもなく、単に一緒にいてダラダラすることをだべるという場合がある。\n\n",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "31_f97f974c",
+  "dictName": "旺文社国語辞典 第十一版 画像無し",
+  "dictSubdir": "[Monolingual] 旺文社国語辞典 第十一版 画像無し_2",
+  "term": "工費",
+  "glossary": "こう‐ひ【工費】\n工事に要する費用。「総―」",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "旺文社国語辞典 第十一版 画像無し",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "工費",
+     "deinflected": "工費",
+     "process": [],
+     "term": {
+      "expression": "工費",
+      "reading": "こうひ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "旺文社国語辞典 第十一版 画像無し",
+        "glossary": "こう‐ひ【工費】\n工事に要する費用。「総―」",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "32_a1586e0e",
+  "dictName": "明鏡国語辞典　第二版",
+  "dictSubdir": "[Monolingual] 明鏡国語辞典 第二版 (Recommended Improved)",
+  "term": "回議",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[\"かい‐ぎ【回議】\",{\"tag\":\"span\",\"style\":{\"fontSize\":\"65%\",\"verticalAlign\":\"super\"},\"data\":{\"meikyo\":\"furigana\"},\"content\":\"(クヮイ━)\"},\"\\n〘名・他サ変〙担当者が作成した原案を順次関係者に回し、意見を聞き、また承諾を求めること。\\n「━録」\"]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "明鏡国語辞典　第二版",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "回議",
+     "deinflected": "回議",
+     "process": [],
+     "term": {
+      "expression": "回議",
+      "reading": "かいぎ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "明鏡国語辞典　第二版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[\"かい‐ぎ【回議】\",{\"tag\":\"span\",\"style\":{\"fontSize\":\"65%\",\"verticalAlign\":\"super\"},\"data\":{\"meikyo\":\"furigana\"},\"content\":\"(クヮイ━)\"},\"\\n〘名・他サ変〙担当者が作成した原案を順次関係者に回し、意見を聞き、また承諾を求めること。\\n「━録」\"]}",
+        "definitionTags": null,
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "33_jitendex-org-2026-01-04",
+  "dictName": "Jitendex.org [2026-01-04]",
+  "dictSubdir": "jitendex-yomitan",
+  "term": "バッティングケージ",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"div\",\"data\":{\"content\":\"sense-group\"},\"content\":[{\"tag\":\"span\",\"title\":\"noun (common) (futsuumeishi)\",\"data\":{\"class\":\"tag\",\"code\":\"n\",\"content\":\"part-of-speech-info\"},\"content\":\"noun\"},{\"tag\":\"div\",\"data\":{\"content\":\"sense\"},\"content\":{\"tag\":\"ul\",\"data\":{\"content\":\"glossary\"},\"content\":{\"tag\":\"li\",\"content\":\"batting cage\"}}}]},{\"tag\":\"div\",\"data\":{\"content\":\"forms\"},\"content\":[{\"tag\":\"span\",\"title\":\"spelling and reading variants\",\"data\":{\"class\":\"tag\",\"content\":\"forms-label\"},\"content\":\"forms\"},{\"tag\":\"ul\",\"content\":[{\"tag\":\"li\",\"content\":\"バッティングケージ\"},{\"tag\":\"li\",\"content\":\"バッティング・ケージ\"}]}]},{\"tag\":\"div\",\"data\":{\"content\":\"attribution\"},\"content\":{\"tag\":\"a\",\"href\":\"https://www.edrdg.org/jmwsgi/entr.py?svc=jmdict&q=1099190\",\"content\":\"JMdict\"}}]}",
+  "dictCss": "dictcss_Jitendex.org__2026-01-04_.css",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "Jitendex.org [2026-01-04]",
+     "styles": "span[title] {\n    cursor: help;\n}\n\nul[data-sc-content=\"sense-groups\"] {\n    list-style-type: \"＊\";\n}\n\nli[data-sc-content=\"sense-group\"],\nli[data-sc-content=\"forms\"] {\n    padding-left: 0.25em;\n}\n\ndiv[data-sc-content=\"sense-group\"],\nli[data-sc-content=\"sense-group\"]:first-child {\n    margin-top: 0.1em;\n}\n\nli[data-sc-content=\"sense-group\"] + li[data-sc-content=\"sense-group\"],\ndiv[data-sc-content=\"forms\"],\nli[data-sc-content=\"forms\"] {\n    margin-top: 0.5em;\n}\n\nli[data-sc-content=\"sense\"] {\n    padding-left: 0.25em;\n    & ul[data-sc-content=\"glossary\"] {\n        list-style-type: none;\n        padding-left: 0.25em;\n    }\n}\n\nspan[data-sc-class=\"tag\"] {\n    border-radius: 0.3em;\n    font-size: 0.8em;\n    font-weight: bold;\n    margin-right: 0.5em;\n    padding: 0.2em 0.3em;\n    vertical-align: text-bottom;\n    word-break: keep-all;\n}\n\nspan[data-sc-content=\"part-of-speech-info\"] {\n    background-color: #565656;\n    color: white;\n}\n\nspan[data-sc-content=\"misc-info\"] {\n    background-color: brown;\n    color: white;\n}\n\nspan[data-sc-content=\"field-info\"] {\n    background-color: purple;\n    color: white;\n}\n\nspan[data-sc-content=\"dialect-info\"] {\n    background-color: green;\n    color: white;\n}\n\nspan[data-sc-content=\"lang-source-wasei\"] {\n    background-color: orange;\n    color: black;\n    margin-left: 0.5em;\n    margin-right: 0;\n}\n\nspan[data-sc-content=\"forms-label\"] {\n    background-color: #565656;\n    color: white;\n}\n\nul[data-sc-content=\"glossary\"] {\n    list-style-type: disc;\n}\n\nspan[data-sc-content=\"registered-trademark\"] {\n    vertical-align: super;\n    font-size: 0.6em;\n}\n\ndiv[data-sc-class=\"extra-box\"] {\n    border-radius: 0.4rem;\n    border-style: none none none solid;\n    border-width: calc(3em / var(--font-size-no-units, 14));\n    margin-bottom: 0.5rem;\n    margin-top: 0.5rem;\n    padding: 0.5rem;\n    width: fit-content;\n}\n\ndiv[data-sc-class=\"extra-content\"] {\n    margin-left: 0.5rem;\n}\n\ndiv[data-sc-content=\"info-gloss\"] {\n    border-color: green;\n    background-color: color-mix(in srgb, green 5%, transparent);\n}\n\ndiv[data-sc-content=\"sense-note\"] {\n    border-color: goldenrod;\n    background-color: color-mix(in srgb, goldenrod 5%, transparent);\n}\n\ndiv[data-sc-content=\"lang-source\"] {\n    border-color: purple;\n    background-color: color-mix(in srgb, purple 5%, transparent);\n}\n\ndiv[data-sc-content=\"xref\"] {\n    border-color: #1A73E8;\n    background-color: color-mix(in srgb, #1A73E8 5%, transparent);\n    & span[data-sc-content=\"reference-label\"] {\n        color: #1A73E8;\n    }\n}\n\ndiv[data-sc-content=\"antonym\"] {\n    border-color: brown;\n    background-color: color-mix(in srgb, brown 5%, transparent);\n    & span[data-sc-content=\"reference-label\"] {\n        color: brown;\n    }\n}\n\ndiv[data-sc-content=\"example-sentence\"] {\n    border-color: var(--text-color, var(--fg, #333));\n    background-color: color-mix(in srgb, var(--text-color, var(--fg, #333)) 5%, transparent);\n}\n\ndiv[data-sc-content=\"extra-info\"] {\n    margin-left: 0.5em;\n}\n\ndiv[data-sc-class=\"extra-label\"] {\n    color: #777;\n    font-size: 0.8em;\n    font-style: italic;\n}\n\nspan[data-sc-content=\"reference-label\"] {\n    font-size: 0.8em;\n    margin-right: 0.5rem;\n}\n\ndiv[data-sc-content=\"xref-content\"],\ndiv[data-sc-content=\"antonym-content\"] {\n    font-size: 1.3em;\n}\n\ndiv[data-sc-content=\"xref-glossary\"],\ndiv[data-sc-content=\"antonym-glossary\"] {\n    font-size: 0.8rem;\n}\n\ndiv[data-sc-content=\"example-sentence-a\"] {\n    font-size: 1.3em;\n}\n\ndiv[data-sc-content=\"example-sentence-b\"] {\n    font-size: 0.8em;\n}\n\nspan[data-sc-content=\"example-keyword\"] {\n    color: color-mix(in srgb, lime, var(--text-color, var(--fg, #333)));\n}\n\nspan[data-sc-content=\"attribution-footnote\"] {\n    color: #777;\n    font-size: 0.8em;\n    margin-left: 0.25rem;\n    vertical-align: top;\n}\n\ndiv[data-sc-content=\"graphic\"] {\n    margin-bottom: 0.5rem;\n    margin-top: 0.5rem;\n    & .gloss-image-container {\n        border: solid calc(42em / var(--font-size-no-units, 14)) var(--text-color, var(--fg, #333));\n        border-radius: 3%;\n    }\n}\n\ndiv[data-sc-content=\"graphic-attribution\"] {\n    font-size: 70%;\n    margin-top: 0.25rem;\n}\n\n/* The \"forms\" section may be contained in a <div> or a <li> depending on the content of the entry. */\ndiv[data-sc-content=\"forms\"],\nli[data-sc-content=\"forms\"] {\n    & ul {\n        font-size: 1.2em;\n        list-style-type: circle;\n    }\n    & table {\n        margin-top: 0.2em;\n    }\n    & tr {\n        border-width: 1px;\n    }\n    & th {\n        border-width: 1px;\n        font-weight: normal;\n    }\n    & td {\n        border-width: 1px;\n        text-align: center;\n        & span {\n            clip-path: circle();\n            display: block;\n            font-weight: bold;\n            padding: 0 0.5em;\n        }\n    }\n}\n\n/* For the display of sense number restrictions in forms tables */\nth[data-sc-content=\"forms-row-senses\"],\ntr[data-sc-content=\"forms-col-senses-row\"] th {\n    text-align: center;\n}\n\ntr[data-sc-content=\"forms-header-row\"] th {\n    font-size: 1.2em;\n    text-align: center;\n    vertical-align: text-bottom;\n    & span[data-sc-class=\"old-character\"] {\n        text-emphasis-style: dot;\n    }\n}\n\nspan[data-sc-class=\"form-special\"] {\n    color: crimson;\n}\n\ntd[data-sc-class=\"form-pri\"] > span {\n    color: white;\n    background: radial-gradient(green 50%, white 100%);\n    &::before {\n        content: \"△\";\n    }\n}\n\ntd[data-sc-class=\"form-irr\"] > span {\n    color: white;\n    background: radial-gradient(crimson 50%, white 100%);\n    &::before {\n        content: \"✕\";\n    }\n}\n\ntd[data-sc-class=\"form-out\"] > span {\n    color: white;\n    background: radial-gradient(blue 50%, white 100%);\n    &::before {\n        content: \"古\";\n    }\n}\n\ntd[data-sc-class=\"form-old\"] > span {\n    color: white;\n    background: radial-gradient(blue 50%, white 100%);\n    &::before {\n        content: \"旧\";\n    }\n}\n\ntd[data-sc-class=\"form-rare\"] > span {\n    color: white;\n    background: radial-gradient(purple 50%, white 100%);\n    &::before {\n        content: \"▽\";\n    }\n}\n\ntd[data-sc-class=\"form-valid\"] > span {\n    color: var(--background-color, var(--canvas, #f8f9fa));\n    background: radial-gradient(var(--text-color, var(--fg, #333)) 50%, white 100%);\n    &::before {\n        content: \"◇\";\n    }\n}\n\ndiv[data-sc-content=\"attribution\"] {\n    font-size: 0.7em;\n    text-align: right;\n}\n\ndiv[data-sc-content=\"redirect-glossary\"] {\n    font-size: 180%;\n    margin-top: 0.2em;\n}\n"
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "バッティングケージ",
+     "deinflected": "バッティングケージ",
+     "process": [],
+     "term": {
+      "expression": "バッティングケージ",
+      "reading": "バッティングケージ",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "Jitendex.org [2026-01-04]",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"div\",\"data\":{\"content\":\"sense-group\"},\"content\":[{\"tag\":\"span\",\"title\":\"noun (common) (futsuumeishi)\",\"data\":{\"class\":\"tag\",\"code\":\"n\",\"content\":\"part-of-speech-info\"},\"content\":\"noun\"},{\"tag\":\"div\",\"data\":{\"content\":\"sense\"},\"content\":{\"tag\":\"ul\",\"data\":{\"content\":\"glossary\"},\"content\":{\"tag\":\"li\",\"content\":\"batting cage\"}}}]},{\"tag\":\"div\",\"data\":{\"content\":\"forms\"},\"content\":[{\"tag\":\"span\",\"title\":\"spelling and reading variants\",\"data\":{\"class\":\"tag\",\"content\":\"forms-label\"},\"content\":\"forms\"},{\"tag\":\"ul\",\"content\":[{\"tag\":\"li\",\"content\":\"バッティングケージ\"},{\"tag\":\"li\",\"content\":\"バッティング・ケージ\"}]}]},{\"tag\":\"div\",\"data\":{\"content\":\"attribution\"},\"content\":{\"tag\":\"a\",\"href\":\"https://www.edrdg.org/jmwsgi/entr.py?svc=jmdict&q=1099190\",\"content\":\"JMdict\"}}]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "34_d30307fc",
+  "dictName": "明鏡国語辞典 第三版",
+  "dictSubdir": "明鏡国語辞典 第三版 plaintext_linked_no_child_phrase_no_furigana",
+  "term": "氷原",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"ひょう–げん\"},\"【氷原】\",{\"tag\":\"br\"},\"［名］ 厚い氷の層でおおわれた広大な地域。\"]}",
+  "dictCss": "",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "明鏡国語辞典 第三版",
+     "styles": ""
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "氷原",
+     "deinflected": "氷原",
+     "process": [],
+     "term": {
+      "expression": "氷原",
+      "reading": "ひょうげん",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "明鏡国語辞典 第三版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"ひょう–げん\"},\"【氷原】\",{\"tag\":\"br\"},\"［名］ 厚い氷の層でおおわれた広大な地域。\"]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "35_d30307fc",
+  "dictName": "明鏡国語辞典 第三版",
+  "dictSubdir": "明鏡国語辞典 第三版 plaintext_linked_no_child_phrase_no_furigana-1",
+  "term": "ダース",
+  "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"ダース\"},{\"tag\":\"br\"},\"［名］ 品物一二個を一組とする数量の単位。\",{\"tag\":\"br\"},{\"tag\":\"span\",\"content\":[\"「鉛筆三\",{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"ダース\",\"data\":{\"b\":\"\"}},\"」\"],\"data\":{\"ex\":\"\"}},{\"tag\":\"br\"},\"［参考］dozen から。\",{\"tag\":\"br\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\",\"fontSize\":\"0.8em\"},\"content\":\"［書き方］\"},\"「\",{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.5em\",\"verticalAlign\":\"super\"},\"content\":\"▽\"},\"打」と当てる。\"]}",
+  "dictCss": "dictcss___________.css",
+  "width": 420,
+  "fontSize": 14,
+  "isDark": false,
+  "font": "MS PGothic",
+  "density": 2,
+  "payload": {
+   "isDark": false,
+   "groupTerms": true,
+   "showPitchDiagram": false,
+   "showPitchNumber": false,
+   "showPitchText": false,
+   "showFrequencyHarmonic": false,
+   "showFrequencyAverage": false,
+   "wordAudioEnabled": false,
+   "renderRecursiveChrome": false,
+   "showNavigationButtons": false,
+   "dictionaryOrder": [],
+   "tabs": [],
+   "existingExpressions": [],
+   "mediaDataUris": {},
+   "dictionaryCollapseMode": "expand_all",
+   "dictionaryDisplayModes": {},
+   "styles": [
+    {
+     "dictName": "明鏡国語辞典 第三版",
+     "styles": "[data-sc-ex]{font-family:\"Yu Mincho\",\"Hiragino Mincho ProN\",\"MS Mincho\",\"Noto Serif JP\",serif;}\n[data-sc-ex] [data-sc-b]{font-family:\"Hiragino Kaku Gothic ProN\",\"Yu Gothic\",\"Meiryo\",\"Noto Sans JP\",sans-serif;}\n"
+    }
+   ],
+   "results": [
+    {
+     "index": 0,
+     "matched": "ダース",
+     "deinflected": "ダース",
+     "process": [],
+     "term": {
+      "expression": "ダース",
+      "reading": "ダース",
+      "rules": "",
+      "ruleTags": [],
+      "glossaries": [
+       {
+        "dictName": "明鏡国語辞典 第三版",
+        "glossary": "{\"type\":\"structured-content\",\"content\":[{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"ダース\"},{\"tag\":\"br\"},\"［名］ 品物一二個を一組とする数量の単位。\",{\"tag\":\"br\"},{\"tag\":\"span\",\"content\":[\"「鉛筆三\",{\"tag\":\"span\",\"style\":{\"fontWeight\":\"bold\"},\"content\":\"ダース\",\"data\":{\"b\":\"\"}},\"」\"],\"data\":{\"ex\":\"\"}},{\"tag\":\"br\"},\"［参考］dozen から。\",{\"tag\":\"br\"},{\"tag\":\"span\",\"style\":{\"fontWeight\":\"normal\",\"fontSize\":\"0.8em\"},\"content\":\"［書き方］\"},\"「\",{\"tag\":\"span\",\"style\":{\"fontSize\":\"0.5em\",\"verticalAlign\":\"super\"},\"content\":\"▽\"},\"打」と当てる。\"]}",
+        "definitionTags": "",
+        "definitionTagList": [],
+        "termTags": ""
+       }
+      ],
+      "frequencies": [],
+      "pitches": []
+     }
+    }
+   ]
+  }
+ }
+]

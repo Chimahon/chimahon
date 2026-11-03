@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -225,7 +226,7 @@ class ChimaReaderActivity : NovelReaderActivity() {
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (isPopupActive) {
+        if (isPopupActive && Injekt.get<DictionaryPreferences>().renderer().get() == DictionaryPreferences.RENDERER_WEBVIEW) {
             popupWebView?.let { webView ->
                 if (event.action == android.view.KeyEvent.ACTION_DOWN) {
                     when (event.keyCode) {
@@ -393,7 +394,10 @@ class ChimaReaderActivity : NovelReaderActivity() {
         lookupStartTime = SystemClock.elapsedRealtime()
         pendingLookupRects.clear()
         lookupDeferred = lifecycleScope.async(Dispatchers.Default) {
-            Injekt.get<DictionaryRepository>().lookup(word.trim(), termPaths, profile.languageCode)
+            // Same canonical lookup the popup performs. The repository retains the latest successful
+            // result for the immediately following identical request, so this anchor prefetch and
+            // the popup do not repeat the native query. The query is untrimmed to match the popup.
+            Injekt.get<DictionaryRepository>().lookupWithSearchResolution(word, termPaths, profile)
         }
         // Set preliminary state with tap coordinates; refined to exact
         // character position when rects arrive from JS (match path).
@@ -483,7 +487,10 @@ class ChimaReaderActivity : NovelReaderActivity() {
             val state = lookupState
             if (state != null || popupVisible) {
                 val popupState = state ?: LookupState("", "", 0f, 0f, 0f, 0f, isVerticalWriting, chimahon.anki.AnkiProfile.EMPTY)
-                val webView = remember { ensurePopupWebView() }
+                val renderer by remember { Injekt.get<DictionaryPreferences>() }.renderer().collectAsState()
+                val webView = if (renderer == DictionaryPreferences.RENDERER_WEBVIEW) {
+                    remember { ensurePopupWebView() }
+                } else null
 
                 OcrLookupPopup(
                     visible = popupVisible,
@@ -513,7 +520,6 @@ class ChimaReaderActivity : NovelReaderActivity() {
                         null
                     },
                     onCropTriggered = null,
-                    initialLookupDeferred = if (popupVisible) lookupDeferred else null,
                     usePopup = false,
                     // Novel reader: rects already sent by onLookupRequested; no OCR block to refine
                     onTermMatched = null,

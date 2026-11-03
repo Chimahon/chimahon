@@ -9,7 +9,6 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.webkit.WebView
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -77,7 +76,6 @@ internal class ScreenLookupOverlayController(
     private var overlayView: ComposeView? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
     private var screenshot: Bitmap? = null
-    private var cachedWebView: WebView? = null
     private var cachedProfile: chimahon.anki.AnkiProfile? = null
     private var overlayBackHandler: (() -> Boolean)? = null
     private var overlayBackCallback: Any? = null
@@ -94,9 +92,6 @@ internal class ScreenLookupOverlayController(
         val profile = cachedProfile
             ?: Injekt.get<DictionaryPreferences>().profileStore.getActiveProfile()
                 .also { cachedProfile = it }
-        val webView = cachedWebView
-            ?: prepareDictionaryWebViewShell(context, languageCode = profile.languageCode)
-                .also { cachedWebView = it }
         lookupWarmupJob?.cancel()
         lookupWarmupJob = lookupWarmupScope.launch {
             Injekt.get<DictionaryRepository>().warmUp(getDictionaryPaths(context, profile), profile.id)
@@ -128,7 +123,6 @@ internal class ScreenLookupOverlayController(
             setComposeContent {
                 ScreenLookupOverlay(
                     screenshot = nextScreenshot,
-                    webView = webView,
                     activeProfile = profile,
                     onClose = { dismiss() },
                     onBack = { overlayBackHandler = it },
@@ -180,8 +174,6 @@ internal class ScreenLookupOverlayController(
         dismiss(recycleScreenshot = true, notify = false)
         lookupWarmupJob?.cancel()
         lookupWarmupJob = null
-        cachedWebView?.runCatching { destroy() }
-        cachedWebView = null
         cachedProfile = null
     }
 
@@ -247,7 +239,6 @@ private class OverlayLifecycleOwner :
 @Composable
 internal fun ScreenLookupOverlay(
     screenshot: Bitmap,
-    webView: WebView,
     activeProfile: chimahon.anki.AnkiProfile,
     onClose: () -> Unit,
     onBack: ((() -> Boolean) -> Unit)? = null,
@@ -415,7 +406,7 @@ internal fun ScreenLookupOverlay(
                     fullText = selected.sentence,
                     charOffset = selected.sentenceOffset,
                     onDismiss = { selection = null },
-                    webView = webView,
+                    webView = rememberDictionaryPopupWebView(activeProfile.languageCode),
                     repository = repository,
                     anchorX = selected.anchorX,
                     anchorY = selected.anchorY,

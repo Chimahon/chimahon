@@ -7,9 +7,15 @@ import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.WebView
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import eu.kanade.domain.ui.UiPreferences
+import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -25,8 +31,10 @@ internal object DictionaryPopupWebViewWarmup {
     private var warmedWebView: WebView? = null
 
     fun warm(context: Context, languageCode: String = "") {
+        if (!usesWebView()) return
         val appContext = context.applicationContext
         runOnMain {
+            if (!usesWebView()) return@runOnMain
             val webView = warmedWebView?.takeIf { it.parent == null } ?: createWebView(appContext).also {
                 warmedWebView = it
             }
@@ -35,6 +43,9 @@ internal object DictionaryPopupWebViewWarmup {
             prepareDictionaryWebViewShell(appContext, webView, shell.bootstrapHtml, shell.backgroundColor)
         }
     }
+
+    private fun usesWebView() =
+        Injekt.get<DictionaryPreferences>().renderer().get() == DictionaryPreferences.RENDERER_WEBVIEW
 
     fun acquire(context: Context, languageCode: String = ""): WebView {
         check(Looper.myLooper() == Looper.getMainLooper()) {
@@ -163,4 +174,18 @@ internal object DictionaryPopupWebViewWarmup {
         val bootstrapHtml: String,
         val backgroundColor: Int,
     )
+}
+
+@Composable
+internal fun rememberDictionaryPopupWebView(languageCode: String): WebView? {
+    val context = LocalContext.current
+    val preferences = remember { Injekt.get<DictionaryPreferences>() }
+    val renderer by preferences.renderer().collectAsState()
+    val webView = if (renderer == DictionaryPreferences.RENDERER_WEBVIEW) {
+        remember(context, languageCode) { DictionaryPopupWebViewWarmup.acquire(context, languageCode) }
+    } else null
+    DisposableEffect(context, webView) {
+        onDispose { DictionaryPopupWebViewWarmup.recycle(context, webView) }
+    }
+    return webView
 }

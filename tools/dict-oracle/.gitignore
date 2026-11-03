@@ -1,0 +1,3 @@
+# Generated oracle output (harness HTML, screenshots, DOM dumps, diffs).
+out/
+__pycache__/

@@ -1,0 +1,112 @@
+span[data-sc-content="hw"],
+span[data-sc-content="pr"],
+span[data-sc-content="ps"],
+span[data-sc-content="hwg x_xh0"],
+span[data-sc-content="gp sn ty_label tg_gramb"] {
+  display: none;
+}
+/* examples */
+
+span[data-sc-content="exg x_xd2 hasSn"] {
+  display: block;
+  padding: 0.25em;
+  padding-left: 0.5em;
+  border-style: none none none solid;
+  border-radius: 5px;
+  border-color: var(--shadow-color-light);
+  margin: 0.5em;
+}
+
+span[data-sc-content="sn"] {
+  display: none;
+}
+
+span[data-sc-content="example-item"] span[data-sc-content="trans"] {
+  opacity: 0.5;
+}
+
+span[data-sc-content="example-item"] {
+  display: block;
+  margin: 0.5em 0;
+}
+
+.gloss-list[data-count="1"] details[data-sc-content="details-entry"] {
+  padding: 0 2em;
+}
+
+.gloss-list[data-count="1"] span[data-sc-content="semb x_xd1"] details[data-sc-content="details-entry"] {
+  padding: 0;
+}
+
+details[data-sc-content="details-entry"] {
+  padding: 0 1em;
+}
+
+summary[data-sc-content="summary-entry"] {
+  user-select: none;
+  width: max-content;
+}
+
+ul.gloss-list[data-count="1"] summary[data-sc-content="summary-entry"] {
+  list-style-position: inside;
+}
+
+summary[data-sc-content="summary-entry"]::marker {
+  color: var(--checkbox-disabled-color);
+}
+
+summary[data-sc-content="summary-entry"] {
+  color: var(--text-color-light4);
+}
+
+details[data-sc-content^="details-entry"][open=""] summary[data-sc-content="summary-entry"],
+details[data-sc-content^="details-entry"][open=""] summary[data-sc-content="summary-entry"]::marker {
+  color: var(--text-color);
+}
+
+summary[data-sc-content="summary-entry"]:hover {
+  cursor: pointer;
+}
+
+/* senses */
+
+span[data-sc-content="semb x_xd1 hasSn"] {
+  display: block;
+  margin: 1em 0;
+}
+
+span[data-sc-content="gp x_xdh sn ty_label tg_semb"],
+span[data-sc-content="gp ty_label tg_semb"],
+span[data-sc-content="gp sn ty_label tg_semb"] {
+  opacity: 0.5;
+  user-select: none;
+  margin-right: 0.5em;
+  vertical-align: middle;
+}
+
+span[data-sc-content="lev"] {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+span[data-sc-content="gl"] {
+  opacity: 0.8;
+}
+
+span[data-sc-content="ind"] {
+  opacity: 0.7;
+}
+
+li[data-sc-content="hypo-item"] {
+  list-style: circle;
+}
+
+li[data-sc-content="hypo-item"]::marker {
+  color: var(--text-color-light1);
+}
+
+span[data-sc-content="semb x_xd2 hasSn"],
+span[data-sc-content="semb hasSn"] {
+  display: block;
+  margin: 1em;
+}
