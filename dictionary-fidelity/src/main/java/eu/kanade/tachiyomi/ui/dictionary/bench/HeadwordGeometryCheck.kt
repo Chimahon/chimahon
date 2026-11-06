@@ -22,11 +22,58 @@ import eu.kanade.tachiyomi.ui.dictionary.compose.column
 import eu.kanade.tachiyomi.ui.dictionary.compose.standaloneBox
 import eu.kanade.tachiyomi.ui.dictionary.compose.rubyReadingStyle
 import eu.kanade.tachiyomi.ui.dictionary.compose.splitHeadwordUnits
+import eu.kanade.tachiyomi.ui.dictionary.compose.NativeCardElement
+import eu.kanade.tachiyomi.ui.dictionary.compose.nativeCardSource
+import eu.kanade.tachiyomi.ui.dictionary.compose.NativeCoreCompiler
+import eu.kanade.tachiyomi.ui.dictionary.compose.NativeDrawingInput
 import java.io.File
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import org.json.JSONObject
 import org.json.JSONArray
+
+/** The same header tree through typed transport and JSON must paint and hit identically. */
+internal fun typedCardTransportCheck(core: NativeCoreCompiler, style: TextStyle, width: Int): JSONObject {
+    fun element(tag: String, content: Any, css: String = "") =
+        NativeCardElement(tag, content, if (css.isBlank()) emptyMap() else mapOf("style" to css))
+    val tree = listOf(element("div", listOf(
+        element("ruby", listOf("絶", element("rt", "ぜつ"))),
+        element("ruby", listOf("望", element("rt", "ぼう")))), "font-size:1.6em;font-weight:bold;white-space:nowrap"),
+        element("div", listOf(element("span", "v1", "background:#666;color:white;padding:2px 5px"), " noun")),
+        element("div", "▾ Jitendex", "font-size:.94em"),
+        NativeCardElement("img", "", properties = mapOf("path" to "data:image/svg+xml;base64,PHN2Zy8+",
+            "width" to "36", "height" to "34", "sizeUnits" to "px")))
+    fun json(value: Any): Any = when (value) {
+        is String -> value
+        is List<*> -> JSONArray(value.map { json(requireNotNull(it)) })
+        is NativeCardElement -> JSONObject().put("tag", value.tag).put("content", json(value.content)).apply {
+            if (value.attributes.isNotEmpty()) put("htmlAttributes", JSONObject(value.attributes))
+            value.properties.forEach { (name, text) -> put(name, text) }
+        }
+        else -> error("Invalid header fixture")
+    }
+    val source = nativeCardSource(tree)
+    val css = "body{margin:0;line-height:1.4}rt{font-size:55%;line-height:1}"
+    val docs = core.prepareBatch(listOf(NativeDrawingInput(json(tree).toString(), css, width),
+        NativeDrawingInput("", css, width, source)), style)
+    check(docs[0].width == docs[1].width && docs[0].height == docs[1].height && docs[0].text == docs[1].text)
+    val bitmaps = docs.map { doc -> Bitmap.createBitmap(doc.width, doc.height, Bitmap.Config.ARGB_8888).apply {
+        eraseColor(android.graphics.Color.WHITE)
+        val canvas = Canvas(this)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        doc.items.forEach { it.draw(canvas, paint) }
+    } }
+    val equal = bitmaps[0].sameAs(bitmaps[1])
+    bitmaps.forEach { it.recycle() }
+    check(equal) { "Typed card transport changed painted output" }
+    val images = docs.map { doc -> doc.images.map { listOf(it.x, it.y, it.width, it.height) } }
+    check(images[0] == images[1]) { "Typed card transport changed image placement" }
+    val probes = docs[0].drawingHitProbes()
+    val mismatches = probes.count { docs[0].hit(it.x, it.y)?.lookup != docs[1].hit(it.x, it.y)?.lookup }
+    check(mismatches == 0) { "Typed card transport changed recursive hits" }
+    return JSONObject().put("identical_pixels", equal).put("hit_probes", probes.size)
+        .put("hit_mismatches", mismatches).put("image_geometry_equal", true)
+}
 
 /** Actual glyph/clip regression check; not a capture of the Compose popup chrome. */
 internal fun headwordGeometryCheck(context: Context, fontFile: File, root: File,

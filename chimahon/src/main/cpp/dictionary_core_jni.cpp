@@ -76,15 +76,16 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
     }
     return 0;
 }
-extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepareDrawing(
-    JNIEnv *env, jobject, jlong context, jobjectArray input, jintArray indices, jfloatArray widths, jint foreground,
+// Signature-qualified linkage rejects older hosts instead of misreading their batch arguments.
+extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepareDrawing__J_3Ljava_lang_String_2_3Ljava_nio_ByteBuffer_2_3I_3FII(
+    JNIEnv *env, jobject, jlong context, jobjectArray input, jobjectArray typed, jintArray indices, jfloatArray widths, jint foreground,
     jint border) {
     try {
-        if (!input || !indices || !widths)
+        if (!input || !typed || !indices || !widths)
             throw std::invalid_argument("Null drawing batch");
         auto &c = object<Context>(context);
         const auto count = env->GetArrayLength(input);
-        if (env->GetArrayLength(indices) != count || env->GetArrayLength(widths) != count)
+        if (env->GetArrayLength(typed) != count || env->GetArrayLength(indices) != count || env->GetArrayLength(widths) != count)
             throw std::invalid_argument("Drawing batch lengths differ");
         std::vector<std::string> strings;
         strings.reserve(count);
@@ -103,6 +104,22 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
         std::vector<dc_source> sources;
         for (const auto &s : strings)
             sources.push_back({s.data(), s.size()});
+        std::vector<dc_typed_source> tapes(count);
+        std::vector<jobject> buffers;
+        struct References {
+            JNIEnv *env; std::vector<jobject> &buffers;
+            ~References() { for (auto buffer : buffers) env->DeleteLocalRef(buffer); }
+        } references{env, buffers};
+        for (jsize i = 0; i < count; ++i) {
+            auto buffer = env->GetObjectArrayElement(typed, i);
+            if (env->ExceptionCheck()) return 0;
+            if (!buffer) continue;
+            buffers.push_back(buffer);
+            const auto size = env->GetDirectBufferCapacity(buffer);
+            auto *data = env->GetDirectBufferAddress(buffer);
+            if (!data || size < 8) throw std::invalid_argument("Invalid typed drawing source");
+            tapes[i] = {data, static_cast<size_t>(size)};
+        }
         std::vector<uint32_t> mapping(count);
         std::vector<float> sizes(count);
         env->GetIntArrayRegion(indices, 0, count, reinterpret_cast<jint *>(mapping.data()));
@@ -111,7 +128,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
             return 0;
         dc_document *parsed = nullptr;
         dc_error error{};
-        if (dc_prepare_utf8(sources.data(), sources.size(), &parsed, &error))
+        if (dc_prepare_mixed(sources.data(), tapes.data(), sources.size(), &parsed, &error))
             throw std::runtime_error(error.message);
         Owned<dc_document, dc_document_destroy> raw(parsed, dc_document_destroy);
         auto result = std::make_unique<Drawing>();
@@ -141,16 +158,16 @@ extern "C" JNIEXPORT jintArray JNICALL Java_chimahon_renderer_DictionaryCore_dra
         const size_t sizes[]{
             v.font_count,    v.names_bytes,     v.text_count,   v.request_count, v.context_count,
             v.command_count, v.hit_count,       v.source_count, p.image_count,   p.property_count,
-            p.text_bytes,    p.paragraph_count, p.ruby_count,   p.table_count,   static_cast<size_t>(v.lines)};
-        jint values[15];
-        for (size_t i = 0; i < 15; ++i) {
+            p.text_bytes,    p.paragraph_count, p.ruby_count,   p.table_count,   static_cast<size_t>(v.lines), v.shaping_run_count};
+        jint values[16];
+        for (size_t i = 0; i < 16; ++i) {
             if (sizes[i] > INT_MAX)
                 throw std::length_error("Drawing packet limit");
             values[i] = static_cast<jint>(sizes[i]);
         }
-        auto result = env->NewIntArray(15);
+        auto result = env->NewIntArray(16);
         if (result)
-            env->SetIntArrayRegion(result, 0, 15, values);
+            env->SetIntArrayRegion(result, 0, 16, values);
         return result;
     } catch (const std::exception &e) {
         failure(env, e.what());
@@ -228,6 +245,10 @@ extern "C" JNIEXPORT jobject JNICALL Java_chimahon_renderer_DictionaryCore_drawi
             data = p.images;
             size = p.image_count * sizeof(dc_image_input);
             break;
+        case 15:
+            data = v.shaping_runs;
+            size = v.shaping_run_count * sizeof(dc_shaping_run);
+            break;
         default:
             throw std::invalid_argument("Unknown drawing section");
         }
@@ -301,4 +322,18 @@ std::string utf8(JNIEnv *env, jstring input) {
 } // namespace
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_closeContext(JNIEnv *, jobject, jlong handle) {
     delete reinterpret_cast<Context *>(static_cast<uintptr_t>(handle));
+}
+extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_placeCard(JNIEnv *env, jobject, jfloatArray input) {
+    try {
+        if (!input || env->GetArrayLength(input) % 6 != 0) throw std::invalid_argument("Invalid card parts");
+        const auto count = env->GetArrayLength(input) / 6;
+        std::vector<float> parts(count * 6), rectangles(count * 4 + 1);
+        env->GetFloatArrayRegion(input, 0, count * 6, parts.data());
+        if (env->ExceptionCheck()) return nullptr;
+        rectangles.back() = dc_card_place(parts.data(), count, rectangles.data());
+        auto result = env->NewFloatArray(static_cast<jsize>(rectangles.size()));
+        if (result) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(rectangles.size()), rectangles.data());
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
 }

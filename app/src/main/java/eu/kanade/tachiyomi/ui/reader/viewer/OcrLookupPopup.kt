@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -137,6 +138,11 @@ private object ContentFrameTracer {
         override fun doFrame(frameTimeNanos: Long) {
             if (!armed) return
             val elapsedMs = (frameTimeNanos - start) / 1_000_000L
+            if (elapsedMs > WATCH_MS) {
+                Log.i("DictPerf", "watchTimeout lookup='$label' afterMs=$elapsedMs frames=$frames settled=$settledLogged")
+                disarm()
+                return
+            }
 
             if (!sawContent) {
                 // Only claim a content frame once a draw has proven content exists. Until then this
@@ -151,19 +157,14 @@ private object ContentFrameTracer {
                 }
             } else {
                 frames++
+                if (drewSinceFrame) stable = 0 else stable++
                 if (stable >= SETTLE_FRAMES && !settledLogged) {
                     settledLogged = true
                     Log.i(
                         "DictPerf",
                         "settled lookup='$label' popupToSettledMs=$elapsedMs terms=$terms frames=$frames",
                     )
-                }
-                if (elapsedMs > WATCH_MS) {
-                    Log.i(
-                        "DictPerf",
-                        "watchTimeout lookup='$label' afterMs=$elapsedMs frames=$frames settled=$settledLogged",
-                    )
-                    armed = false
+                    disarm()
                     return
                 }
             }
@@ -174,6 +175,7 @@ private object ContentFrameTracer {
     }
 
     fun arm(startAt: Long, query: String, termCount: Int, requestId: Long = 0) {
+        disarm()
         profilingId = requestId
         if (startAt == 0L) return
         armed = false
@@ -192,6 +194,7 @@ private object ContentFrameTracer {
 
     fun disarm() {
         armed = false
+        android.view.Choreographer.getInstance().removeFrameCallback(callback)
     }
 
     /**
@@ -292,8 +295,11 @@ fun OcrLookupPopup(
                 .put("start_ns", android.os.SystemClock.elapsedRealtimeNanos()).toString())
         }
     }
+    // A missing deferred means "nothing is in flight": the popup starts hidden and reveals on the
+    // plan-ready edge (composePlanReady / webContentReady). Reading null as "still loading" made
+    // every reader open start in the loading state and reveal a spinner instead of the content.
     var isLoading by remember {
-        mutableStateOf(initialLookupDeferred?.isCompleted != true)
+        mutableStateOf(initialLookupDeferred != null && !initialLookupDeferred.isCompleted)
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -481,7 +487,6 @@ fun OcrLookupPopup(
         renderPreparation?.cancel()
         renderPreparation = null
         contentReady = false
-        val shouldShowLoading = !isRecursive && lastRenderedLookupGeneration < 0
 
         fun handleResult(result: chimahon.DictionaryRepository.LookupResult2, orderedResults: List<LookupResult>, lookupStart: Long,
             preparedCards: DictionaryCardPreparation? = null, preparedPlan: DictionaryPlanPreparation? = null) {
@@ -496,7 +501,6 @@ fun OcrLookupPopup(
             if (isRecursive && result.results.isEmpty()) {
                 preparedCards?.cancel()
                 preparedPlan?.cancel()
-                if (shouldShowLoading) isLoading = false
                 return
             }
 
@@ -642,9 +646,6 @@ fun OcrLookupPopup(
             resultPreparation = preparing
             // Must await in a coroutine
             scope.launch {
-                if (shouldShowLoading) {
-                    isLoading = true
-                }
                 errorMessage = null
                 try {
                     val (result, prepared) = preparing.await().getOrThrow()
@@ -1077,6 +1078,8 @@ fun OcrLookupPopup(
     val actualHeightDp = with(density) { layoutResult.heightPx.toDp() }
     val configuredPlanBuilder = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) rememberDictionaryPlanBuilder(
         with(density) { actualWidthDp.roundToPx() }, popupFontSizePref, eInkMode, customCss, activeProfile, groupTerms,
+        eu.kanade.tachiyomi.ui.dictionary.compose.NativeCardOptions(showFreqHarmonic, showFreqAverage,
+            showPitchDiagram, showPitchNumber, showPitchText, groupPitches),
     ) else null
     nativePlanBuilder.set(configuredPlanBuilder)
 
@@ -1292,8 +1295,12 @@ fun OcrLookupPopup(
     val webContentReady: (Boolean) -> Unit = remember(visible) {
         { ready ->
             if (ready) {
-                contentReady = true
-                lastRenderedLookupGeneration = lookupGeneration
+                // A flush of the pre-result empty page also reports ready; only take the ready
+                // edge once a frame has actually been published.
+                if (lookupStackState.currentFrame != null) {
+                    contentReady = true
+                    lastRenderedLookupGeneration = lookupGeneration
+                }
             } else {
                 // Hide stale content only when a new top-level lookup
                 // has started. Same-generation invalidations (e.g. Anki
@@ -1477,18 +1484,19 @@ fun OcrLookupPopup(
     @Composable
     fun PopupContent() {
         val swipeThreshold = with(density) { popupSwipeThresholdPref.dp.toPx() }
-        val revealContent = contentReady || isLoading || errorMessage != null
-        val readyRequestId = if (visible && contentReady && !isLoading) currentFrame?.profilingId ?: 0L else 0L
         Surface(
             modifier = modifier
                 .width(actualWidthDp)
                 .height(actualHeightDp)
-                .alpha(if (revealContent) 1f else 0f)
+                // Reveal state is read in the draw phase on purpose: flipping `contentReady` must
+                // repaint, not recompose the popup (it was one of the 4.25 compositions per open).
+                .graphicsLayer { alpha = if ((currentFrame != null && contentReady) || errorMessage != null) 1f else 0f }
                 .drawWithContent {
                     drawContent()
-                    if (revealContent && readyRequestId != 0L && revealedFrame[0] != readyRequestId) {
-                        revealedFrame[0] = readyRequestId
-                        chimahon.diagnostics.LookupProfiler.mark(readyRequestId, "popup.ready_container.draw")
+                    val requestId = if (visible && contentReady) currentFrame?.profilingId ?: 0L else 0L
+                    if (requestId != 0L && revealedFrame[0] != requestId) {
+                        revealedFrame[0] = requestId
+                        chimahon.diagnostics.LookupProfiler.mark(requestId, "popup.ready_container.draw")
                     }
                 }
                 .pointerInput(Unit) {
@@ -1542,11 +1550,12 @@ fun OcrLookupPopup(
                         .fillMaxWidth()
                         .weight(1f),
                 ) {
-                    val plainText = rendererMode == DictionaryPreferences.RENDERER_PLAIN_TEXT
-                    val nativeContent = rendererMode == DictionaryPreferences.RENDERER_COMPOSE || plainText
-                    if (nativeContent && !visible) {
-                        // Only WebView needs a warm offscreen shell. Cleared preparation handles
-                        // must not make a hidden native entry rebuild the previous lookup.
+                    val nativeContent = rendererMode == DictionaryPreferences.RENDERER_COMPOSE
+                    if (nativeContent && (!visible || currentFrame == null)) {
+                        // Only WebView needs a warm offscreen shell. Native also stays unmounted
+                        // until a frame exists: composing it against the pre-result empty list builds
+                        // an empty plan whose ready callback would reveal the popup before the real
+                        // content is there.
                         Spacer(Modifier.fillMaxSize())
                     } else if (nativeContent) {
                         DictionaryEntryCompose(
@@ -1557,7 +1566,7 @@ fun OcrLookupPopup(
                             results = results,
                             styles = styles,
                             mediaDataUris = mediaDataUris,
-                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                            placeholder = if (currentFrame == null) "" else "No results found",
                             fontSize = popupFontSizePref,
                             showFrequencyHarmonic = showFreqHarmonic,
                             showFrequencyAverage = showFreqAverage,
@@ -1583,7 +1592,6 @@ fun OcrLookupPopup(
                             onTabSelect = onTabSelect,
                             onBack = onBack,
                             isLoading = isLoading,
-                            usePlainTextBody = plainText,
                             resultsAreOrdered = true,
                             onContentReadyChange = composeContentReady,
                             onPlanReady = composePlanReady,
@@ -1593,7 +1601,7 @@ fun OcrLookupPopup(
                                 // measured inside NativeGlossaryView, not inferred from this box.
                                 .drawWithContent {
                                     drawContent()
-                                    if (contentReady && !isLoading) ContentFrameTracer.onContentDraw(size.height.toInt())
+                                    if (contentReady) ContentFrameTracer.onContentDraw(size.height.toInt())
                                 },
                         )
                     } else if (webView != null) {
@@ -1601,7 +1609,7 @@ fun OcrLookupPopup(
                             results = results,
                             styles = styles,
                             mediaDataUris = mediaDataUris,
-                            placeholder = if (isLoading || currentFrame == null) "" else "No results found",
+                            placeholder = if (currentFrame == null) "" else "No results found",
                             headerText = lookupString.take(20) + if (lookupString.length > 20) "…" else "",
                             fontSize = popupFontSizePref,
                             showFrequencyHarmonic = showFreqHarmonic,
@@ -1674,7 +1682,7 @@ fun OcrLookupPopup(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(if (visible && (contentReady || isLoading || errorMessage != null)) 1f else 0f)
+                .graphicsLayer { alpha = if (visible && ((currentFrame != null && contentReady) || errorMessage != null)) 1f else 0f }
                 .offset(
                     x = with(LocalDensity.current) { if (visible) layoutResult.x.toDp() else hideOffset },
                     y = with(LocalDensity.current) { if (visible) layoutResult.y.toDp() else hideOffset },

@@ -17,6 +17,10 @@ extern "C" {
 
 typedef struct dc_document dc_document;
 typedef struct dc_source { const char* utf8; size_t bytes; } dc_source;
+/* Typed host tree: uint32 token_count/string_bytes, then token_count records
+ * (kind/end/string_offset/string_length), followed by the UTF-8 string pool.
+ * Kinds: object=0,array=1,key=2,string=3,number=4,bool=5,null=6. */
+typedef struct dc_typed_source { const void *data; size_t bytes; } dc_typed_source;
 typedef struct dc_error { uint32_t source; size_t offset; char message[192]; } dc_error;
 typedef struct dc_counts {
     uint64_t sources, json_tokens, text_bytes, operations;
@@ -29,6 +33,8 @@ typedef struct dc_counts {
  * Does not resolve CSS, shape fonts, lay out paragraphs or paint. */
 DC_API int dc_prepare_utf8(const dc_source* sources, size_t count,
                           dc_document** output, dc_error* error);
+DC_API int dc_prepare_mixed(const dc_source*, const dc_typed_source*, size_t,
+                           dc_document**, dc_error*);
 DC_API dc_counts dc_document_counts(const dc_document* document);
 DC_API uint64_t dc_document_digest(const dc_document* document);
 DC_API void dc_document_destroy(dc_document* document);

@@ -4,6 +4,7 @@
 #include <rapidjson/error/en.h>
 #include <cstdio>
 #include <memory>
+#include <cstring>
 #include <lexbor/html/html.h>
 #include <lexbor/dom/interfaces/character_data.h>
 
@@ -80,9 +81,34 @@ struct Handler : rapidjson::BaseReaderHandler<rapidjson::UTF8<>, Handler> {
     bool Uint64(uint64_t n) { storage.number(n); return true; }
     bool Double(double n) { storage.number(n); return true; }
 };
+void typed_source(Storage &storage, dc_typed_source input) {
+    if (!input.data || input.bytes < 8) throw std::invalid_argument("Invalid typed source");
+    const auto *data = static_cast<const unsigned char *>(input.data);
+    auto read = [&](size_t at) { uint32_t n; std::memcpy(&n, data + at, 4); return n; };
+    const auto count = read(0), bytes = read(4);
+    if (!count || static_cast<uint64_t>(count) * 16 + bytes + 8 != input.bytes)
+        throw std::invalid_argument("Invalid typed source size");
+    const auto first = checked_index(storage.tokens.size()), offset = checked_index(storage.strings.size());
+    checked_index(static_cast<size_t>(first) + count);
+    checked_index(static_cast<size_t>(offset) + bytes);
+    const auto *strings = reinterpret_cast<const char *>(data + 8 + static_cast<size_t>(count) * 16);
+    storage.strings.append(strings, bytes);
+    for (uint32_t i = 0; i < count; ++i) {
+        const size_t at = 8 + static_cast<size_t>(i) * 16;
+        const auto kind = read(at), end = read(at + 4), start = read(at + 8), length = read(at + 12);
+        if (kind > 6 || end <= i || end > count || start > bytes || length > bytes - start ||
+            (kind >= 2 && end != i + 1)) throw std::invalid_argument("Invalid typed token");
+        const auto field = kind == 2 ? field_name({strings + start, length}) : Field::other;
+        storage.tokens.push_back({static_cast<Kind>(kind), field, 0, first + end, offset + start, length});
+    }
+    if (storage.tokens[first].end != first + count) throw std::invalid_argument("Incomplete typed root");
+}
 }
 
 int dc_prepare_utf8(const dc_source* sources, size_t count, dc_document** output, dc_error* error) {
+    return dc_prepare_mixed(sources, nullptr, count, output, error);
+}
+int dc_prepare_mixed(const dc_source* sources, const dc_typed_source *typed, size_t count, dc_document** output, dc_error* error) {
     if (output) *output = nullptr;
     if (error) *error = {};
     if (!output || (!sources && count)) {
@@ -105,6 +131,12 @@ int dc_prepare_utf8(const dc_source* sources, size_t count, dc_document** output
         Handler handler(storage);
         rapidjson::Reader reader;
         for (; source < count; ++source) {
+            if (typed && typed[source].data) {
+                const auto root = checked_index(storage.tokens.size());
+                typed_source(storage, typed[source]);
+                storage.finish_source(root, true);
+                continue;
+            }
             std::string_view input(sources[source].utf8 ? sources[source].utf8 : "", sources[source].bytes);
             const auto first = input.find_first_not_of(" \n\r\t");
             const auto root = checked_index(storage.tokens.size());

@@ -221,7 +221,7 @@ void WindowsTextEngine::measure_drawing_plan(dc_drawing_plan* plan) {
         metrics[i]={-m.ascent*scale,m.descent*scale,std::min(std::ceil(ratio.first*f.size),m.ascent*scale),
             std::min(std::ceil(ratio.second*f.size),m.descent*scale)};
     }
-    size_t request=0;
+    size_t request=0, shaping=0;
     for(size_t c=0;c<v.context_count;++c) {
         const auto& context=v.contexts[c];if(!context.count)continue;
         while(request<v.request_count && v.requests[request].start<context.start)++request;
@@ -230,14 +230,35 @@ void WindowsTextEngine::measure_drawing_plan(dc_drawing_plan* plan) {
         const float size=request<end?v.fonts[v.requests[request].style].size:16;
         checked(state->factory->CreateTextLayout(reinterpret_cast<const wchar_t*>(v.text+context.start),context.count,
             state->format(size),1000000,1000000,layout.put()),"Drawing context shaping");
-        for(size_t r=request;r<end;++r) {
-            const auto& run=v.requests[r];const auto& f=v.fonts[run.style];
-            DWRITE_TEXT_RANGE range{run.start-context.start,run.count};
-            if(f.size!=size)checked(layout->SetFontSize(f.size,range),"Drawing run size");
-            if(f.weight!=400)checked(layout->SetFontWeight(static_cast<DWRITE_FONT_WEIGHT>(f.weight),range),"Drawing run weight");
-            if(f.flags&1)checked(layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC,range),"Drawing run style");
-            v.metrics[r]=metrics[run.style];
+        for(size_t r=request;r<end;++r)v.metrics[r]=metrics[v.requests[r].style];
+        // Merge consecutive shaping groups that are adjacent and share font/size/weight/style.
+        // Accumulate one contiguous range and apply SetFont* once per merged span.
+        DWRITE_TEXT_RANGE cur{0,0};
+        float cur_size=0; uint32_t cur_weight=0; bool cur_italic=false;
+        bool cur_set=false;
+        auto flush = [&]() {
+            if(!cur_set)return;
+            checked(layout->SetFontSize(cur_size,cur),"Drawing run size");
+            if(cur_weight!=400)checked(layout->SetFontWeight(static_cast<DWRITE_FONT_WEIGHT>(cur_weight),cur),"Drawing run weight");
+            if(cur_italic)checked(layout->SetFontStyle(DWRITE_FONT_STYLE_ITALIC,cur),"Drawing run style");
+            cur_set=false;
+        };
+        while(shaping<v.shaping_run_count && v.shaping_runs[shaping].first_request<end) {
+            const auto& group=v.shaping_runs[shaping++];
+            const auto& run=v.requests[group.first_request];
+            const auto& last=v.requests[group.first_request+group.request_count-1];
+            const auto& f=v.fonts[run.style];
+            DWRITE_TEXT_RANGE range{run.start-context.start,last.start+last.count-run.start};
+            const bool same_style = cur_set && f.size==cur_size && f.weight==cur_weight && ((f.flags&1)!=0)==cur_italic;
+            const bool adjacent = cur_set && cur.startPosition+cur.length==range.startPosition;
+            if(same_style && adjacent) {
+                cur.length += range.length;
+            } else {
+                flush();
+                cur=range;cur_size=f.size;cur_weight=f.weight;cur_italic=(f.flags&1)!=0;cur_set=true;
+            }
         }
+        flush();
         UINT32 count=0;layout->GetClusterMetrics(nullptr,0,&count);std::vector<DWRITE_CLUSTER_METRICS> clusters(count);
         checked(layout->GetClusterMetrics(clusters.data(),count,&count),"Drawing cluster advances");
         uint32_t at=context.start;

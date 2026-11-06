@@ -28,7 +28,6 @@ import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
-import eu.kanade.tachiyomi.ui.dictionary.compose.BASE_CSS_VARIABLES
 import eu.kanade.tachiyomi.ui.dictionary.compose.NativeGlossaryDocument
 import eu.kanade.tachiyomi.ui.dictionary.compose.NativeGlossaryImage
 import eu.kanade.tachiyomi.ui.dictionary.compose.StructuredNode
@@ -286,12 +285,21 @@ class DictionaryFidelityActivity : Activity() {
                                     eu.kanade.tachiyomi.ui.dictionary.compose.NativeCoreCompiler(Density(scale.toFloat(), 1f),
                                         if (geometry.getString("direction") == "rtl") LayoutDirection.Rtl else LayoutDirection.Ltr,
                                         resolver, Color.Gray, Color.Gray).use { core ->
+                                        if (index == 0) report.put("typed_card_check", typedCardTransportCheck(core, style, width))
                                         val baseCss = assets.open("dictionary/base.css").bufferedReader().use { it.readText() }
                                         core.prepare(raw, eu.kanade.tachiyomi.ui.dictionary.compose.nativeCoreStylesheet(baseCss, case.getString("css"), variables),
                                             style, width, dark = case.getBoolean("isDark"), expanded = case.optBoolean("expandDetails", false))
                                     }
                                 }
                                 val undrawable = ArrayList<String>()
+                                if (intent.getBooleanExtra("hit_geometry_check", false)) {
+                                    val probes = native.drawingHitProbes()
+                                    val mismatches = probes.count { native.hit(it.x, it.y)?.lookup != it.expected }
+                                    result.put("hit_check", JSONObject()
+                                        .put("probes", probes.size)
+                                        .put("moved_result_mismatches", probes.count { it.movedLookup != it.expected })
+                                        .put("ruby_tap_benchmark", JSONObject().put("result_mismatches", mismatches)))
+                                }
                                 // Decoded before the bitmap lambda because that lambda is not suspending.
                                 // Raster formats go through BitmapFactory; SVG has no Android decoder, so it
                                 // goes through Coil, which is already a project dependency (libs.bundles.coil
@@ -517,7 +525,14 @@ class DictionaryFidelityActivity : Activity() {
               if (r.width <= 0 || r.height <= 0) return JSON.stringify({error:'Empty reference content box'});
               const variables = {}, props = getComputedStyle(document.documentElement);
               // Older WebViews omit custom properties from CSSStyleDeclaration enumeration.
-              const names = new Set(${JSONArray(BASE_CSS_VARIABLES.keys.map { "--$it" })});
+              const names = new Set();
+              const collectVariables = rules => {
+                for (const rule of rules) {
+                  if (rule.style) for (const name of rule.style) if (name.startsWith('--')) names.add(name);
+                  if (rule.cssRules) collectVariables(rule.cssRules);
+                }
+              };
+              for (const sheet of document.styleSheets) collectVariables(sheet.cssRules);
               for (const name of props) if (name.startsWith('--')) names.add(name);
               for (const name of names) {
                 const value = props.getPropertyValue(name).trim();

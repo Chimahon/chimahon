@@ -68,17 +68,19 @@ internal fun rememberDictionaryRenderAppearance(eInkMode: Boolean): DictionaryRe
 
 @Composable
 internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: Boolean,
-    customCss: String, profile: AnkiProfile, groupTerms: Boolean): DictionaryPlanBuilder {
+    customCss: String, profile: AnkiProfile, groupTerms: Boolean,
+    cardOptions: NativeCardOptions = NativeCardOptions(),
+    suppliedAppearance: DictionaryRenderAppearance? = null): DictionaryPlanBuilder {
     val context = LocalContext.current
     val environment = LocalDictionaryRenderEnvironment.current
-    val appearance = rememberDictionaryRenderAppearance(eInkMode)
+    val appearance = suppliedAppearance ?: rememberDictionaryRenderAppearance(eInkMode)
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
     val resolver = LocalFontFamilyResolver.current
-    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms) {
+    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions) {
         DictionaryPlanBuilder(context, appearance,
             NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, null), density, direction,
-                resolver, appearance.secondary, appearance.border, width), customCss, profile, groupTerms) { name ->
+                resolver, appearance.secondary, appearance.border, width), customCss, profile, groupTerms, cardOptions) { name ->
             if (environment == null) getDictionaryTitle(context, name) else environment.dictionaryTitles[name] ?: name
         }
     }
@@ -96,14 +98,80 @@ class DictionaryPlanPreparation internal constructor(
     internal fun cancel() = task.cancel()
 }
 
+/**
+ * Owns one NativeCoreCompiler at a time under a mutex, so parallel preparation
+ * workers serialize but the compiler (and its CSS openBatch contexts, font
+ * resources and em-ratio cache) survives across opens of the same builder.
+ */
+internal class SharedNativeCore(
+    private val density: androidx.compose.ui.unit.Density,
+    private val direction: androidx.compose.ui.unit.LayoutDirection,
+    private val resolver: androidx.compose.ui.text.font.FontFamily.Resolver,
+    private val secondary: androidx.compose.ui.graphics.Color,
+    private val border: androidx.compose.ui.graphics.Color,
+) {
+    private val lock = Any()
+    private var core: NativeCoreCompiler? = null
+
+    fun withCore(block: (NativeCoreCompiler) -> Unit) {
+        synchronized(lock) {
+            val c = core ?: NativeCoreCompiler(density, direction, resolver, secondary, border).also { core = it }
+            block(c)
+        }
+    }
+
+    suspend fun prepareBatch(
+        profilingId: Long,
+        nextWork: () -> GlossaryLayoutWork?,
+        layout: eu.kanade.tachiyomi.ui.dictionary.compose.NativeGlossaryLayoutContext,
+    ): IdentityHashMap<List<eu.kanade.tachiyomi.ui.dictionary.compose.StructuredNode>, eu.kanade.tachiyomi.ui.dictionary.compose.NativeGlossaryDocument> {
+        val caller = kotlinx.coroutines.currentCoroutineContext()
+        val pending = ArrayList<GlossaryLayoutWork>()
+        while (true) { caller.ensureActive(); pending.add(nextWork() ?: break) }
+        val stats = layout.createResources()
+        val out = IdentityHashMap<List<eu.kanade.tachiyomi.ui.dictionary.compose.StructuredNode>, eu.kanade.tachiyomi.ui.dictionary.compose.NativeGlossaryDocument>()
+        withCore { core ->
+            val documents = core.prepareBatch(pending.map { item ->
+                eu.kanade.tachiyomi.ui.dictionary.compose.NativeDrawingInput(
+                    eu.kanade.tachiyomi.ui.dictionary.compose.nativeCoreRaw(item.nodes),
+                    item.css.nativeSourceCss, item.width, item.nodes, item.css)
+            }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })
+            documents.forEachIndexed { index, document -> out[pending[index].nodes] = document }
+            if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.native.batch",
+                "documents=${pending.size} paragraphs=${stats.paragraphs} ruby=${stats.rubyPairs} " +
+                    "inputMs=${core.lastTiming.inputMs} measureMs=${core.lastTiming.measureMs} finishMs=${core.lastTiming.finishMs} transferMs=${core.lastTiming.transferMs} releaseMs=${core.lastTiming.releaseMs} configurationMs=${core.lastTiming.configurationMs}")
+        }
+        return out
+    }
+
+    fun close() {
+        synchronized(lock) {
+            core?.close()
+            core = null
+        }
+    }
+}
+
 internal class DictionaryPlanBuilder(
     private val context: Context, val appearance: DictionaryRenderAppearance,
     val layout: NativeGlossaryLayoutContext, private val customCss: String,
     private val profile: AnkiProfile, private val groupTerms: Boolean,
+    private val cardOptions: NativeCardOptions = NativeCardOptions(),
     private val resolveTitle: (String) -> String,
 ) {
+    /**
+     * One SharedNativeCore per builder. Each preparation worker still runs on its own
+     * coroutine (its own NativeCoreCompiler) per the existing thread-confinement
+     * rule, but reusing a single SharedCore across opens means the CSS/index
+     * openBatch is skipped after the first prepare — the ~61.7ms configuration
+     * cost was paid fresh on every open.
+     */
+    private val sharedCore = SharedNativeCore(
+        layout.density, layout.direction, layout.resolver, layout.secondary, layout.border
+    )
+
     fun compatible(other: DictionaryPlanBuilder): Boolean = context === other.context &&
-        appearance.variables == other.appearance.variables && customCss == other.customCss && profile == other.profile && groupTerms == other.groupTerms &&
+        appearance.variables == other.appearance.variables && customCss == other.customCss && profile == other.profile && groupTerms == other.groupTerms && cardOptions == other.cardOptions &&
         layout.style == other.layout.style && layout.density == other.layout.density && layout.direction == other.layout.direction &&
         layout.resolver === other.layout.resolver && layout.viewportWidth == other.layout.viewportWidth &&
         layout.secondary == other.layout.secondary && layout.border == other.layout.border
@@ -138,6 +206,7 @@ internal class DictionaryPlanBuilder(
             }
             val documents = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
             val presentation = ArrayList<TermCardPresentation>(planCards.size)
+            val cardPieces = ArrayList<List<NativeCardPiece>>(planCards.size)
             val work = ArrayList<GlossaryLayoutWork>()
             val seen = IdentityHashMap<List<StructuredNode>, Boolean>()
             for (card in planCards) {
@@ -156,7 +225,18 @@ internal class DictionaryPlanBuilder(
                         work.add(GlossaryLayoutWork(nodes, group.dictName, group.glosses[index].glossary.length, css, width, work.size))
                     }
                 }
-                presentation.add(TermCardPresentation(customOpen, groups))
+                val shown = TermCardPresentation(customOpen, groups)
+                presentation.add(shown)
+                val pieces = nativeCardPieces(card, shown, layout, appearance, cardOptions, cardPieces.size)
+                cardPieces.add(pieces)
+                for (piece in pieces) {
+                    if (piece.action == "process-details") continue
+                    if (piece.action == "process" && piece.expanded == true) continue
+                    if (piece.group >= 0 && piece.expanded != null && piece.expanded != groups[piece.group].initiallyExpanded) continue
+                    if (seen.put(piece.nodes, true) != null) continue
+                    work.add(GlossaryLayoutWork(piece.nodes, piece.dictionary, nativeCoreSourceSize(piece.nodes),
+                        piece.css, piece.width, work.size))
+                }
             }
             work.sortByDescending { it.sourceLength }
             val next = java.util.concurrent.atomic.AtomicInteger()
@@ -172,17 +252,24 @@ internal class DictionaryPlanBuilder(
                 }
                 buckets.map { bucket -> async(glossaryPreparationDispatcher) {
                     val iterator = bucket.iterator()
-                    prepareGlossaryBatch(id, { if (iterator.hasNext()) iterator.next() else null }, layout)
+                    sharedCore.prepareBatch(id, { if (iterator.hasNext()) iterator.next() else null }, layout)
                 } }.awaitAll()
-            } else if (work.size <= 1) listOf(prepareGlossaryBatch(id, nextWork, layout)) else coroutineScope {
+            } else if (work.size <= 1) listOf(sharedCore.prepareBatch(id, nextWork, layout)) else coroutineScope {
                 List(Runtime.getRuntime().availableProcessors().coerceIn(1, minOf(4, work.size))) {
-                    async(glossaryPreparationDispatcher) { prepareGlossaryBatch(id, nextWork, layout) }
+                    async(glossaryPreparationDispatcher) { sharedCore.prepareBatch(id, nextWork, layout) }
                 }.awaitAll()
             }
             for (batch in batches) documents.putAll(batch)
             LookupProfiler.mark(id, "plan.work", "documents=${documents.size} glosses=${work.size} batches=${batches.size} scheduling=largest-source-first")
-            val rows = LookupProfiler.section(id, "plan.popup.rows") { DictionaryPopupRows.prepare(planCards, presentation) }
-            RenderPlan(entryJsons?.mapNotNull { parseKanjiEntryJson(it) } ?: emptyList(), cssMap, planCards, documents, presentation, layout, rows)
+            val nativeCards = LookupProfiler.section(id, "plan.native.cards") {
+                planCards.mapIndexed { i, card ->
+                    val own = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+                    cardPieces[i].forEach { piece -> documents[piece.nodes]?.let { own[piece.nodes] = it } }
+                    NativeTermCard(card, cardPieces[i], presentation[i], layout, own, id, appearance, i)
+                }
+            }
+            RenderPlan(entryJsons?.mapNotNull { parseKanjiEntryJson(it) } ?: emptyList(), cssMap, planCards,
+                documents, presentation, layout, nativeCards = nativeCards)
         }
         LookupProfiler.mark(id, "plan.ready")
         return plan

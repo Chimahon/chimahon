@@ -130,6 +130,14 @@ public class NativeGlossaryView(context: Context) : View(context) {
     private var dictionary = ""
     private var lookup: ((String) -> Unit)? = null
     private var toggle: ((StructuredNode.Element) -> Unit)? = null
+    private var longAction: ((StructuredNode.Element) -> Unit)? = null
+    private var kanjiLookup: ((String) -> Unit)? = null
+    private var longPressed = false
+    private val longPress = Runnable {
+        document?.hit(downX, downY)?.disclosure?.let { action ->
+            longAction?.let { longPressed = true; it(action) }
+        }
+    }
     private val chromePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val viewport = Rect()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -142,9 +150,12 @@ public class NativeGlossaryView(context: Context) : View(context) {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
     }
 
-    fun bind(value: NativeGlossaryDocument, name: String, onLookup: ((String) -> Unit)?, onToggle: (StructuredNode.Element) -> Unit) {
+    fun bind(value: NativeGlossaryDocument, name: String, onLookup: ((String) -> Unit)?, onToggle: (StructuredNode.Element) -> Unit,
+        onLongAction: ((StructuredNode.Element) -> Unit)? = null, onKanjiLookup: ((String) -> Unit)? = null) {
         lookup = onLookup
         toggle = onToggle
+        longAction = onLongAction
+        kanjiLookup = onKanjiLookup
         dictionary = name
         if (document !== value) {
             val resized = document?.width != value.width || document?.height != value.height
@@ -168,7 +179,7 @@ public class NativeGlossaryView(context: Context) : View(context) {
         canvas.getClipBounds(viewport)
         LookupProfiler.section(value.profilingId, "native.document.paint") {
             for (item in value.items) {
-                if (item !is NativeCircleClip && (item.y >= viewport.bottom || item.y + item.height <= viewport.top || item.x >= viewport.right || item.x + item.width <= viewport.left)) continue
+                if (item.y >= viewport.bottom || item.y + item.height <= viewport.top || item.x >= viewport.right || item.x + item.width <= viewport.left) continue
                 item.draw(canvas, chromePaint)
             }
         }
@@ -185,25 +196,37 @@ public class NativeGlossaryView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y; dragged = false; return true }
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x; downY = event.y; dragged = false; longPressed = false
+                if (longAction != null) postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                return true
+            }
             MotionEvent.ACTION_MOVE -> {
-                if (abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop) dragged = true
+                if (abs(event.x - downX) > touchSlop || abs(event.y - downY) > touchSlop) {
+                    dragged = true
+                    removeCallbacks(longPress)
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!dragged) {
+                removeCallbacks(longPress)
+                if (!dragged && !longPressed) {
                     val hit = document?.hit(event.x, event.y)
-                    hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.lookup?.let { lookup?.invoke(it) }
+                    hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.lookup?.let {
+                        if (hit.kanji && kanjiLookup != null) kanjiLookup?.invoke(it) else lookup?.invoke(it)
+                    }
                     performClick()
                 }
                 return true
             }
-            MotionEvent.ACTION_CANCEL -> { dragged = true; return true }
+            MotionEvent.ACTION_CANCEL -> { removeCallbacks(longPress); dragged = true; return true }
         }
         return super.onTouchEvent(event)
     }
 
     override fun performClick(): Boolean { super.performClick(); return true }
+
+    override fun onDetachedFromWindow() { removeCallbacks(longPress); super.onDetachedFromWindow() }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)
@@ -211,17 +234,13 @@ public class NativeGlossaryView(context: Context) : View(context) {
         info.text = document?.text
         document?.disclosures?.forEachIndexed { index, item ->
             info.addAction(AccessibilityNodeInfo.AccessibilityAction(DISCLOSURE_ACTION + index,
-                item.source.children.firstOrNull { it is StructuredNode.Element && it.tag == StructuredTag.Summary }?.collect() ?: "Details"))
-        }
-        document?.links?.forEachIndexed { index, target ->
-            info.addAction(AccessibilityNodeInfo.AccessibilityAction(LINK_ACTION + index, target))
+                item.source.children.filterIsInstance<StructuredNode.Text>().joinToString("") { it.text }.ifBlank { "Details" }))
         }
     }
 
     override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
         val index = action - DISCLOSURE_ACTION
         document?.disclosures?.getOrNull(index)?.let { toggle?.invoke(it.source); return true }
-        document?.links?.getOrNull(action - LINK_ACTION)?.let { lookup?.invoke(it); return true }
         return super.performAccessibilityAction(action, arguments)
     }
 

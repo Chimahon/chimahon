@@ -12,10 +12,11 @@ object DictionaryCore {
     }
     external fun closeContext(handle: Long)
     external fun openBatch(css: Array<String>, fontSize: Float, dark: Boolean, expandDetails: Boolean): Long
-    external fun prepareDrawing(context: Long, sources: Array<String>, sheets: IntArray, widths: FloatArray,
+    external fun prepareDrawing(context: Long, sources: Array<String>, typedSources: Array<ByteBuffer?>, sheets: IntArray, widths: FloatArray,
         foreground: Int, border: Int): Long
     external fun drawingCounts(handle: Long): IntArray
     external fun drawingSection(handle: Long, section: Int): ByteBuffer
     external fun finishDrawing(handle: Long)
     external fun closeDrawing(handle: Long)
+    external fun placeCard(parts: FloatArray): FloatArray
 }

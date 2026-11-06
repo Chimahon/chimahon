@@ -1,13 +1,17 @@
 #include "styled_document.h"
+#include "resolved_style.hpp"
 #include "document_storage.hpp"
 #include "css_numeric.hpp"
 #include "css_nesting.hpp"
 #include <lexbor/style/style.h>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <charconv>
 #include <cstdio>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -38,8 +42,8 @@ bool inherited(std::string_view name) {
         name == "direction" || name == "writing-mode" || name == "word-break" || name == "word-spacing" ||
         name == "letter-spacing" || name == "text-spacing-trim" || name.starts_with("list-style") || name.starts_with("ruby-");
 }
-std::string property(const Properties& p, std::string_view name) {
-    auto it = p.find(name); return it == p.end() ? std::string{} : it->second;
+std::string_view property(const Properties& p, std::string_view name) {
+    auto it = p.find(name); return it == p.end() ? std::string_view{} : std::string_view(it->second);
 }
 bool space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f'; }
 
@@ -161,10 +165,10 @@ lxb_status_t serialize(const lxb_char_t* data, size_t length, void* context) {
     catch (...) { return LXB_STATUS_ERROR_MEMORY_ALLOCATION; }
     return LXB_STATUS_OK;
 }
+struct Declaration { std::string_view value; uint32_t specificity; size_t offset; };
 struct DeclarationCollector {
-    Properties properties;
+    std::map<std::string_view,Declaration,std::less<>> declarations;
     std::unordered_map<const lxb_css_rule_declaration_t*, std::pair<std::string,std::string>>& cache;
-    std::map<std::string,std::pair<uint32_t,size_t>,std::less<>> ranks;
 };
 lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* value, void* context,
                          lxb_css_selector_specificity_t specificity, bool) {
@@ -181,33 +185,33 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
         // __UNDEF id, so a later declaration for one property evicts earlier ones into the weak
         // chain. Rank every callback, including weak ones, to recover the real winner per name.
         const std::pair<uint32_t,size_t> rank{specificity,value->offset.name_begin};
-        if (auto found = collector.ranks.find(it->second.first); found != collector.ranks.end() && !(found->second < rank))
+        auto found = collector.declarations.find(it->second.first);
+        if (found != collector.declarations.end() && !(std::pair{found->second.specificity,found->second.offset} < rank))
             return LXB_STATUS_OK;
-        collector.properties[it->second.first] = it->second.second;
-        collector.ranks[it->second.first] = rank;
+        collector.declarations[it->second.first] = {it->second.second, rank.first, rank.second};
         return LXB_STATUS_OK;
     } catch (...) { return LXB_STATUS_ERROR; }
 }
 void expand_spacing(Properties& computed,const DeclarationCollector& collector) {
     for(std::string_view group:{"margin","padding"}) {
-        std::vector<std::pair<std::pair<uint32_t,size_t>,std::string>> ordered;
-        for(const auto& [name,rank]:collector.ranks)if(name==group || name.starts_with(std::string(group)+"-"))ordered.emplace_back(rank,name);
+        std::vector<std::pair<std::pair<uint32_t,size_t>,std::string_view>> ordered;
+        for(const auto& [name,decl]:collector.declarations)if(name==group || (name.size()>group.size() && name.starts_with(group) && name[group.size()]=='-'))ordered.emplace_back(std::pair{decl.specificity,decl.offset},name);
         std::sort(ordered.begin(),ordered.end());
         std::array<std::string,4> sides{};
         const bool rtl=property(computed,"direction")=="rtl";
         for(const auto& [rank,name]:ordered) {
             const auto value=property(computed,name);if(value.empty())continue;
-            std::vector<std::string> tokens;
+            std::vector<std::string_view> tokens;
             size_t at=0;
             while(at<value.size()) {
                 while(at<value.size() && space(value[at]))++at;
                 const auto first=at;unsigned depth=0;
                 for(;at<value.size();++at){if(value[at]=='(')++depth;if(value[at]==')' && depth)--depth;if(space(value[at]) && depth==0)break;}
-                if(at>first)tokens.push_back(value.substr(first,at-first));
+                if(at>first)tokens.emplace_back(value.substr(first,at-first));
             }
             if(tokens.empty() || tokens.size()>4)continue;
             auto assign=[&](unsigned side,unsigned token){sides[side]=tokens[std::min<size_t>(token,tokens.size()-1)];};
-            const auto suffix=std::string_view(name).substr(group.size());
+            const auto suffix=name.substr(group.size());
             if(suffix.empty()) {assign(0,0);assign(1,tokens.size()>1?1:0);assign(2,tokens.size()>2?2:0);assign(3,tokens.size()>3?3:tokens.size()>1?1:0);}
             else if(suffix=="-top")assign(0,0);else if(suffix=="-right")assign(1,0);else if(suffix=="-bottom")assign(2,0);else if(suffix=="-left")assign(3,0);
             else if(suffix=="-block"){assign(0,0);assign(2,1);}
@@ -216,7 +220,7 @@ void expand_spacing(Properties& computed,const DeclarationCollector& collector) 
             else if(suffix=="-inline-start")assign(rtl?1:3,0);else if(suffix=="-inline-end")assign(rtl?3:1,0);
         }
         if(ordered.empty())continue;
-        for(const auto& [rank,name]:ordered)computed.erase(name);
+        for(const auto& [rank,name]:ordered)if(auto found=computed.find(name);found!=computed.end())computed.erase(found);
         constexpr std::string_view names[]{"-top","-right","-bottom","-left"};
         for(unsigned i=0;i<4;++i)if(!sides[i].empty())computed[std::string(group)+std::string(names[i])]=std::move(sides[i]);
     }
@@ -237,9 +241,9 @@ std::vector<std::string> css_words(std::string_view value) {
     return words;
 }
 void expand_borders(Properties& computed,const DeclarationCollector& collector) {
-    std::vector<std::pair<std::pair<uint32_t,size_t>,std::string>> ordered;
-    for(const auto& [name,rank]:collector.ranks)
-        if(name=="border" || (name.starts_with("border-") && name.find("radius")==name.npos))ordered.emplace_back(rank,name);
+    std::vector<std::pair<std::pair<uint32_t,size_t>,std::string_view>> ordered;
+    for(const auto& [name,decl]:collector.declarations)
+        if(name=="border" || (name.starts_with("border-") && name.find("radius")==name.npos))ordered.emplace_back(std::pair{decl.specificity,decl.offset},name);
     if(ordered.empty())return;
     std::sort(ordered.begin(),ordered.end());
     struct Side {std::string width="medium",style="none",color="currentcolor";};
@@ -247,7 +251,7 @@ void expand_borders(Properties& computed,const DeclarationCollector& collector) 
     constexpr std::string_view names[]{"top","right","bottom","left"};
     for(const auto& [rank,name]:ordered) {
         const auto value=property(computed,name);auto tokens=css_words(value);if(tokens.empty())continue;
-        std::string_view suffix=name=="border"?std::string_view{}:std::string_view(name).substr(7);
+        std::string_view suffix=name=="border"?std::string_view{}:name.substr(7);
         int side=-1;
         for(int i=0;i<4;++i)if(suffix==names[i] || suffix.starts_with(std::string(names[i])+"-")) {
             side=i;suffix=suffix.size()==names[i].size()?std::string_view{}:suffix.substr(names[i].size()+1);break;
@@ -330,16 +334,45 @@ struct RuleCandidate {
     lxb_css_rule_style_t* rule;
     std::vector<std::vector<std::string>> alternatives;
 };
+struct GeneratedRule { size_t candidate; lxb_css_selector_list_t* list; };
 struct dc_stylesheets {
+    std::atomic<uint32_t> refs{1};
     lxb_css_parser_t* parser = nullptr;
     std::vector<lxb_css_stylesheet_t*> sheets;
     std::vector<uint64_t> unsupported_rules;
     std::vector<std::vector<RuleCandidate>> candidates;
+    std::vector<std::vector<GeneratedRule>> generated;
     bool verify_candidates = false;
     ~dc_stylesheets() {
         for (auto* sheet : sheets) lxb_css_stylesheet_destroy(sheet, true);
         if (parser) lxb_css_parser_destroy(parser, true);
     }
+};
+/* A popup open parses the same stylesheet set once per preparation worker, and
+   again on every later open. The parsed sheets are read-only while compiling and
+   are never referenced by a prepared document, so they can be kept and shared. */
+void release_sheets(dc_stylesheets* sheets) {
+    if(sheets && sheets->refs.fetch_sub(1)==1) delete sheets;
+}
+uint64_t stylesheet_key(const dc_css_source* sources,size_t count) {
+    uint64_t hash=14695981039346656037ull;
+    auto mix=[&](const void* data,size_t size) {
+        auto* p=static_cast<const uint8_t*>(data);
+        for(size_t i=0;i<size;++i){hash^=p[i];hash*=1099511628211ull;}
+    };
+    mix(&count,sizeof count);
+    for(size_t i=0;i<count;++i){mix(&sources[i].bytes,sizeof sources[i].bytes);mix(sources[i].utf8,sources[i].bytes);}
+    return hash;
+}
+struct SheetCache {
+    std::mutex mutex;
+    std::vector<std::pair<uint64_t,dc_stylesheets*>> entries;
+    ~SheetCache() { for(auto& entry:entries) release_sheets(entry.second); }
+};
+SheetCache& sheet_cache() { static SheetCache cache; return cache; }
+struct StyleInfo {
+    std::string_view display, white_space, list_style_type;
+    int8_t box_extra = -1; /* -1 unknown, 0 none, 1 non-zero box property */
 };
 struct dc_prepared_document {
     std::string text;
@@ -355,16 +388,45 @@ struct dc_prepared_document {
     std::vector<dc_image_input> images;
     std::vector<dc_inline_box> inline_boxes;
     std::vector<Properties> computed;
+    std::unique_ptr<dictionary_core::ResolvedStyles> resolved;
+    std::vector<StyleInfo> info;
+    std::vector<float> font_sizes;
     std::unordered_map<std::string, uint32_t> interned;
     std::unordered_map<std::string, uint32_t> resolved_styles;
+    float box_extra_base = -1;
+    bool has_box_extra(uint32_t style, float base) {
+        if (box_extra_base != base) { for (auto& i : info) i.box_extra = -1; box_extra_base = base; }
+        auto& flag = info[style].box_extra;
+        if (flag < 0) {
+            const auto& props = computed[style];
+            const float font = styles[style].font_size_px;
+            flag = 0;
+            for (const auto& p : props) {
+                if(p.second.empty() || p.second=="none" || p.second=="transparent" || p.second=="auto" ||
+                    p.second=="baseline")continue;
+                const bool box=p.first.starts_with("background") || p.first=="border" ||
+                    p.first=="border-width" || p.first=="border-radius" || p.first.starts_with("padding") ||
+                    p.first.starts_with("margin") || p.first=="vertical-align";
+                if(!box)continue;
+                // Universal zero spacing resets must not split every otherwise mergeable text run.
+                const auto numeric=CssNumeric(p.second,font,base>0?base:16.f,1).evaluate(false);
+                if(!numeric || *numeric!=0) { flag = 1; break; }
+            }
+        }
+        return flag != 0;
+    }
     uint64_t elements = 0, unresolved = 0, unsupported = 0;
     size_t source_count = 0;
     float base_font_size_px = 16;
     uint32_t save(std::string_view s) { auto at = checked_index(text.size()); text.append(s); return at; }
-    uint32_t intern(Properties properties, float size) {
+    uint32_t intern(Properties properties, float size, float computed_size) {
         std::string key=std::to_string(size)+";";
+        key.reserve(1024);
+        char digits[24];
+        auto put=[&](size_t n) { auto r=std::to_chars(digits,digits+sizeof digits,n); key.append(digits,r.ptr); };
         for (const auto& [name,value] : properties) {
-            key += std::to_string(name.size()) + ":" + name + std::to_string(value.size()) + ":" + value;
+            put(name.size()); key.push_back(':'); key.append(name);
+            put(value.size()); key.push_back(':'); key.append(value);
         }
         if (auto found = interned.find(key); found != interned.end()) return found->second;
         const auto index = checked_index(styles.size());
@@ -374,7 +436,9 @@ struct dc_prepared_document {
             this->properties.push_back({save(name),checked_index(name.size()),save(value),checked_index(value.size())});
         }
         styles.push_back({first,checked_index(this->properties.size())-first,size});
+        font_sizes.push_back(computed_size);
         computed.push_back(std::move(properties));
+        info.push_back({property(computed.back(),"display"),property(computed.back(),"white-space"),property(computed.back(),"list-style-type"),-1});
         interned.emplace(std::move(key), index);
         return index;
     }
@@ -425,7 +489,7 @@ struct SourceCompiler {
             }
             return;
         }
-        const auto whitespace = property(output.computed[style], "white-space");
+        const auto whitespace = output.info[style].white_space;
         const bool preserve = whitespace == "pre" || whitespace == "pre-wrap" || whitespace == "break-spaces";
         std::string normalized;
         if (forced_break || preserve) normalized = text;
@@ -469,24 +533,31 @@ struct SourceCompiler {
         ++p.run_count;
     }
     void resolve_styles() {
+        std::string signature;
+        char digits[24];
         for (auto& node : elements) {
             DeclarationCollector collector{{},declaration_cache};
-            require_status(lxb_dom_element_style_walk(node.dom, declaration, &collector, false), "CSS cascade extraction failed");
+            if (node.dom->style)
+                require_status(lxb_dom_element_style_walk(node.dom, declaration, &collector, false), "CSS cascade extraction failed");
             const auto parent_style = node.parent == none ? none : elements[node.parent].style;
-            std::string signature = std::to_string(parent_style) + ":" + node.tag + (node.sizing_only?":sizing;":";");
-            for (const auto& [name,value] : collector.properties)
+            signature.clear();
+            signature.reserve(256);
+            auto put=[&](size_t n) { auto r=std::to_chars(digits,digits+sizeof digits,n); signature.append(digits,r.ptr); };
+            put(parent_style); signature.push_back(':'); signature.append(node.tag);
+            signature += node.sizing_only ? ":sizing;" : ";";
+            for (const auto& [name,decl] : collector.declarations)
             {
-                signature += std::to_string(name.size()) + ":" + name + std::to_string(value.size()) + ":" + value;
+                put(name.size()); signature.push_back(':'); signature.append(name);
+                put(decl.value.size()); signature.push_back(':'); signature.append(decl.value);
                 if(name.starts_with("margin") || name.starts_with("padding")) {
-                    const auto rank=collector.ranks.at(name);
-                    signature += "@"+std::to_string(rank.first)+":"+std::to_string(rank.second);
+                    signature.push_back('@'); put(decl.specificity); signature.push_back(':'); put(decl.offset);
                 }
             }
             if (auto found = output.resolved_styles.find(signature); found != output.resolved_styles.end()) {
                 node.style = found->second;
-                node.computed_font_size=font_size(property(output.computed[node.style],"font-size"),output.base_font_size_px,output.base_font_size_px,output.unresolved);
+                node.computed_font_size = output.font_sizes[node.style];
                 if(node.parent==none)output.base_font_size_px=node.computed_font_size;
-                node.hidden = node.disclosure_hidden || (node.parent != none && elements[node.parent].hidden) || property(output.computed[node.style],"display") == "none";
+                node.hidden = node.disclosure_hidden || (node.parent != none && elements[node.parent].hidden) || output.info[node.style].display == "none";
                 ++output.elements;
                 continue;
             }
@@ -498,30 +569,31 @@ struct SourceCompiler {
                 for (const auto& [name,value] : output.computed[parent.style]) if (inherited(name)) computed[name] = value;
                 node.hidden = node.disclosure_hidden || parent.hidden;
             }
-            for (auto& [name,value] : collector.properties) {
+            for (const auto& [name,decl] : collector.declarations) {
+                const auto value = decl.value;
                 if (value == "inherit" || (value == "unset" && inherited(name))) {
                     if(node.parent != none) {
                         const auto& parent = output.computed[elements[node.parent].style];
-                        if(auto found = parent.find(name); found != parent.end()) computed[name] = found->second;
+                        if(auto found = parent.find(name); found != parent.end()) computed[std::string(name)] = found->second;
                     }
                     continue;
                 }
-                if(value == "initial" || value == "unset") { computed.erase(name); continue; }
-                computed[name] = std::move(value);
+                if(value == "initial" || value == "unset") { if(auto found=computed.find(name);found!=computed.end())computed.erase(found); continue; }
+                computed[std::string(name)] = value;
             }
-            if(!collector.properties.contains("font-weight") && (node.tag=="b" || node.tag=="strong" || node.tag=="th"))computed["font-weight"]="bold";
-            if(!collector.properties.contains("font-style") && (node.tag=="i" || node.tag=="em"))computed["font-style"]="italic";
-            if(!collector.properties.contains("text-decoration") && node.tag=="u")computed["text-decoration"]="underline";
+            if(!collector.declarations.contains("font-weight") && (node.tag=="b" || node.tag=="strong" || node.tag=="th"))computed["font-weight"]="bold";
+            if(!collector.declarations.contains("font-style") && (node.tag=="i" || node.tag=="em"))computed["font-style"]="italic";
+            if(!collector.declarations.contains("text-decoration") && node.tag=="u")computed["text-decoration"]="underline";
             if(!computed.contains("display"))computed["display"]=default_display(node.tag);
-            if(!collector.properties.contains("list-style-type") && (node.tag=="ul" || node.tag=="ol"))computed["list-style-type"]=node.tag=="ol"?"decimal":"disc";
-            if(node.tag=="summary" && !collector.properties.contains("list-style-position"))computed["list-style-position"]="inside";
+            if(!collector.declarations.contains("list-style-type") && (node.tag=="ul" || node.tag=="ol"))computed["list-style-type"]=node.tag=="ol"?"decimal":"disc";
+            if(node.tag=="summary" && !collector.declarations.contains("list-style-position"))computed["list-style-position"]="inside";
             for (auto& [name,value] : computed) if (!name.starts_with("--") && value.find("var(") != value.npos)
                 value = resolve_vars(value, computed, 0, output.unresolved);
             expand_spacing(computed,collector);
             expand_borders(computed,collector);
             // Relative font sizes resolve only on the element that specifies them.
             float size = parent_size;
-            if (collector.properties.contains("font-size")) size = font_size(property(computed,"font-size"),parent_size,output.base_font_size_px,output.unresolved);
+            if (collector.declarations.contains("font-size")) size = font_size(property(computed,"font-size"),parent_size,output.base_font_size_px,output.unresolved);
             else if(node.tag=="rt")size=parent_size*.5f;
             else if(node.tag=="small")size=parent_size*.8f;
             else if(node.tag=="sup" || node.tag=="sub")size=parent_size*.75f;
@@ -530,15 +602,16 @@ struct SourceCompiler {
             node.computed_font_size=size;
             if(node.parent==none)output.base_font_size_px=size;
             const float used_size=size>0 && !node.sizing_only?std::max(size,options.minimum_font_size_px):size;
-            if(node.tag=="rt" && !collector.properties.contains("line-height"))computed["line-height"]="normal";
+            if(node.tag=="rt" && !collector.declarations.contains("line-height"))computed["line-height"]="normal";
             computed["font-size"] = std::to_string(size) + "px";
             node.hidden = node.hidden || property(computed,"display") == "none";
-            node.style = output.intern(std::move(computed), used_size);
+            node.style = output.intern(std::move(computed), used_size, size);
             output.resolved_styles.emplace(std::move(signature), node.style);
             ++output.elements;
         }
     }
-    void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates, bool verify_candidates) {
+    void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
+        const std::vector<GeneratedRule>& generated_rules, bool verify_candidates) {
         structured_line_breaks=range.json;
         Dom doc;
         auto* body = lxb_dom_interface_element(lxb_html_document_body_element(doc.value));
@@ -645,13 +718,13 @@ struct SourceCompiler {
             const bool disclosure_hidden = parent.disclosure_hidden || (closed && tag != "summary");
             elements.push_back({node,stack.back(),op.token,0,tag,false,disclosure_hidden}); stack.push_back(id); operation_elements.push_back(id);
         }
-        std::unordered_set<std::string> present;
+        std::unordered_set<std::string_view> present;
         for(const auto& node:elements) {
             size_t size=0;const auto* tag=lxb_dom_element_local_name(node.dom,&size);
-            present.emplace("t:"+std::string(reinterpret_cast<const char*>(tag),size));
+            present.emplace(reinterpret_cast<const char*>(tag),size);
             for(auto* attr=lxb_dom_element_first_attribute(node.dom);attr;attr=lxb_dom_element_next_attribute(attr)) {
                 const auto* name=lxb_dom_attr_local_name(attr,&size);
-                present.emplace("a:"+std::string(reinterpret_cast<const char*>(name),size));
+                present.emplace(reinterpret_cast<const char*>(name),size);
             }
             const auto* classes=lxb_dom_element_get_attribute(node.dom,bytes("class"),5,&size);
             if(classes) {
@@ -660,16 +733,16 @@ struct SourceCompiler {
                 while(at<value.size()) {
                     while(at<value.size() && space(value[at]))++at;
                     const auto first=at;while(at<value.size() && !space(value[at]))++at;
-                    if(at>first)present.emplace("c:"+std::string(value.substr(first,at-first)));
+                    if(at>first)present.emplace(value.substr(first,at-first));
                 }
             }
             const auto* id=lxb_dom_element_get_attribute(node.dom,bytes("id"),2,&size);
-            if(id)present.emplace("i:"+std::string(reinterpret_cast<const char*>(id),size));
+            if(id)present.emplace(reinterpret_cast<const char*>(id),size);
         }
         for(const auto& candidate:candidates) {
             bool possible=false;
             for(const auto& required:candidate.alternatives) {
-                if(std::all_of(required.begin(),required.end(),[&](const auto& key){return present.contains(key);})) {possible=true;break;}
+                if(std::all_of(required.begin(),required.end(),[&](const auto& key){return present.contains(std::string_view(key).substr(2));})) {possible=true;break;}
             }
             if(possible) {
                 require_status(lxb_dom_document_style_attach(lxb_dom_interface_document(doc.value),candidate.rule),"CSS matching failed");
@@ -683,12 +756,12 @@ struct SourceCompiler {
         // Match pseudo-elements against their originating elements without adding
         // DOM children (which would change :empty and structural selectors).
         std::unordered_map<lxb_dom_element_t*,uint32_t> element_ids;
-        for(uint32_t i=0;i<elements.size();++i)element_ids.emplace(elements[i].dom,i);
-        for(const auto& candidate:candidates)for(auto* list=candidate.rule->selector;list;list=list->next) {
+        if(!generated_rules.empty())for(uint32_t i=0;i<elements.size();++i)element_ids.emplace(elements[i].dom,i);
+        for(const auto& entry:generated_rules) {
+            const auto& candidate=candidates[entry.candidate];
+            auto* list=entry.list;
             const auto* pseudo=list->last;
-            if(!pseudo || pseudo->type!=LXB_CSS_SELECTOR_TYPE_ATTRIBUTE || !candidate.rule->declarations)continue;
             const std::string_view pseudo_name(reinterpret_cast<const char*>(pseudo->name.data),pseudo->name.length);
-            if(pseudo_name!="data-dc-generated-before" && pseudo_name!="data-dc-generated-after")continue;
             std::vector<lxb_css_selector_t> selectors;
             for(auto* selector=list->first;selector!=pseudo;selector=selector->next)selectors.push_back(*selector);
             auto owner_list=*list;owner_list.next=owner_list.prev=nullptr;
@@ -746,7 +819,7 @@ struct SourceCompiler {
         std::vector<bool> block_descendants(elements.size(),false);
         for(size_t i=elements.size();i-->0;) {
             if(elements[i].hidden || elements[i].parent==none)continue;
-            const auto display=property(output.computed[elements[i].style],"display");
+            const auto display=output.info[elements[i].style].display;
             const bool block=display!="inline" && display!="inline-block" && display!="inline-flex" &&
                 display!="flex" && display!="ruby" && display!="ruby-text" && display!="contents";
             if(block || block_descendants[i])block_descendants[elements[i].parent]=true;
@@ -767,7 +840,7 @@ struct SourceCompiler {
                 add_text(input.value(op.token),node.style,node.tag == "rt" || reading_start != none ? 2 : ruby != none ? 1 : 0);
                 continue;
             }
-            const auto display = property(output.computed[node.style],"display");
+            const auto display = output.info[node.style].display;
             bool inline_flex=false;
             if(display=="flex") {
                 unsigned items=0;bool text_item=false;
@@ -780,7 +853,7 @@ struct SourceCompiler {
                     }
                 }
                 if(items==1)for(auto ancestor=node.parent;ancestor!=none;ancestor=elements[ancestor].parent) {
-                    const auto ancestor_display=property(output.computed[elements[ancestor].style],"display");
+                    const auto ancestor_display=output.info[elements[ancestor].style].display;
                     if(ancestor_display=="inline-block" || ancestor_display=="inline-flex"){inline_flex=true;break;}
                     if(ancestor_display!="inline" && ancestor_display!="ruby" && ancestor_display!="ruby-text")break;
                 }
@@ -789,19 +862,8 @@ struct SourceCompiler {
             const bool block = !inline_flex && (container || (display != "inline" && display != "inline-block" && display != "inline-flex" && display != "ruby" && display != "ruby-text"));
             if (op.kind == OpKind::open || op.kind == OpKind::reading_open) {
                 if (display == "flex" || display == "grid") ++output.unsupported;
-                const auto& props=output.computed[node.style];
                 const bool inline_box=!block && (display=="inline" || display=="inline-block" || display=="inline-flex" || inline_flex) &&
-                    (display=="inline-block" || display=="inline-flex" || std::any_of(props.begin(),props.end(),[&](const auto& p) {
-                        if(p.second.empty() || p.second=="none" || p.second=="transparent" || p.second=="auto" ||
-                            p.second=="baseline")return false;
-                        const bool box=p.first.starts_with("background") || p.first=="border" ||
-                            p.first=="border-width" || p.first=="border-radius" || p.first.starts_with("padding") ||
-                            p.first.starts_with("margin") || p.first=="vertical-align";
-                        if(!box)return false;
-                        // Universal zero spacing resets must not split every otherwise mergeable text run.
-                        const auto numeric=CssNumeric(p.second,output.styles[node.style].font_size_px,output.base_font_size_px>0?output.base_font_size_px:16.f,1).evaluate(false);
-                        return !numeric || *numeric!=0;
-                    }));
+                    (display=="inline-block" || display=="inline-flex" || output.has_box_extra(node.style,output.base_font_size_px));
                 owners.push_back({cell,row,table,ruby,block_style,marker_owner,checked_index(output.runs.size()),block,inline_box});
                 if(inline_box)merge_barrier=true;
                 if (block) flush();
@@ -809,7 +871,7 @@ struct SourceCompiler {
                 if (block && !structural) output.flow.push_back({2,node.style,source,cell});
                 if (block) block_style = node.style;
                 if(display=="list-item") {
-                    const auto type=property(output.computed[node.style],"list-style-type");
+                    const auto type=output.info[node.style].list_style_type;
                     if(type!="none") {
                         if(node.tag=="summary") {
                             size_t open_size=0;
@@ -899,6 +961,15 @@ int dc_stylesheets_create(const dc_css_source* sources,size_t count,dc_styleshee
     if(error) *error={};
     try {
         if(!output || (!sources && count)) throw std::invalid_argument("Invalid stylesheet arguments");
+        const auto key=stylesheet_key(sources,count);
+        {
+            std::lock_guard<std::mutex> lock(sheet_cache().mutex);
+            for(auto& entry:sheet_cache().entries)if(entry.first==key) {
+                ++entry.second->refs;
+                *output=entry.second;
+                return 0;
+            }
+        }
         auto result=std::make_unique<dc_stylesheets>();
         result->parser=lxb_css_parser_create();
         if(!result->parser) throw std::bad_alloc();
@@ -920,9 +991,16 @@ int dc_stylesheets_create(const dc_css_source* sources,size_t count,dc_styleshee
             }
             uint64_t unsupported = 0;
             std::vector<RuleCandidate> candidates;
+            std::vector<GeneratedRule> generated;
             for (auto* rule = lxb_css_rule_list(sheet->root)->first; rule; rule = rule->next) {
                 if (rule->type != LXB_CSS_RULE_STYLE) { ++unsupported; continue; }
                 RuleCandidate candidate{lxb_css_rule_style(rule),{}};
+                if(candidate.rule->declarations) for(auto* list=candidate.rule->selector;list;list=list->next) {
+                    const auto* pseudo=list->last;
+                    if(!pseudo || pseudo->type!=LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)continue;
+                    const std::string_view name(reinterpret_cast<const char*>(pseudo->name.data),pseudo->name.length);
+                    if(name=="data-dc-generated-before" || name=="data-dc-generated-after")generated.push_back({candidates.size(),list});
+                }
                 for(auto* list=candidate.rule->selector;list;list=list->next) {
                     std::vector<std::string> required;
                     for(auto* selector=list->first;selector;selector=selector->next) {
@@ -944,13 +1022,31 @@ int dc_stylesheets_create(const dc_css_source* sources,size_t count,dc_styleshee
                 candidates.push_back(std::move(candidate));
             }
             result->candidates.push_back(std::move(candidates));
+            result->generated.push_back(std::move(generated));
             result->unsupported_rules.push_back(unsupported);
         }
-        *output=result.release(); return 0;
+        {
+            std::lock_guard<std::mutex> lock(sheet_cache().mutex);
+            for(auto& entry:sheet_cache().entries)if(entry.first==key) {
+                ++entry.second->refs;
+                release_sheets(result.release());
+                *output=entry.second;
+                return 0;
+            }
+            if(sheet_cache().entries.size()>=4) {
+                release_sheets(sheet_cache().entries.front().second);
+                sheet_cache().entries.erase(sheet_cache().entries.begin());
+            }
+            auto* created=result.release();
+            ++created->refs;
+            sheet_cache().entries.emplace_back(key,created);
+            *output=created;
+            return 0;
+        }
     } catch(const std::exception& e) { failure(error,e);return 1; }
     catch(...) { if(error) std::snprintf(error->message,sizeof(error->message),"Unknown native CSS failure"); return 1; }
 }
-void dc_stylesheets_destroy(dc_stylesheets* sheets) { delete sheets; }
+void dc_stylesheets_destroy(dc_stylesheets* sheets) { release_sheets(sheets); }
 void dc_stylesheets_verify_candidates(dc_stylesheets* sheets,int enabled) { if(sheets)sheets->verify_candidates=enabled!=0; }
 int dc_compile_styled(const dc_document* input,dc_stylesheets* sheets,const uint32_t* indices,size_t count,dc_prepared_document** output,dc_error* error) {
     const dc_compile_options options{16.f,0,0,8.f};
@@ -970,8 +1066,9 @@ int dc_compile_styled_configured(const dc_document* input,dc_stylesheets* sheets
             if(indices[i]>=sheets->sheets.size()) throw std::out_of_range("Invalid stylesheet index");
             result->unsupported += sheets->unsupported_rules[indices[i]];
             SourceCompiler compiler{input->storage,*result,static_cast<uint32_t>(i),*options};
-            compiler.compile(input->storage.sources[i],sheets->candidates[indices[i]],sheets->verify_candidates);
+            compiler.compile(input->storage.sources[i],sheets->candidates[indices[i]],sheets->generated[indices[i]],sheets->verify_candidates);
         }
+        result->resolved=std::make_unique<dictionary_core::ResolvedStyles>(dc_prepared_document_view(result.get()));
         *output=result.release();return 0;
     } catch(const std::exception& e) { failure(error,e);return 1; }
     catch(...) { if(error) std::snprintf(error->message,sizeof(error->message),"Unknown native lowering failure"); return 1; }
@@ -1001,3 +1098,6 @@ uint64_t dc_prepared_document_digest(const dc_prepared_document* d) {
     return hash;
 }
 void dc_prepared_document_destroy(dc_prepared_document* document) { delete document; }
+const dictionary_core::ResolvedStyles &dictionary_core::resolved_styles(const dc_prepared_document *document) {
+    return *document->resolved;
+}

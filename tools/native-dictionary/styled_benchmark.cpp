@@ -108,7 +108,6 @@ int main(int argc,char** argv) {
             auto start=Clock::now();
             check(!dc_stylesheets_create(sheets.data(),sheets.size(),&context,&error),error.message);
             const auto css_ms=ms(start);
-            std::unique_ptr<dc_stylesheets,decltype(&dc_stylesheets_destroy)> owner(context,dc_stylesheets_destroy);
             std::vector<std::string> texts; std::vector<uint32_t> indices;
             std::set<std::pair<std::string,std::string>> seen;
             for(const auto& result:entry["results"].GetArray()) for(const auto& gloss:result["term"]["glossaries"].GetArray()) {
@@ -123,7 +122,8 @@ int main(int argc,char** argv) {
             uint64_t expected=0,expected_geometry=0; dc_prepared_view view{};
             size_t runs=0,paragraphs=0,rubies=0,tables=0,styles=0; uint64_t unresolved=0,unsupported=0,input_rubies=0;
             uint64_t prepares=0,wraps=0,layout_unresolved=0;size_t placed=0,placed_cells=0;
-            size_t commands_count=0,hits_count=0,requests_count=0;uint64_t drawing_lines=0;
+            size_t commands_count=0,hits_count=0,requests_count=0,shaping_count=0;uint64_t drawing_lines=0;
+            std::unique_ptr<dc_stylesheets,decltype(&dc_stylesheets_destroy)> owner(context,dc_stylesheets_destroy);
             for(int pass=-3;pass<iterations;++pass) {
                 dc_stylesheets_verify_candidates(context,pass==-3);
 #ifdef DC_WINDOWS_TEXT_ENGINE
@@ -162,7 +162,7 @@ int main(int argc,char** argv) {
                     }
                     check(!expected_geometry || expected_geometry==digest,"Nondeterministic native drawing commands");expected_geometry=digest;
                     prepares=dc_prepared_document_view(prepared).paragraph_count;wraps=prepares;placed=prepares;placed_cells=dc_prepared_document_view(prepared).cell_count;
-                    commands_count=drawn.command_count;hits_count=drawn.hit_count;requests_count=drawn.request_count;drawing_lines=drawn.lines;
+                    commands_count=drawn.command_count;hits_count=drawn.hit_count;requests_count=drawn.request_count;shaping_count=drawn.shaping_run_count;drawing_lines=drawn.lines;
 #endif
                 } else if(with_layout) {
                     std::vector<float> widths(sources.size(),256.f);dc_layout_document* positioned=nullptr;
@@ -198,7 +198,7 @@ int main(int argc,char** argv) {
                 <<",\"rubies\":"<<rubies<<",\"tables\":"<<tables<<",\"styles\":"<<styles
                 <<",\"input_rubies\":"<<input_rubies
                 <<",\"drawing_enabled\":"<<(with_commands?"true":"false")<<",\"drawing_commands\":"<<commands_count<<",\"hit_regions\":"<<hits_count<<",\"measurement_requests\":"<<requests_count<<",\"drawing_lines\":"<<drawing_lines
-                <<",\"drawing_input_ms\":"<<median(drawing_input_samples)<<",\"platform_measure_ms\":"<<median(drawing_measure_samples)<<",\"drawing_finish_ms\":"<<median(drawing_finish_samples)
+                <<",\"shaping_runs\":"<<shaping_count<<",\"drawing_input_ms\":"<<median(drawing_input_samples)<<",\"platform_measure_ms\":"<<median(drawing_measure_samples)<<",\"drawing_finish_ms\":"<<median(drawing_finish_samples)
                 <<",\"unresolved_values\":"<<unresolved<<",\"unsupported_features\":"<<unsupported
                 <<",\"digest\":\""<<expected<<"\",\"geometry_digest\":\""<<expected_geometry<<"\",\"validated\":true,\"total_samples_ms\":[";
             for(size_t i=0;i<total.size();++i){if(i)std::cout<<',';std::cout<<total[i];}

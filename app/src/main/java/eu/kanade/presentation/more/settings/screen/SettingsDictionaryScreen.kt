@@ -675,7 +675,6 @@ object SettingsDictionaryScreen : SearchableSettings {
                     entries = persistentListOf(
                         DictionaryPreferences.RENDERER_WEBVIEW to "WebView (default)",
                         DictionaryPreferences.RENDERER_COMPOSE to "Compose (native)",
-                        DictionaryPreferences.RENDERER_PLAIN_TEXT to "Plain Text",
                     ).filter { (renderer, _) ->
                         DictionaryPreferences.supportsNativeRenderer || renderer == DictionaryPreferences.RENDERER_WEBVIEW
                     }.associate { it.first to it.second }.toPersistentMap(),

@@ -123,11 +123,12 @@ class DictionaryPreferences(
 
     fun customCss() = preferenceStore.getString("pref_dictionary_custom_css", "")
 
-    /** One of [RENDERER_WEBVIEW] (default), [RENDERER_COMPOSE], or [RENDERER_PLAIN_TEXT]. */
+    /** One of [RENDERER_WEBVIEW] (default) or [RENDERER_COMPOSE]. */
     private val rendererPreference by lazy {
         val stored = if (eu.kanade.tachiyomi.BuildConfig.NATIVE_RENDERER_DIAGNOSTICS) {
             preferenceStore.getString("pref_dictionary_renderer_native_diagnostics", RENDERER_COMPOSE)
         } else preferenceStore.getString("pref_dictionary_renderer", RENDERER_WEBVIEW)
+        if (stored.get() == "plain_text") stored.set(if (supportsNativeRenderer) RENDERER_COMPOSE else RENDERER_WEBVIEW)
         if (supportsNativeRenderer) stored else object : Preference<String> by stored {
             override fun get() = RENDERER_WEBVIEW
             override fun defaultValue() = RENDERER_WEBVIEW
@@ -337,7 +338,6 @@ class DictionaryPreferences(
         const val RENDERER_WEBVIEW = "webview"
         val supportsNativeRenderer: Boolean get() = Build.VERSION.SDK_INT >= 29
         const val RENDERER_COMPOSE = "compose"
-        const val RENDERER_PLAIN_TEXT = "plain_text"
     }
 
     // -------------------------------------------------------------------------
