@@ -766,8 +766,7 @@ data object DictionaryTab : Tab {
 
             if (shouldMountResults) {
                 val renderer by dictionaryPreferences.renderer().collectAsState()
-                val plainText = renderer == DictionaryPreferences.RENDERER_PLAIN_TEXT
-                if (renderer == DictionaryPreferences.RENDERER_COMPOSE || plainText) {
+                if (renderer == DictionaryPreferences.RENDERER_COMPOSE) {
                     DictionaryEntryCompose(
                         results = results,
                         styles = styles,
@@ -797,7 +796,6 @@ data object DictionaryTab : Tab {
                         onTabSelect = stableTabSelect,
                         onBack = stableBack,
                         isLoading = isLoading,
-                        usePlainTextBody = plainText,
                         resultsAreOrdered = true,
                         modifier = Modifier.fillMaxWidth().weight(1f),
                     )

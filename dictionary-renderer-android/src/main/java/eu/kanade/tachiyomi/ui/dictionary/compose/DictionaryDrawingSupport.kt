@@ -150,6 +150,7 @@ public fun extractQuery(href: String): String? {
 }
 
 public fun resolveMediaUri2(dictName: String, path: String, map: Map<String, String>): String? {
+    if (path.startsWith("data:image/")) return path
     if (map.isEmpty()) return null
     val cleaned = path.removePrefix("media://").removePrefix("media:").trimStart('/')
     for (candidate in listOf("$dictName\u0000$path", "$dictName\u0000$cleaned")) {

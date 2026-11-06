@@ -39,13 +39,3 @@ AGENTS.md
 *.patch
 /docs
 /tools
-/dictionary-fidelity/
-/app/src/debug/AndroidManifest.xml
-/app/src/debug/assets/bench/
-/app/src/debug/java/eu/kanade/tachiyomi/ui/dictionary/bench/
-/dictionary-renderer-android/src/test/
-/app/src/test/java/eu/kanade/tachiyomi/ui/dictionary/DictionaryColorSchemeTest.kt
-/app/src/test/java/eu/kanade/tachiyomi/ui/dictionary/bench/LookupReplayDataTest.kt
-/app/src/test/java/eu/kanade/tachiyomi/ui/dictionary/compose/DictionaryCardPreparationTest.kt
-/app/src/test/java/eu/kanade/tachiyomi/ui/dictionary/compose/DictionaryPlanPreparationTest.kt
-/app/src/test/java/eu/kanade/tachiyomi/ui/dictionary/compose/DictionaryPopupRowsTest.kt

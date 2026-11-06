@@ -121,6 +121,7 @@ data class StructuredAttributes(
     val data: Map<String, String> = emptyMap(),
     val style: Map<String, String> = emptyMap(),
     val properties: Map<String, String> = emptyMap(),
+    val nativeCard: NativeCardSource? = null,
 ) {
     companion object {
         val Empty = StructuredAttributes()

@@ -10,6 +10,10 @@ android {
     // the debug harness need no import changes - only the `internal` declarations that they
     // reach became public.
     namespace = "eu.kanade.tachiyomi.ui.dictionary.compose"
+
+    if (providers.gradleProperty("includeLocalDictionaryHarness").orNull == "true") {
+        sourceSets.getByName("test").java.srcDir("../tools/dictionary-harness/tests/renderer/java")
+    }
 }
 
 kotlin {

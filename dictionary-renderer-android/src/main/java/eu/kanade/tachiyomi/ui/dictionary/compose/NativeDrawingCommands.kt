@@ -34,6 +34,8 @@ internal class NativeCommandSurface(
     override val x: Int = 0,
     override val y: Int = 0,
     private val gradients: MutableMap<Int, Shader> = HashMap(),
+    private val headword: String? = null,
+    private val textColor: Int? = null,
 ) : NativeGlossaryItem {
     private val viewport = Rect()
     private val clip = Path()
@@ -50,9 +52,17 @@ internal class NativeCommandSurface(
     }
 
     override fun moved(dx: Int, dy: Int): NativeGlossaryItem = NativeCommandSurface(commands, hits, requests,
-        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x + dx, y + dy, gradients)
+        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x + dx, y + dy, gradients, headword, textColor)
 
-    fun lookupAt(px: Float, py: Float): String? {
+    fun asHeadword(expression: String): NativeCommandSurface = NativeCommandSurface(commands, hits, requests,
+        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x, y, gradients, expression, textColor)
+
+    fun tinted(color: Int): NativeCommandSurface = NativeCommandSurface(commands, hits, requests,
+        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x, y, gradients, headword, color)
+
+    fun lookupAt(px: Float, py: Float): String? = hitAt(px, py)?.lookup
+
+    fun hitAt(px: Float, py: Float): NativeGlossaryHit? {
         val localX = (px - x) / scale
         val localY = (py - y) / scale
         for (index in firstHit + hitCount - 1 downTo firstHit) {
@@ -63,7 +73,13 @@ internal class NativeCommandSurface(
             val request = hits.getInt(at + 4) * 5
             val start = requests[request + 3]
             val count = requests[request + 4]
-            return lookupWordAt(String(characters, start, count), hits.getInt(at + 8) - start)
+            val offset = hits.getInt(at + 8)
+            if (headword != null) {
+                val char = characters[offset]
+                val kanji = Character.UnicodeScript.of(char.code) == Character.UnicodeScript.HAN
+                return NativeGlossaryHit(lookup = if (kanji) char.toString() else headword, kanji = kanji)
+            }
+            return lookupWordAt(String(characters, start, count), offset - start)?.let { NativeGlossaryHit(lookup = it) }
         }
         return null
     }
@@ -114,6 +130,7 @@ internal class NativeCommandSurface(
         val checkpoint = canvas.save()
         try {
             canvas.translate(x.toFloat(), y.toFloat())
+            if (headword != null) canvas.clipRect(0, 0, width, height)
             canvas.scale(scale, scale)
             canvas.getClipBounds(viewport)
             for (index in firstCommand until firstCommand + commandCount) {
@@ -128,7 +145,7 @@ internal class NativeCommandSurface(
                 if (kind == 0) {
                     val request = commands.getInt(at + 8) * 5
                     val font = fonts[commands.getInt(at + 20)].paint
-                    font.color = commands.getInt(at + 44)
+                    font.color = textColor ?: commands.getInt(at + 44)
                     val trimmed = commands.getInt(at + 60) and 16 != 0
                     if (trimmed) font.fontFeatureSettings = "'halt' 1"
                     canvas.drawTextRun(characters, commands.getInt(at + 12), commands.getInt(at + 16),

@@ -1,5 +1,6 @@
 #include "document_layout.h"
 #include "css_numeric.hpp"
+#include "resolved_style.hpp"
 #include <array>
 #include <cstdio>
 #include <limits>
@@ -28,6 +29,7 @@ struct dc_layout_document {
 namespace {
 class Placement {
     dc_prepared_view v;
+    const dictionary_core::ResolvedStyles &resolved;
     dc_layout_document& out;
     dc_error* error;
     std::vector<Flow> source_flows,cell_flows;
@@ -38,18 +40,11 @@ class Placement {
     struct Grid { std::vector<GridCell> cells; std::vector<float> fractions; uint32_t rows=0,columns=0; };
     std::vector<Grid> grids;
     std::string_view property(uint32_t style,std::string_view name) const {
-        if(style>=v.style_count)return {};
-        const auto& s=v.styles[style];
-        for(uint32_t i=0;i<s.property_count;++i) {
-            const auto& p=v.properties[s.first_property+i];
-            if(std::string_view(v.text+p.name_offset,p.name_bytes)==name)return {v.text+p.value_offset,p.value_bytes};
-        }
-        return {};
+        return resolved.property(style,name);
     }
     float length(std::string_view value,uint32_t style,float basis,float fallback=0) {
         if(value.empty() || value=="auto" || value=="normal")return fallback;
-        const float root=v.base_font_size_px>0?v.base_font_size_px:16.f;
-        auto n=dictionary_core::CssNumeric(value,v.styles[style].font_size_px,root,basis).evaluate();
+        auto n=resolved.length(style,value,basis);
         if(n)return *n;
         ++out.unresolved;return fallback;
     }
@@ -269,7 +264,7 @@ class Placement {
         return rows.back()+padding.top+padding.bottom;
     }
 public:
-    Placement(dc_prepared_view view,dc_layout_document& output,dc_error* e,size_t sources):v(view),out(output),error(e),source_flows(sources),cell_flows(v.cell_count),
+    Placement(dc_prepared_view view,const dictionary_core::ResolvedStyles &styles,dc_layout_document& output,dc_error* e,size_t sources):v(view),resolved(styles),out(output),error(e),source_flows(sources),cell_flows(v.cell_count),
         cell_bounds(v.cell_count),table_bounds(v.table_count),measured_cells(v.cell_count),measured_tables(v.table_count),table_rows(v.table_count),row_cells(v.row_count),grids(v.table_count) {
         for(size_t i=0;i<v.flow_count;++i){const auto f=v.flow[i];if(f.cell==none)source_flows.at(f.source).push_back(f);else cell_flows.at(f.cell).push_back(f);}
         for(uint32_t i=0;i<v.row_count;++i)table_rows.at(v.rows[i].table).push_back(i);
@@ -331,7 +326,7 @@ int dc_layout(const dc_prepared_document* input,const dc_text_engine* engine,con
         if(!input || !engine || !engine->prepare || !engine->wrap || !engine->release || !output || (!widths && count))throw std::invalid_argument("Invalid layout arguments");
         if(count!=dc_prepared_document_view(input).source_count)throw std::invalid_argument("Layout source count mismatch");
         auto result=std::make_unique<dc_layout_document>();result->engine=*engine;
-        Placement(dc_prepared_document_view(input),*result,error,count).run(widths,count);
+        Placement(dc_prepared_document_view(input),dictionary_core::resolved_styles(input),*result,error,count).run(widths,count);
         *output=result.release();return 0;
     } catch(const std::exception& e){if(error)std::snprintf(error->message,sizeof(error->message),"%s",e.what());return 1;}
     catch(...){if(error)std::snprintf(error->message,sizeof(error->message),"Unknown native layout failure");return 1;}

@@ -17,15 +17,16 @@ val enableUpdater = Config.enableUpdater
 val hasLocalOcr = file("../chimahon-local-ocr/build.gradle.kts").exists()
 val releaseVersionName = providers.gradleProperty("releaseVersionName").orNull
 val releaseVersionCode = providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()
+val includeLocalDictionaryHarness = providers.gradleProperty("includeLocalDictionaryHarness").orNull == "true"
 
 // Keep diagnostic captures tied to the production renderer source set.
 val rendererDigest = java.security.MessageDigest.getInstance("SHA-256")
 val rendererSources = listOf(
     "app/src/main/java/eu/kanade/tachiyomi/ui/dictionary",
     "app/src/main/java/eu/kanade/presentation/theme",
-    "dictionary-renderer/src/main", "gradle",
+    "dictionary-renderer-android/src/main", "gradle",
 ).flatMap { rootProject.fileTree(it).matching { include("**/*.kt", "**/*.toml") }.files } + listOf(
-    rootProject.file("app/build.gradle.kts"), rootProject.file("dictionary-renderer/build.gradle.kts"),
+    rootProject.file("app/build.gradle.kts"), rootProject.file("dictionary-renderer-android/build.gradle.kts"),
     rootProject.file("chimahon/src/main/java/chimahon/HoshiDicts.kt"),
     rootProject.file("chimahon/src/main/java/chimahon/anki/AnkiProfile.kt"),
     rootProject.file("chimahon/src/main/java/chimahon/diagnostics/LookupProfiler.kt"),
@@ -139,6 +140,17 @@ android {
     sourceSets {
         getByName("preview").res.srcDirs("src/beta/res")
         getByName("benchmark").res.srcDirs("src/debug/res")
+        if (includeLocalDictionaryHarness) {
+            val harness = "../tools/dictionary-harness/app/src/debug"
+            for (name in listOf("debug", "benchmark")) {
+                getByName(name).apply {
+                    java.srcDir("$harness/java")
+                    assets.srcDir("$harness/assets")
+                    manifest.srcFile("$harness/AndroidManifest.xml")
+                }
+            }
+            getByName("test").java.srcDir("../tools/dictionary-harness/tests/app/java")
+        }
     }
 
     splits {
@@ -250,7 +262,7 @@ kotlin {
 
 dependencies {
     implementation(projects.chimahon)
-    implementation(projects.dictionaryRenderer)
+    implementation(projects.dictionaryRendererAndroid)
 
     if (hasLocalOcr) {
         implementation(project(":chimahon-local-ocr"))

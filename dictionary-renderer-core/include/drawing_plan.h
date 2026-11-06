@@ -19,6 +19,9 @@ typedef struct dc_measure_request {
 typedef struct dc_measure_context {
     uint32_t source, start, count, annotation;
 } dc_measure_context;
+/* Adjacent drawing requests with identical shaping properties and context.
+ * Original requests/offsets remain intact for paint styles and recursive hits. */
+typedef struct dc_shaping_run { uint32_t first_request, request_count; } dc_shaping_run;
 typedef struct dc_run_metrics {
     float ascent, descent, em_ascent, em_descent;
 } dc_run_metrics;
@@ -65,6 +68,8 @@ typedef struct dc_drawing_view {
     const dc_drawing_source *sources;
     size_t source_count;
     uint64_t lines, ruby_groups;
+    const dc_shaping_run *shaping_runs;
+    size_t shaping_run_count;
 } dc_drawing_view;
 /* Begin exports ALL requests. Fill metrics/advances/breaks/levels in one bulk
  * platform phase, then finish without ANY platform callbacks. Buffers are stable
@@ -74,6 +79,10 @@ DC_API int dc_drawing_begin(const dc_prepared_document *, const float *widths, s
 DC_API dc_drawing_view dc_drawing_plan_view(dc_drawing_plan *);
 DC_API int dc_drawing_finish(dc_drawing_plan *, dc_error *);
 DC_API void dc_drawing_plan_destroy(dc_drawing_plan *);
+/* Prepared card fragments retain independent stylesheet scopes. Six floats per part:
+ * height, width, left, top gap, bottom gap, visible. Outputs x/y/width/height per
+ * part, followed by total height. No shaping, CSS or document traversal on toggle. */
+DC_API float dc_card_place(const float *parts, size_t count, float *rectangles);
 #ifdef __cplusplus
 }
 #endif

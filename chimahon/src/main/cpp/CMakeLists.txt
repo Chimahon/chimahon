@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(DC_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
-add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../../dictionary-core" dictionary-core)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../../dictionary-renderer-core" dictionary-renderer-core)
 target_sources(dictionary_core PRIVATE dictionary_core_jni.cpp)
 
 add_subdirectory(hoshidicts)

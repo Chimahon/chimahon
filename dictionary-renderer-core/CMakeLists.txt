@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(dictionary_core LANGUAGES C CXX)
+project(dictionary_renderer_core LANGUAGES C CXX)
 
 set(RAPIDJSON_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tools/native-dictionary/.deps/rapidjson/include" CACHE PATH "Directory containing rapidjson/reader.h")
 if(NOT EXISTS "${RAPIDJSON_INCLUDE_DIR}/rapidjson/reader.h")
@@ -27,7 +27,7 @@ if(ANDROID)
 endif()
 set_target_properties(dictionary_core PROPERTIES CXX_VISIBILITY_PRESET hidden)
 
-option(DC_BUILD_BENCHMARK "Build the standalone captured-source benchmark" ON)
+option(DC_BUILD_BENCHMARK "Build local standalone captured-source benchmarks" OFF)
 if(DC_BUILD_BENCHMARK)
     add_executable(dictionary_styled_bench ../tools/native-dictionary/styled_benchmark.cpp)
     target_compile_features(dictionary_styled_bench PRIVATE cxx_std_20)

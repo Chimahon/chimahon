@@ -1,5 +1,6 @@
 #include "drawing_plan.h"
 #include "css_numeric.hpp"
+#include "resolved_style.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -22,15 +23,6 @@ uint32_t index(size_t n) {
     if (n > INT32_MAX)
         throw std::length_error("Drawing buffer limit");
     return static_cast<uint32_t>(n);
-}
-std::string_view property(const dc_prepared_view &v, uint32_t style, std::string_view name) {
-    const auto &s = v.styles[style];
-    for (uint32_t i = 0; i < s.property_count; ++i) {
-        const auto &p = v.properties[s.first_property + i];
-        if (std::string_view(v.text + p.name_offset, p.name_bytes) == name)
-            return {v.text + p.value_offset, p.value_bytes};
-    }
-    return {};
 }
 float number(std::string_view value, float fallback = 0) {
     if (value.empty())
@@ -203,8 +195,11 @@ struct Paragraph {
 struct dc_drawing_plan {
     const dc_prepared_document *input;
     dc_prepared_view v;
+    const dictionary_core::ResolvedStyles &resolved;
     std::vector<float> widths;
     std::vector<dc_drawing_font> fonts;
+    struct TextSpacing { bool space_all = false, custom_features = false; };
+    std::vector<TextSpacing> text_spacing;
     struct Border {std::array<float,4> widths{};std::array<uint32_t,4> colors{};};
     std::vector<Border> borders;
     struct Gradient {uint32_t inner=0,outer=0;float from=0,to=1;bool radial=false,circle=false;};
@@ -213,6 +208,7 @@ struct dc_drawing_plan {
     std::vector<uint16_t> text;
     std::vector<dc_measure_request> requests;
     std::vector<dc_measure_context> contexts;
+    std::vector<dc_shaping_run> shaping_runs;
     std::vector<dc_run_metrics> metrics;
     std::vector<float> advances;
     std::vector<uint8_t> breaks, levels;
@@ -227,24 +223,29 @@ struct dc_drawing_plan {
     std::vector<dc_drawing_source> sources;
     uint64_t lines = 0, rubies = 0;
     bool finished = false;
+    std::string_view property(const dc_prepared_view &, uint32_t style, std::string_view name) const {
+        return resolved.property(style, name);
+    }
 
     float length(std::string_view s, uint32_t style, float basis, float fallback = 0) const {
         if (s.empty() || s == "auto" || s == "normal")
             return fallback;
-        const float root = v.base_font_size_px > 0 ? v.base_font_size_px : 16.f;
-        return dictionary_core::CssNumeric(s, fonts[style].size, root, basis).evaluate().value_or(fallback);
+        return resolved.length(style, s, basis).value_or(fallback);
     }
     explicit dc_drawing_plan(const dc_prepared_document *d, const float *w, size_t n, uint32_t fg, uint32_t border)
-        : input(d), v(dc_prepared_document_view(d)), widths(w, w + n), run_requests(v.run_count, none),
+        : input(d), v(dc_prepared_document_view(d)), resolved(dictionary_core::resolved_styles(d)), widths(w, w + n), run_requests(v.run_count, none),
           image_by_run(v.run_count, none), paragraphs(v.paragraph_count) {
         if (n != v.source_count)
             throw std::invalid_argument("Drawing source widths mismatch");
         fonts.resize(v.style_count);
+        text_spacing.resize(v.style_count);
         borders.resize(v.style_count);
         gradients.resize(v.style_count);
         for (uint32_t i = 0; i < v.style_count; ++i) {
             auto &f = fonts[i];
             auto prop = [&](std::string_view name) { return property(v, i, name); };
+            const auto features = prop("font-feature-settings");
+            text_spacing[i] = {prop("text-spacing-trim") == "space-all", !features.empty() && features != "normal"};
             f.size = v.styles[i].font_size_px;
             f.color = color(prop("color"), fg);
             f.background = color(prop("background-color"), color(prop("background"), 0));
@@ -411,6 +412,25 @@ struct dc_drawing_plan {
                 requests.push_back({input.marker_style, start, count, start, count});
                 contexts.push_back({input.source, start, count, 1});
             }
+        }
+        auto same_font = [&](uint32_t a, uint32_t b) {
+            const auto &x = fonts[a], &y = fonts[b];
+            return x.size == y.size && x.weight == y.weight && (x.flags & 1) == (y.flags & 1) &&
+                x.letter_spacing == y.letter_spacing &&
+                std::string_view(names).substr(x.family_offset, x.family_bytes) ==
+                std::string_view(names).substr(y.family_offset, y.family_bytes);
+        };
+        for (uint32_t i = 0; i < requests.size(); ++i) {
+            if (!shaping_runs.empty()) {
+                auto &group = shaping_runs.back();
+                const auto &first = requests[group.first_request], &previous = requests[i - 1], &next = requests[i];
+                if (previous.start + previous.count == next.start && first.context_start == next.context_start &&
+                    first.context_count == next.context_count && same_font(first.style, next.style)) {
+                    ++group.request_count;
+                    continue;
+                }
+            }
+            shaping_runs.push_back({i, 1});
         }
         metrics.resize(requests.size(), {std::numeric_limits<float>::quiet_NaN(), 0});
         advances.resize(text.size());
@@ -642,12 +662,12 @@ struct dc_drawing_plan {
             else if(rc==1 && (lc==1 || lc==3 || lc==2 || lc==4))target=1;
             if(target<0)continue;
             if(lc==2 && rc==1 && requests[a.request].style==requests[b.request].style &&
-                property(v,requests[a.request].style,"text-spacing-trim")!="space-all")target=0;
+                !text_spacing[requests[a.request].style].space_all)target=0;
             auto& piece=target?b:a;auto& atom=target?right:left;
             const auto style=requests[piece.request].style;
-            const auto features=property(v,style,"font-feature-settings");
-            if(piece.trimmed || piece.count!=1 || property(v,style,"text-spacing-trim")=="space-all" ||
-                (!features.empty() && features!="normal") || piece.width<fonts[style].size*.9f)continue;
+            const auto spacing = text_spacing[style];
+            if(piece.trimmed || piece.count!=1 || spacing.space_all ||
+                spacing.custom_features || piece.width<fonts[style].size*.9f)continue;
             const float trim=fonts[style].size/2;
             piece.width-=trim;atom.width-=trim;piece.trimmed=true;
         }
@@ -891,7 +911,7 @@ dc_drawing_view dc_drawing_plan_view(dc_drawing_plan *d) {
             d->text.size(),     d->requests.data(), d->requests.size(), d->contexts.data(), d->contexts.size(),
             d->metrics.data(),  d->advances.data(), d->breaks.data(),   d->levels.data(),   d->commands.data(),
             d->commands.size(), d->hits.data(),     d->hits.size(),     d->sources.data(),  d->sources.size(),
-            d->lines,           d->rubies};
+            d->lines,           d->rubies, d->shaping_runs.data(), d->shaping_runs.size()};
 }
 int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
     try {
@@ -943,7 +963,7 @@ int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
                 auto style = d->v.cells[c.cell].style;
                 const auto &f = d->fonts[style];
                 const auto table_style=d->v.tables[table].style;
-                if(property(d->v,table_style,"border-collapse")=="collapse" && property(d->v,table_style,"display")!="grid") {
+                if(d->property(d->v,table_style,"border-collapse")=="collapse" && d->property(d->v,table_style,"display")!="grid") {
                     if(f.background)d->commands.push_back({1,s,0,0,0,style,c.x,c.y,c.width,c.height,0,f.background,0,0,0,0});
                     const auto& border=d->borders[style];
                     for(int edge=0;edge<4;++edge) {
@@ -1034,3 +1054,21 @@ int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
     }
 }
 void dc_drawing_plan_destroy(dc_drawing_plan *d) { delete d; }
+
+float dc_card_place(const float *parts, size_t count, float *rectangles) {
+    float y = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const auto *p = parts + i * 6;
+        auto *r = rectangles + i * 4;
+        r[0] = p[2];
+        r[1] = y;
+        r[2] = p[1];
+        r[3] = 0;
+        if (p[5] == 0) continue;
+        y += p[3];
+        r[1] = y;
+        r[3] = p[0];
+        y += p[0] + p[4];
+    }
+    return y;
+}

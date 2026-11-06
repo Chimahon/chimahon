@@ -79,7 +79,8 @@ public class NativeCoreCompiler(
         val configuration = System.nanoTime()
         val context = context(inputs.map { it.css }, style, dark, expanded)
         val start = System.nanoTime()
-        val handle = DictionaryCore.prepareDrawing(context.handle, inputs.map { it.raw }.toTypedArray(), context.sourceSheets,
+        val handle = DictionaryCore.prepareDrawing(context.handle, inputs.map { it.raw }.toTypedArray(),
+            Array(inputs.size) { nativeCardTape(inputs[it].identity) }, context.sourceSheets,
             FloatArray(inputs.size) { inputs[it].width / density.density }, style.color.toArgb(), border.toArgb())
         check(handle != 0L)
         try {
@@ -91,6 +92,7 @@ public class NativeCoreCompiler(
             val characters = CharArray(counts[2]).also { section(2).asCharBuffer().get(it) }
             val requests = IntArray(counts[3] * 5).also { section(3).asIntBuffer().get(it) }
             val textContexts = IntArray(counts[4] * 4).also { section(4).asIntBuffer().get(it) }
+            val shapingRuns = IntArray(counts[15] * 2).also { section(15).asIntBuffer().get(it) }
             val fonts = Array(counts[0]) { index ->
                 val at = index * 68
                 val flags = fontData.getInt(at + 20)
@@ -145,41 +147,53 @@ public class NativeCoreCompiler(
                 val bidi = Bidi(characters, from, null, 0, count, Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT)
                 for (i in 0 until count) levels[from + i] = bidi.getLevelAt(i).toByte()
             }
+            // Extents depend on the font, not the text run or available width.
+            val fontMetrics = arrayOfNulls<FloatArray>(fonts.size)
             val metrics = FloatArray(counts[3] * 4)
             for (i in 0 until counts[3]) {
                 if (i and 63 == 0) checkCancellation()
                 val at = i * 5
-                val font = fonts[requests[at]]
-                metrics[i * 4] = font.metrics.ascent
-                metrics[i * 4 + 1] = font.metrics.descent
-                val ratio = if (fontEmRatios.containsKey(font.typeface)) fontEmRatios[font.typeface] else {
-                    val resolved = if (android.os.Build.VERSION.SDK_INT >= 31) {
-                        val glyphs = android.graphics.text.TextRunShaper.shapeTextRun("\u6f22", 0, 1, 0, 1, 0f, 0f, false, font.paint)
-                        if (glyphs.glyphCount() > 0) FontTypoMetrics.ratio(glyphs.getFont(0)) else null
-                    } else null
-                    fontEmRatios[font.typeface] = resolved
-                    resolved
+                val fontIndex = requests[at]
+                val font = fonts[fontIndex]
+                val extents = fontMetrics[fontIndex] ?: run {
+                    val ratio = if (fontEmRatios.containsKey(font.typeface)) fontEmRatios[font.typeface] else {
+                        val resolved = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                            val glyphs = android.graphics.text.TextRunShaper.shapeTextRun("\u6f22", 0, 1, 0, 1, 0f, 0f, false, font.paint)
+                            if (glyphs.glyphCount() > 0) FontTypoMetrics.ratio(glyphs.getFont(0)) else null
+                        } else null
+                        fontEmRatios[font.typeface] = resolved
+                        resolved
+                    }
+                    val height = (font.metrics.descent - font.metrics.ascent).coerceAtLeast(0.01f)
+                    // Preserve device-pixel rounding for CSS-pixel ruby extents.
+                    val pixels = density.density
+                    val emAscent = if (ratio == null) -font.metrics.ascent * font.paint.textSize / height else
+                        minOf(ceil(ratio.ascent * font.paint.textSize * pixels) / pixels, -font.metrics.ascent)
+                    val emDescent = if (ratio == null) font.metrics.descent * font.paint.textSize / height else
+                        minOf(ceil(ratio.descent * font.paint.textSize * pixels) / pixels, font.metrics.descent)
+                    floatArrayOf(font.metrics.ascent, font.metrics.descent, emAscent, emDescent)
+                        .also { fontMetrics[fontIndex] = it }
                 }
-                val height = (font.metrics.descent - font.metrics.ascent).coerceAtLeast(0.01f)
-                // The plan uses CSS units; font em extents round at the device-pixel
-                // boundary, not to whole CSS pixels (which expands each ruby line).
-                val pixels = density.density
-                metrics[i * 4 + 2] = if (ratio == null) -font.metrics.ascent * font.paint.textSize / height else
-                    minOf(ceil(ratio.ascent * font.paint.textSize * pixels) / pixels, -font.metrics.ascent)
-                metrics[i * 4 + 3] = if (ratio == null) font.metrics.descent * font.paint.textSize / height else
-                    minOf(ceil(ratio.descent * font.paint.textSize * pixels) / pixels, font.metrics.descent)
-                var from = requests[at + 1]
-                val end = from + requests[at + 2]
-                while (from < end) {
-                    var until = from + 1
-                    while (until < end && levels[until] == levels[from]) until++
-                    font.paint.getTextRunAdvances(characters, from, until - from, requests[at + 3], requests[at + 4],
-                        levels[from].toInt() and 1 != 0, advances, from)
-                    from = until
-                }
+                extents.copyInto(metrics, i * 4)
+                val end = requests[at + 1] + requests[at + 2]
                 for (offset in requests[at + 1] until end) {
                     val kind = font.punctuation.type(characters[offset]).ordinal
                     breaks[offset] = (breaks[offset].toInt() or (kind shl 1)).toByte()
+                }
+            }
+            for (group in shapingRuns.indices step 2) {
+                checkCancellation()
+                val first = shapingRuns[group] * 5
+                val last = (shapingRuns[group] + shapingRuns[group + 1] - 1) * 5
+                val paint = fonts[requests[first]].paint
+                var from = requests[first + 1]
+                val end = requests[last + 1] + requests[last + 2]
+                while (from < end) {
+                    var until = from + 1
+                    while (until < end && levels[until] == levels[from]) until++
+                    paint.getTextRunAdvances(characters, from, until - from, requests[first + 3], requests[first + 4],
+                        levels[from].toInt() and 1 != 0, advances, from)
+                    from = until
                 }
             }
             section(5).asFloatBuffer().put(metrics)
@@ -264,8 +278,11 @@ private class DrawingCharacterIterator(private val text: CharArray, private val 
 public fun nativeCoreSource(raw: String): List<StructuredNode> = listOf(
     StructuredNode.Element(StructuredTag.Unknown, attributes = StructuredAttributes(properties = mapOf("nativeSource" to raw))))
 
-public fun nativeCoreRaw(nodes: List<StructuredNode>): String =
+public fun nativeCoreRaw(nodes: List<StructuredNode>): String = if (nativeCardTape(nodes) != null) "" else
     requireNotNull((nodes.singleOrNull() as? StructuredNode.Element)?.attributes?.properties?.get("nativeSource")) { "Native source identity missing" }
+
+public fun nativeCoreSourceSize(nodes: List<StructuredNode>): Int =
+    nativeCardTape(nodes)?.remaining() ?: nativeCoreRaw(nodes).length
 
 public fun nativeCoreStylesheet(base: String, dictionary: String, variables: Map<String, String> = emptyMap()): String = buildString {
     append(base); append("\n:root{")

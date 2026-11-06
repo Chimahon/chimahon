@@ -40,7 +40,8 @@ public data class NativeGlossaryDisclosure(
     override fun draw(canvas: Canvas, paint: Paint) = Unit
 }
 
-public data class NativeGlossaryHit(val lookup: String? = null, val disclosure: StructuredNode.Element? = null)
+public data class NativeGlossaryHit(val lookup: String? = null, val disclosure: StructuredNode.Element? = null,
+    val kanji: Boolean = false)
 
 public class NativeGlossaryDocument(
     val nodes: List<StructuredNode>,
@@ -72,7 +73,7 @@ public class NativeGlossaryDocument(
         for (item in items.asReversed()) {
             if (x < item.x || y < item.y || x >= item.x + item.width || y >= item.y + item.height) continue
             if (item is NativeGlossaryDisclosure) return NativeGlossaryHit(disclosure = item.source)
-            if (item is NativeCommandSurface) item.lookupAt(x, y)?.let { return NativeGlossaryHit(lookup = it) }
+            if (item is NativeCommandSurface) item.hitAt(x, y)?.let { return it }
         }
         return null
     }
