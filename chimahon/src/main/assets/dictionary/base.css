@@ -733,7 +733,8 @@ table {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
 }
 
-.gloss-image-link[data-background="false"] .gloss-image-background { display: none; }
+/* For monochrome images this layer is the foreground mask, not a backdrop. */
+.gloss-image-link[data-background="false"]:not([data-appearance=monochrome]) .gloss-image-background { display: none; }
 .gloss-image-link[data-appearance=monochrome] .gloss-image { opacity: 0; }
 
 /* ── Icons & Buttons ─────────────────────────────────── */

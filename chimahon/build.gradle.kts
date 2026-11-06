@@ -8,8 +8,10 @@ plugins {
 android {
     namespace = "mihon.chimahon"
     ndkVersion = "29.0.14206865"
+    buildFeatures { buildConfig = true }
 
     defaultConfig {
+        buildConfigField("boolean", "NATIVE_DICTIONARY_CORE", "true")
         consumerProguardFiles("consumer-rules.pro")
 
         ndk {
@@ -27,7 +29,12 @@ android {
         getByName("debug") {
             externalNativeBuild {
                 cmake {
-                    abiFilters("arm64-v8a")
+                    // Default is arm64-v8a. Local emulator runs can select another ABI with
+                    // -Pchimahon.debugAbi=x86_64 without changing release ABI filters.
+                    abiFilters(
+                        *(project.findProperty("chimahon.debugAbi") as String? ?: "arm64-v8a")
+                            .split(",").map(String::trim).toTypedArray(),
+                    )
                 }
             }
         }

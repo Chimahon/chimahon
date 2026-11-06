@@ -81,133 +81,135 @@ class WordAudioDatabase(private val context: Context) {
 
     /** Opens any SAF Uri using a direct file descriptor, then a streamed private-file fallback. */
     fun updateUri(uri: Uri): Boolean {
-        val key = uri.toString()
-        if (key == currentUri && (handle != 0L || legacyDb != null) && testConnection()) return true
-        close()
-        lastError = null
-        fallbackUsed = false
+        return chimahon.diagnostics.LookupProfiler.operation("storage.audio.database.open") {
+            val key = uri.toString()
+            if (key == currentUri && (handle != 0L || legacyDb != null) && testConnection()) return true
+            close()
+            lastError = null
+            fallbackUsed = false
 
-        // ── Attempt 1: ContentResolver fd + statSize ──────────────
-        try {
-            val pfd = context.contentResolver.openFileDescriptor(uri, "r")
-            if (pfd != null) {
-                var size = pfd.statSize
+            // ── Attempt 1: ContentResolver fd + statSize ──────────────
+            try {
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                if (pfd != null) {
+                    var size = pfd.statSize
 
-                // ── Attempt 2: statSize was 0, try UniFile.length() ──
-                if (size <= 0) {
-                    size = UniFile.fromUri(context, uri)?.length() ?: 0L
-                }
-
-                if (size > 0) {
-                    val fd = pfd.detachFd()
-                    val h = nativeOpen(fd, size)
-                    if (h != 0L) {
-                        // A cloud/document provider may expose a partial
-                        // SQLite image that still produces a native handle.
-                        // Probe the schema before accepting that handle so a
-                        // stable private copy can be used instead.
-                        if (nativeTestConnection(h)) {
-                            handle = h
-                            currentUri = key
-                            Log.i(TAG, "Opened audio database: $uri")
-                            return true
-                        }
-                        Log.w(TAG, "SAF descriptor opened but failed the entries probe; trying private copy")
-                        nativeClose(h)
+                    // ── Attempt 2: statSize was 0, try UniFile.length() ──
+                    if (size <= 0) {
+                        size = UniFile.fromUri(context, uri)?.length() ?: 0L
                     }
-                    // nativeOpen failed — fd already handled by JNI (close/fd leak fix)
-                } else {
-                    pfd.close()
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Attempt 1/2 failed", e)
-        }
 
-        // The provider may have handed us a stale descriptor. Reopen it once
-        // before resorting to the private-copy fallback.
-        try {
-            val retryPfd = context.contentResolver.openFileDescriptor(uri, "r")
-            if (retryPfd != null) {
-                var retrySize = retryPfd.statSize
-                if (retrySize <= 0) {
-                    retrySize = UniFile.fromUri(context, uri)?.length() ?: 0L
-                }
-                if (retrySize > 0) {
-                    val retryFd = retryPfd.detachFd()
-                    val retryHandle = nativeOpen(retryFd, retrySize)
-                    if (retryHandle != 0L) {
-                        if (nativeTestConnection(retryHandle)) {
-                            handle = retryHandle
-                            currentUri = key
-                            Log.i(TAG, "Reopened audio database with a fresh SAF descriptor: $uri")
-                            return true
+                    if (size > 0) {
+                        val fd = pfd.detachFd()
+                        val h = nativeOpen(fd, size)
+                        if (h != 0L) {
+                            // A cloud/document provider may expose a partial
+                            // SQLite image that still produces a native handle.
+                            // Probe the schema before accepting that handle so a
+                            // stable private copy can be used instead.
+                            if (nativeTestConnection(h)) {
+                                handle = h
+                                currentUri = key
+                                Log.i(TAG, "Opened audio database: $uri")
+                                return true
+                            }
+                            Log.w(TAG, "SAF descriptor opened but failed the entries probe; trying private copy")
+                            nativeClose(h)
                         }
-                        nativeClose(retryHandle)
+                        // nativeOpen failed — fd already handled by JNI (close/fd leak fix)
+                    } else {
+                        pfd.close()
                     }
-                } else {
-                    retryPfd.close()
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Attempt 1/2 failed", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Fresh native audio database reopen failed", e)
-        }
 
-        // ── Attempt 3 (LAST RESORT): copy to private + old SQLiteDatabase ──
-        val privateDir = context.getExternalFilesDir(null) ?: run {
-            if (lastError == null) lastError = "No accessible storage directory"
-            return false
-        }
-        val targetFile = File(privateDir, "word_audio.db")
-        try {
-            val source = UniFile.fromUri(context, uri) ?: run {
-                if (lastError == null) lastError = "Cannot access file"
+            // The provider may have handed us a stale descriptor. Reopen it once
+            // before resorting to the private-copy fallback.
+            try {
+                val retryPfd = context.contentResolver.openFileDescriptor(uri, "r")
+                if (retryPfd != null) {
+                    var retrySize = retryPfd.statSize
+                    if (retrySize <= 0) {
+                        retrySize = UniFile.fromUri(context, uri)?.length() ?: 0L
+                    }
+                    if (retrySize > 0) {
+                        val retryFd = retryPfd.detachFd()
+                        val retryHandle = nativeOpen(retryFd, retrySize)
+                        if (retryHandle != 0L) {
+                            if (nativeTestConnection(retryHandle)) {
+                                handle = retryHandle
+                                currentUri = key
+                                Log.i(TAG, "Reopened audio database with a fresh SAF descriptor: $uri")
+                                return true
+                            }
+                            nativeClose(retryHandle)
+                        }
+                    } else {
+                        retryPfd.close()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Fresh native audio database reopen failed", e)
+            }
+
+            // ── Attempt 3 (LAST RESORT): copy to private + old SQLiteDatabase ──
+            val privateDir = context.getExternalFilesDir(null) ?: run {
+                if (lastError == null) lastError = "No accessible storage directory"
                 return false
             }
-
-            source.openInputStream().use { input ->
-                targetFile.outputStream().use { output ->
-                    input.copyTo(output)
-                    output.fd.sync()
+            val targetFile = File(privateDir, "word_audio.db")
+            try {
+                val source = UniFile.fromUri(context, uri) ?: run {
+                    if (lastError == null) lastError = "Cannot access file"
+                    return false
                 }
+
+                source.openInputStream().use { input ->
+                    targetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                        output.fd.sync()
+                    }
+                }
+
+                if (targetFile.exists() && targetFile.length() > 0) {
+                    legacyDb = SQLiteDatabase.openDatabase(
+                        targetFile.absolutePath,
+                        null,
+                        SQLiteDatabase.OPEN_READONLY,
+                    )
+                    if (legacyDb != null) {
+                        currentUri = key
+                        fallbackUsed = true
+                        lastError = null
+                        Log.i(TAG, "Opened audio database (legacy fallback): ${targetFile.absolutePath}")
+                        return true
+                    }
+                }
+                targetFile.delete()
+                if (lastError == null) lastError = "File is not a valid audio database"
+            } catch (e: Exception) {
+                Log.e(TAG, "Attempt 3 failed", e)
+                targetFile.delete()
+                if (lastError == null) lastError = "Could not read file: ${e.message}"
             }
 
-            if (targetFile.exists() && targetFile.length() > 0) {
-                legacyDb = SQLiteDatabase.openDatabase(
-                    targetFile.absolutePath,
-                    null,
-                    SQLiteDatabase.OPEN_READONLY,
-                )
-                if (legacyDb != null) {
-                    currentUri = key
-                    fallbackUsed = true
-                    lastError = null
-                    Log.i(TAG, "Opened audio database (legacy fallback): ${targetFile.absolutePath}")
-                    return true
+            // ── Attempt 4 (FALLBACK FOR CUSTOM ROMS): resolve real path ────────
+            try {
+                val path = getPathFromUri(context, uri)
+                if (path != null) {
+                    if (updatePath(path)) {
+                        Log.i(TAG, "Opened audio database via fallback path: $path")
+                        return true
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Attempt 4 failed", e)
             }
-            targetFile.delete()
-            if (lastError == null) lastError = "File is not a valid audio database"
-        } catch (e: Exception) {
-            Log.e(TAG, "Attempt 3 failed", e)
-            targetFile.delete()
-            if (lastError == null) lastError = "Could not read file: ${e.message}"
+
+            return false
         }
-
-        // ── Attempt 4 (FALLBACK FOR CUSTOM ROMS): resolve real path ────────
-        try {
-            val path = getPathFromUri(context, uri)
-            if (path != null) {
-                if (updatePath(path)) {
-                    Log.i(TAG, "Opened audio database via fallback path: $path")
-                    return true
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Attempt 4 failed", e)
-        }
-
-        return false
     }
 
     fun isOpenFor(uriStr: String): Boolean {

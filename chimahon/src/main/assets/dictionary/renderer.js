@@ -1317,15 +1317,6 @@
     return getNodeText(node.content);
   }
 
-  function normalizeTableContent(content) {
-    const items = Array.isArray(content) ? content : [content];
-    const hasRows = items.some((item) => item && item.tag === 'tr');
-    if (!hasRows) return content;
-    const hasSections = items.some((item) => item && (item.tag === 'tbody' || item.tag === 'thead' || item.tag === 'tfoot'));
-    if (hasSections) return content;
-    return [{tag: 'tbody', content: items}];
-  }
-
   function renderStructured(content, dictName, mediaMap) {
     const fragment = document.createDocumentFragment();
     appendStructured(fragment, content, dictName, mediaMap, null);
@@ -1486,10 +1477,9 @@
       });
     }
 
-    const contentToRender = tagNameLower === 'table' ? normalizeTableContent(node.content) : node.content;
-
     if (tagNameLower !== 'br') {
-      appendStructured(element, contentToRender, dictName, mediaMap, language);
+      // Preserve the source hierarchy. An invented tbody traps cells outside a table's CSS grid.
+      appendStructured(element, node.content, dictName, mediaMap, language);
     }
 
     if (tagNameLower === 'table') {

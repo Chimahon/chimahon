@@ -55,6 +55,7 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 rootProject.name = "Komikku"
 include(":chimahon")
+include(":dictionary-renderer")
 project(":chimahon").projectDir = file("chimahon")
 include(":app")
 include(":core-metadata")

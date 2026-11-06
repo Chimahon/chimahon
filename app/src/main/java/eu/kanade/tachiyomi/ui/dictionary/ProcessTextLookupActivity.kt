@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -60,18 +59,7 @@ private fun ProcessTextLookupOverlay(
     val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
     val activeProfile = remember { dictionaryPreferences.profileStore.getActiveProfile() }
     val repository = remember { Injekt.get<DictionaryRepository>() }
-    val webView = remember(activeProfile.languageCode) {
-        prepareDictionaryWebViewShell(context, languageCode = activeProfile.languageCode)
-    }
-
-    DisposableEffect(webView) {
-        onDispose {
-            webView.runCatching {
-                stopLoading()
-                destroy()
-            }
-        }
-    }
+    val webView = rememberDictionaryPopupWebView(activeProfile.languageCode)
 
     BoxWithConstraints(
         modifier = Modifier

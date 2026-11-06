@@ -5,12 +5,24 @@ project(hoshidicts_jni LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(DC_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../../dictionary-core" dictionary-core)
+target_sources(dictionary_core PRIVATE dictionary_core_jni.cpp)
+
 add_subdirectory(hoshidicts)
 
 add_library(hoshidicts_jni SHARED
     hoshidicts_jni.cpp
 )
 target_link_libraries(hoshidicts_jni PRIVATE hoshidicts)
+
+# DICT_PROFILE: remove this block with the temporary profiling header/call sites.
+target_include_directories(hoshidicts PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(ANDROID)
+    find_library(profile-android-lib android REQUIRED)
+    find_library(profile-log-lib log REQUIRED)
+    target_link_libraries(hoshidicts PUBLIC ${profile-android-lib} ${profile-log-lib})
+endif()
 
 # ─── SQLite amalgamation as a private static lib ─────────────────────────
 add_library(sqlite_amalgamation STATIC

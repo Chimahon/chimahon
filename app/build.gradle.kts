@@ -18,6 +18,34 @@ val hasLocalOcr = file("../chimahon-local-ocr/build.gradle.kts").exists()
 val releaseVersionName = providers.gradleProperty("releaseVersionName").orNull
 val releaseVersionCode = providers.gradleProperty("releaseVersionCode").orNull?.toIntOrNull()
 
+// Keep diagnostic captures tied to the production renderer source set.
+val rendererDigest = java.security.MessageDigest.getInstance("SHA-256")
+val rendererSources = listOf(
+    "app/src/main/java/eu/kanade/tachiyomi/ui/dictionary",
+    "app/src/main/java/eu/kanade/presentation/theme",
+    "dictionary-renderer/src/main", "gradle",
+).flatMap { rootProject.fileTree(it).matching { include("**/*.kt", "**/*.toml") }.files } + listOf(
+    rootProject.file("app/build.gradle.kts"), rootProject.file("dictionary-renderer/build.gradle.kts"),
+    rootProject.file("chimahon/src/main/java/chimahon/HoshiDicts.kt"),
+    rootProject.file("chimahon/src/main/java/chimahon/anki/AnkiProfile.kt"),
+    rootProject.file("chimahon/src/main/java/chimahon/diagnostics/LookupProfiler.kt"),
+    rootProject.file("chimahon/src/main/java/chimahon/audio/WordAudioDatabase.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderActivity.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/ui/reader/ReaderViewModel.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/ui/reader/viewer/OcrLookupPopup.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/ui/reader/loader/DirectoryPageLoader.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/ui/reader/loader/DownloadPageLoader.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/data/download/DownloadProvider.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/data/download/DownloadCache.kt"),
+    rootProject.file("app/src/main/java/eu/kanade/tachiyomi/data/ocr/OcrCacheManager.kt"),
+)
+rendererSources.distinct().sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }.forEach {
+    rendererDigest.update(it.relativeTo(rootDir).invariantSeparatorsPath.toByteArray())
+    rendererDigest.update(0.toByte())
+    rendererDigest.update(it.readBytes())
+}
+val rendererSourceHash = rendererDigest.digest().joinToString("") { "%02x".format(it) }
+
 android {
     namespace = "eu.kanade.tachiyomi"
 
@@ -32,6 +60,8 @@ android {
         buildConfigField("String", "BUILD_TIME", "\"${getBuildTime(useLastCommitTime = false)}\"")
         buildConfigField("boolean", "UPDATER_ENABLED", enableUpdater.toString())
         buildConfigField("boolean", "HAS_LOCAL_OCR", hasLocalOcr.toString())
+        buildConfigField("boolean", "NATIVE_RENDERER_DIAGNOSTICS", "false")
+        buildConfigField("String", "DICTIONARY_RENDERER_SOURCE_SHA256", "\"$rendererSourceHash\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -44,6 +74,8 @@ android {
             // Keep debug BuildConfig stable between builds of the same commit.
             buildConfigField("String", "BUILD_TIME", "\"${getBuildTime(useLastCommitTime = true)}\"")
             buildConfigField("boolean", "UPDATER_ENABLED", "false")
+            buildConfigField("boolean", "NATIVE_RENDERER_DIAGNOSTICS",
+                providers.gradleProperty("chimahon.nativeDiagnostics").orNull.toBoolean().toString())
         }
         val release by getting {
             isMinifyEnabled = Config.enableCodeShrink
@@ -218,6 +250,7 @@ kotlin {
 
 dependencies {
     implementation(projects.chimahon)
+    implementation(projects.dictionaryRenderer)
 
     if (hasLocalOcr) {
         implementation(project(":chimahon-local-ocr"))
@@ -254,6 +287,21 @@ dependencies {
     implementation(compose.ui.tooling.preview)
     implementation(compose.ui.util)
     implementation(compose.constraintlayout)
+
+    // Compose composition tracing: with runtime-tracing on the classpath the Compose compiler's
+    // trace markers turn every recompose / measure / layout into a named slice, so a Perfetto
+    // capture attributes frame time to individual composables instead of guessing. It embeds
+    // unobfuscated tracing strings in the APK, so it is deliberately absent from release-facing
+    // variants. tracing-perfetto is the SDK that lets a capture be enabled from adb rather than
+    // only from Android Studio; -binary is the packaged Perfetto it falls back to.
+    debugImplementation(compose.runtime.tracing)
+    debugImplementation(androidx.tracing.perfetto)
+    debugImplementation(androidx.tracing.perfetto.binary)
+    // "benchmark" is a custom build type, so Gradle generates no typed accessor for it. Invoke the
+    // configuration by name instead of relying on a benchmarkImplementation shorthand.
+    "benchmarkImplementation"(compose.runtime.tracing)
+    "benchmarkImplementation"(androidx.tracing.perfetto)
+    "benchmarkImplementation"(androidx.tracing.perfetto.binary)
 
     implementation(androidx.interpolator)
 
@@ -407,12 +455,16 @@ dependencies {
 }
 
 androidComponents {
+    // Debug outputs are limited to the ABIs named by -Pchimahon.debugAbi (default arm64-v8a).
+    // A universal APK has no ABI filter at all, so it is only enabled when the property asks for it.
+    val debugAbis = (findProperty("chimahon.debugAbi") as String? ?: "arm64-v8a")
+        .split(",").map(String::trim).toSet()
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.outputs.forEach { output ->
             output.enabled.set(
                 output.filters.any {
-                    it.filterType == FilterConfiguration.FilterType.ABI && it.identifier == "arm64-v8a"
-                },
+                    it.filterType == FilterConfiguration.FilterType.ABI && it.identifier in debugAbis
+                } || (output.filters.isEmpty() && debugAbis.contains("universal")),
             )
         }
     }
