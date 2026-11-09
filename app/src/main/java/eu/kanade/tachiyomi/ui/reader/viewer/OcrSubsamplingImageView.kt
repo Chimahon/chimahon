@@ -155,7 +155,8 @@ class OcrSubsamplingImageView(
         val screenW = brScreen.x - tlScreen.x
         val screenH = brScreen.y - tlScreen.y
 
-        if (host.ocrOutlineVisible) {
+        val hasLineGeometry = block.lineGeometries?.size == block.lines.size
+        if (host.ocrOutlineVisible && !hasLineGeometry) {
             canvas.drawRect(
                 tlScreen.x,
                 tlScreen.y,
@@ -187,7 +188,7 @@ class OcrSubsamplingImageView(
 
         val textAlpha = (255 * host.ocrBoxOpacity).roundToInt().coerceIn(0, 255)
         val backgroundAlpha = (255 * host.ocrBoxOpacity).roundToInt().coerceIn(0, 255)
-        if (textAlpha > 0 || backgroundAlpha > 0) {
+        if (textAlpha > 0 || backgroundAlpha > 0 || (host.ocrOutlineVisible && hasLineGeometry)) {
             drawOcrTextBox(
                 canvas = canvas,
                 block = block,
@@ -285,7 +286,7 @@ class OcrSubsamplingImageView(
         if (text.isBlank()) return
 
         val rect = getLineRect(geo, host.ocrBoxScaleX, host.ocrBoxScaleY) ?: return
-        val lineIsVertical = isVertical || (geo.ymax - geo.ymin) / (geo.xmax - geo.xmin) > 1.2f
+        val lineIsVertical = OcrHitTester.isLineVertical(isVertical, geo.xmin, geo.ymin, geo.xmax, geo.ymax)
         val matchedStart = host.activeOcrCharOffset - lineStartOffset
         val matchedEnd = matchedStart + host.activeOcrMatchedCount
         OcrTextOverlayPainter.drawLine(
@@ -298,6 +299,7 @@ class OcrSubsamplingImageView(
             scaleCompensation = getParentScaleCompensation(),
             textPaint = textPaint,
             backgroundPaint = backgroundPaint,
+            borderPaint = borderPaint.takeIf { host.ocrOutlineVisible },
             highlightPaint = if (highlightMatches && host.activeOcrMatchedCount > 0) highlightPaint else null,
             highlightRange = if (highlightMatches && host.activeOcrMatchedCount > 0) matchedStart until matchedEnd else null,
             drawVerticalCharacter = ::drawVerticalChar,
