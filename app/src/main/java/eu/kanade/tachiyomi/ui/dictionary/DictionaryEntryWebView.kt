@@ -120,6 +120,7 @@ fun DictionaryEntryWebView(
     val showNavigationButtons by prefs.showNavigationButtons().collectAsState()
     val paginatedScrollStepSize by prefs.paginatedScrollStepSize().collectAsState()
     val scrollBehavior by prefs.scrollBehavior().collectAsState()
+    val dictionaryDisplayNames by prefs.displayNames().collectAsState()
 
     val renderSignature = remember(
         results, styles, placeholder, isDark,
@@ -127,7 +128,7 @@ fun DictionaryEntryWebView(
         showPitchDiagram, showPitchNumber, showPitchText,
         activeProfile, tabs, recursiveNavMode, wordAudioEnabled,
         effectiveWordAudioAutoplay, showNavigationButtons, groupPitches,
-        renderRecursiveChrome, entryJsons, compactGlossary,
+        renderRecursiveChrome, entryJsons, compactGlossary, dictionaryDisplayNames,
     ) {
         DictionaryRenderSignature(
             results = results, styles = styles, placeholder = placeholder, isDark = isDark,
@@ -140,6 +141,7 @@ fun DictionaryEntryWebView(
             wordAudioEnabled = wordAudioEnabled,
             wordAudioAutoplay = effectiveWordAudioAutoplay,
             showNavigationButtons = showNavigationButtons, groupPitches = groupPitches,
+            dictionaryDisplayNames = dictionaryDisplayNames,
         )
     }
 

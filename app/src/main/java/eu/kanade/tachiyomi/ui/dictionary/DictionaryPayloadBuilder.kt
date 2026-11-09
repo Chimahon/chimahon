@@ -5,7 +5,8 @@ import chimahon.DictionaryStyle
 import chimahon.KanjiEntry
 import chimahon.LookupResult
 import chimahon.anki.AnkiProfile
-import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
+import chimahon.dictionary.findDictionaryFolder
+import chimahon.dictionary.readDictionaryIndex
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -40,6 +41,7 @@ internal data class DictionaryRenderSignature(
     val wordAudioAutoplay: Boolean,
     val showNavigationButtons: Boolean,
     val groupPitches: Boolean,
+    val dictionaryDisplayNames: String,
 )
 
 private fun buildResultEntryJson(result: LookupResult, index: Int, priorityMap: Map<String, Int>, groupPitches: Boolean): JsonObject {
@@ -111,6 +113,9 @@ private fun buildResultEntryJson(result: LookupResult, index: Int, priorityMap: 
                         }
                         add(buildJsonObject {
                             put("dictName", sortedTitles.joinToString(", "))
+                            putJsonArray("dictNames") {
+                                for (title in sortedTitles) add(JsonPrimitive(title))
+                            }
                             putJsonArray("pitchPositions") {
                                 for (pos in orderedPitches) add(JsonPrimitive(pos))
                             }
@@ -178,8 +183,8 @@ internal fun buildConfigPayload(
     groupPitches: Boolean = false,
     compactGlossary: Boolean = false,
 ): JsonObject = buildJsonObject {
-    val orderedTitles = activeProfile.dictionaryOrder.map { getDictionaryTitle(context, it) }
-    val displayModesByTitle = activeProfile.dictionaryDisplayModes.mapKeys { (dirName, _) -> getDictionaryTitle(context, dirName) }
+    val orderedTitles = activeProfile.dictionaryOrder.map { getDictionarySourceTitle(context, it) }
+    val displayModesByTitle = activeProfile.dictionaryDisplayModes.mapKeys { (dirName, _) -> getDictionarySourceTitle(context, dirName) }
 
     putJsonArray("dictionaryOrder") { for (title in orderedTitles) add(JsonPrimitive(title)) }
     put("ankiEnabled", activeProfile.ankiEnabled)
@@ -187,6 +192,17 @@ internal fun buildConfigPayload(
     put("dictionaryCollapseMode", activeProfile.dictionaryCollapseMode)
     put("dictionaryDisplayModes", buildJsonObject {
         for ((title, mode) in displayModesByTitle) put(title, mode)
+    })
+    put("dictionaryDisplayNames", buildJsonObject {
+        val names = runCatching {
+            org.json.JSONObject(Injekt.get<DictionaryPreferences>().displayNames().get())
+        }.getOrNull()
+        if (names != null) {
+            for (dirName in names.keys()) {
+                val label = names.optString(dirName).takeIf { it.isNotBlank() } ?: continue
+                put(getDictionarySourceTitle(context, dirName), label)
+            }
+        }
     })
     put("placeholder", placeholder)
     put("isDark", isDark)
@@ -232,7 +248,7 @@ internal fun buildResultEntryJsonStrings(
 internal fun String.toJavascriptExpression(): String =
     replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
-private val dictionaryTitleCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+private val dictionaryTitleCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, String>>()
 
 /** Invalidate the cached title for a single directory. Call when display name or index.json title changes. */
 internal fun invalidateDictionaryTitle(dirName: String) {
@@ -240,35 +256,25 @@ internal fun invalidateDictionaryTitle(dirName: String) {
 }
 
 internal fun getDictionaryTitle(context: Context, dirName: String): String {
-    return dictionaryTitleCache.getOrPut(dirName) {
-        // 1. Display name (user-set custom name, survives updates)
-        val prefs = Injekt.get<DictionaryPreferences>()
-        val displayName = prefs.getDisplayName(dirName)
-        if (displayName != null) return@getOrPut displayName
+    return Injekt.get<DictionaryPreferences>().getDisplayName(dirName)
+        ?: getDictionarySourceTitle(context, dirName)
+}
 
-        // 2. index.json title
-        val dictionariesDir = File(context.getExternalFilesDir(null), "dictionaries")
-        for (type in listOf("term", "frequency", "pitch", "kanji")) {
-            val indexFile = File(File(dictionariesDir, type), "$dirName/index.json")
-            if (indexFile.exists()) {
-                try {
-                    val json = indexFile.readText()
-                    val title = org.json.JSONObject(json).optString("title", dirName)
-                    if (title.isNotBlank()) return@getOrPut title
-                } catch (_: Exception) {
-                    // fall through to dirName
-                }
-            }
-        }
-
-        // 3. Directory name (stable fallback)
-        dirName
-    }
+/** Native lookup, CSS, media and Anki all use the index title, never the display label. */
+private fun getDictionarySourceTitle(context: Context, dirName: String): String {
+    val dictionariesDir = File(context.getExternalFilesDir(null), "dictionaries")
+    // Imports, updates and removals already touch this directory to refresh lookup paths.
+    val revision = dictionariesDir.lastModified()
+    dictionaryTitleCache[dirName]?.takeIf { it.first == revision }?.let { return it.second }
+    val title = findDictionaryFolder(dictionariesDir, dirName)
+        ?.let(::readDictionaryIndex)?.title?.takeIf { it.isNotBlank() } ?: dirName
+    dictionaryTitleCache[dirName] = revision to title
+    return title
 }
 
 private fun dictionaryPriorityMap(profile: AnkiProfile, context: Context): Map<String, Int> =
     profile.dictionaryOrder
-        .map { getDictionaryTitle(context, it) }
+        .map { getDictionarySourceTitle(context, it) }
         .distinct()
         .withIndex()
         .associate { it.value to it.index }
