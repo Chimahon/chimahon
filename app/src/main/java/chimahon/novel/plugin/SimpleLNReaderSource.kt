@@ -6,6 +6,7 @@ import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import chimahon.novel.plugin.runtime.NovelPluginRuntime
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.sourcenovel.HttpNovelSource
@@ -602,6 +603,17 @@ class SimpleLNReaderSource(
             logcat(LogPriority.WARN, e) { "[$pluginId] getDownloadUrl failed for $path" }
             null
         }
+    }
+
+    /**
+     * LNReader file sources are browser-facing sites: several CDNs block bare
+     * `Mozilla/5.0` (epub.moe returns 567) and hotlink-protect the file host
+     * unless the source origin is sent as the Referer.
+     */
+    override fun downloadHeaders(path: String): Map<String, String> = buildMap {
+        put("User-Agent", Injekt.get<NetworkPreferences>().defaultUserAgent().get())
+        val origin = siteUrl.trim().trimEnd('/')
+        if (origin.isNotBlank()) put("Referer", "$origin/")
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {

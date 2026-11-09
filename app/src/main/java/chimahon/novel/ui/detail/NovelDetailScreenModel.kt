@@ -16,6 +16,7 @@ import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.source.LocalNovelFiles
 import eu.kanade.presentation.entries.DownloadAction
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNChapter
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
@@ -529,7 +530,7 @@ class NovelDetailScreenModel(
                 val client = fileSource.downloadClient() ?: Injekt.get<NetworkHelper>().client
                 val requestBuilder = okhttp3.Request.Builder()
                     .url(fileUrl)
-                    .header("User-Agent", "Mozilla/5.0")
+                    .header("User-Agent", Injekt.get<NetworkPreferences>().defaultUserAgent().get())
                 fileSource.downloadHeaders(novel.url).forEach { (name, value) -> requestBuilder.header(name, value) }
                 val tmpFile = java.io.File(app.cacheDir, "book_${java.util.UUID.randomUUID()}.epub")
                 temporary = tmpFile
