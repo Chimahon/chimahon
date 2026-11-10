@@ -11,6 +11,9 @@ android {
     buildFeatures { buildConfig = true }
 
     defaultConfig {
+        externalNativeBuild {
+            cmake { targets += listOf("dictionary_core", "hoshidicts_jni", "word_audio_jni") }
+        }
         buildConfigField("boolean", "NATIVE_DICTIONARY_CORE", "true")
         consumerProguardFiles("consumer-rules.pro")
 

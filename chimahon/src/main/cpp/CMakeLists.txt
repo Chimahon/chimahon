@@ -6,8 +6,11 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(DC_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+set(DC_PORTABLE_RENDERER ON CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../../../../dictionary-renderer-core" dictionary-renderer-core)
-target_sources(dictionary_core PRIVATE dictionary_core_jni.cpp)
+# Android supplies font files and bitmap storage; the renderer remains portable.
+target_sources(dictionary_core PRIVATE dictionary_core_jni.cpp android_dictionary_fonts.cpp)
+target_link_libraries(dictionary_core PRIVATE android jnigraphics dl)
 
 add_subdirectory(hoshidicts)
 

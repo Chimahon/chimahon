@@ -13,6 +13,7 @@
 namespace {
 constexpr uint32_t none=UINT32_MAX;
 struct Edges { float top=0,right=0,bottom=0,left=0; };
+enum class EdgeKind { margin, padding };
 struct Bounds { float min=0,max=0; };
 using Flow=std::vector<dc_flow_input>;
 }
@@ -42,65 +43,24 @@ class Placement {
     std::string_view property(uint32_t style,std::string_view name) const {
         return resolved.property(style,name);
     }
-    float length(std::string_view value,uint32_t style,float basis,float fallback=0) {
-        if(value.empty() || value=="auto" || value=="normal")return fallback;
-        auto n=resolved.length(style,value,basis);
-        if(n)return *n;
-        ++out.unresolved;return fallback;
-    }
-    Edges edges(uint32_t style,std::string_view prefix,float basis) {
-        std::array<float,4> values{}; size_t count=0;
-        auto shorthand=property(style,prefix);
-        size_t begin=0;
-        while(begin<shorthand.size() && count<4) {
-            while(begin<shorthand.size() && shorthand[begin]==' ')++begin;
-            size_t end=begin;unsigned depth=0;
-            for(;end<shorthand.size();++end){if(shorthand[end]=='(')++depth;if(shorthand[end]==')' && depth)--depth;if(shorthand[end]==' ' && !depth)break;}
-            if(end>begin)values[count++]=length(shorthand.substr(begin,end-begin),style,basis);
-            begin=end+1;
-        }
-        Edges e;
-        if(count){e.top=values[0];e.right=count>1?values[1]:values[0];e.bottom=count>2?values[2]:values[0];e.left=count>3?values[3]:e.right;}
-        const std::string name(prefix);
-        e.top=length(property(style,name+"-top"),style,basis,e.top);
-        e.right=length(property(style,name+"-right"),style,basis,e.right);
-        e.bottom=length(property(style,name+"-bottom"),style,basis,e.bottom);
-        e.left=length(property(style,name+"-left"),style,basis,e.left);
-        e.top=length(property(style,name+"-block-start"),style,basis,e.top);
-        e.bottom=length(property(style,name+"-block-end"),style,basis,e.bottom);
-        e.left=length(property(style,name+"-inline-start"),style,basis,e.left);
-        e.right=length(property(style,name+"-inline-end"),style,basis,e.right);
-        return e;
+    Edges edges(uint32_t style,EdgeKind kind,float basis) {
+        const auto &box=resolved.box(style);
+        const auto values=(kind==EdgeKind::padding?box.padding:box.margin).evaluate(basis,out.unresolved);
+        return {values[0],values[1],values[2],values[3]};
     }
     static float collapse(float a,float b) {return std::max(0.f,std::max(a,b))+std::min(0.f,std::min(a,b));}
-    float border(uint32_t style) {
-        if(property(style,"border-style")=="none" || property(style,"border")=="none")return 0;
-        auto width=property(style,"border-width");
-        if(!width.empty())return length(width,style,0);
-        auto value=property(style,"border");size_t at=0;
-        while(at<value.size()) {
-            while(at<value.size() && value[at]==' ')++at;
-            auto end=value.find(' ',at);if(end==value.npos)end=value.size();
-            auto token=value.substr(at,end-at);
-            if(token=="thin")return 1;if(token=="medium")return 3;if(token=="thick")return 5;
-            const float root=v.base_font_size_px>0?v.base_font_size_px:16.f;
-            if(auto n=dictionary_core::CssNumeric(token,v.styles[style].font_size_px,root,0).evaluate(false))return std::max(0.f,*n);
-            at=end+1;
-        }
-        return 0;
-    }
     Edges border_edges(uint32_t style) {
-        const float common=border(style);
-        return {length(property(style,"border-top-width"),style,0,common),length(property(style,"border-right-width"),style,0,common),
-            length(property(style,"border-bottom-width"),style,0,common),length(property(style,"border-left-width"),style,0,common)};
+        const auto values=resolved.box(style).border_widths(out.unresolved);
+        return {values[0],values[1],values[2],values[3]};
     }
     Edges cell_padding(uint32_t cell,float width) {
         const auto style=v.cells[cell].style;
-        auto result=edges(style,"padding",width);
+        auto result=edges(style,EdgeKind::padding,width);
         const auto table=v.rows[v.cells[cell].row].table;
         const auto table_style=v.tables[table].style;
         const auto b=border_edges(style);
-        const float factor=property(table_style,"display")=="grid" || property(table_style,"border-collapse")!="collapse"?1.f:.5f;
+        const auto &table_box=resolved.box(table_style);
+        const float factor=table_box.grid || !table_box.collapse_borders?1.f:.5f;
         result.top+=b.top*factor;result.right+=b.right*factor;result.bottom+=b.bottom*factor;result.left+=b.left*factor;
         return result;
     }
@@ -109,7 +69,7 @@ class Placement {
         Bounds result;float inset=0;std::vector<float> insets;
         for(const auto& f:flow) {
             if(f.kind==2) {
-                const auto padding=edges(f.index,"padding",0),margin=edges(f.index,"margin",0),b=border_edges(f.index);
+                const auto padding=edges(f.index,EdgeKind::padding,0),margin=edges(f.index,EdgeKind::margin,0),b=border_edges(f.index);
                 const float added=padding.left+padding.right+margin.left+margin.right+b.left+b.right;
                 insets.push_back(added);inset+=added;continue;
             }
@@ -157,12 +117,12 @@ class Placement {
         for(size_t at=0;at<flow.size();++at) {
             const auto& f=flow[at];
             if(f.kind==2) {
-                const auto margin=edges(f.index,"margin",width);auto padding=edges(f.index,"padding",width);
+                const auto margin=edges(f.index,EdgeKind::margin,width);auto padding=edges(f.index,EdgeKind::padding,width);
                 const auto b=border_edges(f.index);
                 padding.top+=b.top;padding.right+=b.right;padding.bottom+=b.bottom;padding.left+=b.left;
                 pending_margin=collapse(pending_margin,margin.top);
                 float box_width=std::max(1.f,width-margin.left-margin.right);
-                if(property(f.index,"display")=="inline-block" || property(f.index,"width")=="fit-content") {
+                if(resolved.box(f.index).shrink_to_fit) {
                     size_t end=at+1;unsigned nesting=1;
                     for(;end<flow.size();++end) {
                         if(flow[end].kind==2)++nesting;
@@ -202,7 +162,7 @@ class Placement {
                     ++out.wraps;out.paragraphs.push_back({f.index,source,measured.handle,x,y,width,geometry.height,geometry.lines,marker_x});y+=geometry.height;
                 } else if(f.kind==1) {
                     const auto style=v.tables[f.index].style;
-                    const auto margin=edges(style,"margin",width);
+                    const auto margin=edges(style,EdgeKind::margin,width);
                     y+=margin.top;
                     y+=place_table(f.index,source,x+margin.left,y,std::max(1.f,width-margin.left-margin.right),depth+1);
                     pending_margin=margin.bottom;
@@ -219,13 +179,13 @@ class Placement {
         const auto style=v.tables[id].style;
         const bool fractional=!grid.fractions.empty();
         // Grid padding belongs outside its tracks, unlike cell padding.
-        auto padding=fractional?edges(style,"padding",width):Edges{};
+        auto padding=fractional?edges(style,EdgeKind::padding,width):Edges{};
         const auto border=fractional?border_edges(style):Edges{};
         padding.top+=border.top;padding.right+=border.right;
         padding.bottom+=border.bottom;padding.left+=border.left;
-        const auto specified=property(style,"width");
-        const float target=fractional?std::max(1.f,length(specified,style,width,width)-padding.left-padding.right):
-            std::max(min,length(specified,style,width,std::min(width,max)));
+        const auto &box=resolved.box(style);
+        const float target=fractional?std::max(1.f,box.width.evaluate(width,out.unresolved,width)-padding.left-padding.right):
+            std::max(min,box.width.evaluate(width,out.unresolved,std::min(width,max)));
         x+=padding.left;y+=padding.top;
         const float fraction=max>min?std::clamp((target-min)/(max-min),0.f,1.f):0;
         std::vector<float> columns(grid.columns+1,0),row_heights(grid.rows,0),cell_heights(grid.cells.size(),0);
@@ -251,8 +211,8 @@ class Placement {
         const auto last_paragraph=out.paragraphs.size(),last_cell=out.cells.size(),last_block=out.blocks.size();
         for(size_t i=0;i<grid.cells.size();++i) {
             const auto& c=grid.cells[i];const float height=rows[c.row+c.rows]-rows[c.row];
-            const auto align=property(v.cells[c.cell].style,"vertical-align");
-            const float spare=std::max(0.f,height-cell_heights[i]);const float shift=rows[c.row]+(align=="middle"?spare/2:align=="bottom"?spare:0);
+            const auto align=resolved.box(v.cells[c.cell].style).vertical_align;
+            const float spare=std::max(0.f,height-cell_heights[i]);const float shift=rows[c.row]+(align==dictionary_core::ComputedBoxStyle::VerticalAlign::middle?spare/2:align==dictionary_core::ComputedBoxStyle::VerticalAlign::bottom?spare:0);
             const auto p_end=i+1<starts.size()?starts[i+1].paragraphs:last_paragraph;
             const auto c_end=i+1<starts.size()?starts[i+1].cells:last_cell;
             const auto b_end=i+1<starts.size()?starts[i+1].blocks:last_block;
@@ -287,7 +247,7 @@ public:
                 }
                 ++r;
             }
-            if(property(v.tables[t].style,"display")=="grid") {
+            if(resolved.box(v.tables[t].style).grid) {
                 const auto tracks=property(v.tables[t].style,"grid-template-columns");
                 std::vector<float> fractions;size_t at=0;
                 while(at<tracks.size()) {

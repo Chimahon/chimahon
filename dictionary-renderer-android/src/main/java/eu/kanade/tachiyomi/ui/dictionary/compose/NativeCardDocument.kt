@@ -71,7 +71,7 @@ public fun placeNativeCard(fragments: List<NativeCardFragment>, visible: Boolean
     val first = fragments.first().document
     return NativeGlossaryDocument(first.nodes, first.css, first.style, first.ancestors,
         first.density, first.direction, first.resolver, first.secondary, first.border, width,
-        ceil(placed.last()).toInt().coerceAtLeast(1), items, profilingId)
+        ceil(placed.last()).toInt().coerceAtLeast(1), items, profilingId, first.profilingPlanId)
 }
 
 /** A single drawing view per card; only images and real action controls remain Compose children. */
@@ -79,11 +79,18 @@ public fun placeNativeCard(fragments: List<NativeCardFragment>, visible: Boolean
 public fun NativeDocumentContent(document: NativeGlossaryDocument, dictionary: String,
     onLookup: ((String) -> Unit)?, onAction: (StructuredNode.Element) -> Unit,
     modifier: Modifier = Modifier, onLongAction: ((StructuredNode.Element) -> Unit)? = null,
-    onKanjiLookup: ((String) -> Unit)? = null) {
+    onKanjiLookup: ((String) -> Unit)? = null, onRecursiveLookup: ((NativeGlossaryHit) -> Unit)? = null) {
+    val selection = LocalNativeRecursiveSelection.current
+    if (document.images.isEmpty()) {
+        AndroidView(modifier = modifier, factory = { createNativeGlossaryView(it, document) }, update = {
+            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup, onRecursiveLookup, selection)
+        })
+        return
+    }
     val media = LocalMediaDataUris.current
     Layout(modifier = modifier, content = {
-        AndroidView(factory = { NativeGlossaryView(it) }, update = {
-            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup)
+        AndroidView(factory = { createNativeGlossaryView(it, document) }, update = {
+            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup, onRecursiveLookup, selection)
         })
         document.images.forEach { image ->
             val props = image.source.attributes.properties

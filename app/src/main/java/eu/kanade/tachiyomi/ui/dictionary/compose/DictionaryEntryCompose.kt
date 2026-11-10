@@ -41,7 +41,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,13 +66,11 @@ import chimahon.GlossaryEntry
 import chimahon.LookupResult
 import chimahon.PitchEntry
 import chimahon.anki.AnkiProfile
+import chimahon.diagnostics.LookupProfiler
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -164,7 +163,11 @@ internal fun parseKanjiEntryJson(json: String): KanjiCard? {
 /** One entry in the recursive-lookup tab strip. */
 data class GlossTab(val label: String, val active: Boolean)
 
-internal val glossaryPreparationDispatcher = Dispatchers.Default.limitedParallelism(4)
+// Four, not one per core: the phone measured 289 ms for 289 documents with the old four
+// workers and 343 ms for the same count with eight, so the extra workers only contend.
+internal val glossaryWorkerCount: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+
+internal val glossaryPreparationDispatcher = Dispatchers.Default.limitedParallelism(glossaryWorkerCount)
 
 internal class GlossaryLayoutWork(
     val nodes: List<StructuredNode>,
@@ -198,22 +201,25 @@ internal class TermCardPresentation(
  * coroutine context so a cancelled lookup stops the work in flight.
  */
 internal suspend fun prepareGlossaryBatch(profilingId: Long, nextWork: () -> GlossaryLayoutWork?,
-    layout: NativeGlossaryLayoutContext): IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument> {
+    layout: NativeGlossaryLayoutContext, planId: Long = 0L, workerId: Int = 0): IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument> {
     val caller = currentCoroutineContext()
-    val pending = ArrayList<GlossaryLayoutWork>()
-    while (true) { caller.ensureActive(); pending.add(nextWork() ?: break) }
-    val stats = layout.createResources()
-    val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
-    NativeCoreCompiler(layout.density, layout.direction, layout.resolver, layout.secondary, layout.border, stats).use { core ->
-        val documents = core.prepareBatch(pending.map { item ->
-            NativeDrawingInput(nativeCoreRaw(item.nodes), item.css.nativeSourceCss, item.width, item.nodes, item.css)
-        }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })
-        documents.forEachIndexed { index, document -> out[pending[index].nodes] = document }
-        if (profilingId != 0L) chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.native.batch",
-            "documents=${pending.size} paragraphs=${stats.paragraphs} ruby=${stats.rubyPairs} " +
-                "inputMs=${core.lastTiming.inputMs} measureMs=${core.lastTiming.measureMs} finishMs=${core.lastTiming.finishMs} transferMs=${core.lastTiming.transferMs} releaseMs=${core.lastTiming.releaseMs} configurationMs=${core.lastTiming.configurationMs}")
+    return NativeRenderDiagnostics.section(profilingId, planId, "plan.batch.prepare", "worker=$workerId") {
+        val pending = ArrayList<GlossaryLayoutWork>()
+        while (true) { caller.ensureActive(); pending.add(nextWork() ?: break) }
+        val stats = layout.createResources()
+        val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+        NativeCoreCompiler(layout.density, layout.direction, layout.resolver, layout.secondary, layout.border, stats,
+            profilingId, planId, workerId).use { core ->
+            val documents = core.prepareBatch(pending.map { item ->
+                NativeDrawingInput(nativeCoreRaw(item.nodes), item.css.nativeSourceCss, item.width, item.nodes, item.css)
+            }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })
+            documents.forEachIndexed { index, document -> out[pending[index].nodes] = document }
+            if (profilingId != 0L) NativeRenderDiagnostics.mark(profilingId, planId, "plan.native.batch",
+                "worker=$workerId documents=${pending.size} paragraphs=${stats.paragraphs} ruby=${stats.rubyPairs} " +
+                    "inputMs=${core.lastTiming.inputMs} measureMs=${core.lastTiming.measureMs} finishMs=${core.lastTiming.finishMs} transferMs=${core.lastTiming.transferMs} releaseMs=${core.lastTiming.releaseMs} configurationMs=${core.lastTiming.configurationMs}")
+        }
+        out
     }
-    return out
 }
 
 /**
@@ -249,8 +255,9 @@ fun DictionaryEntryCompose(
     groupPitches: Boolean = false,
     entryJsons: List<String>? = null,
     eInkMode: Boolean = false,
-    /** Recursive-lookup stack. Tapping the active tab pops it; tapping another switches to it. */
+    /** Recursive-lookup stack. Inactive tabs switch entries; the active tab is inert. */
     tabs: List<GlossTab> = emptyList(),
+    historyScrollState: androidx.compose.foundation.lazy.LazyListState? = null,
     modifier: Modifier = Modifier,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = null,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)? = null,
@@ -275,6 +282,7 @@ fun DictionaryEntryCompose(
     viewportWidthPx: Int? = null,
     cardPreparation: DictionaryCardPreparation? = null,
     renderPreparation: DictionaryPlanPreparation? = null,
+    planSlot: DictionaryPlanSlot? = null,
 ) {
     val context = LocalContext.current
     val appearance = rememberDictionaryRenderAppearance(eInkMode)
@@ -300,46 +308,71 @@ fun DictionaryEntryCompose(
     val fontResolver = LocalFontFamilyResolver.current
     val builder = rememberDictionaryPlanBuilder(popupWidthPx, fontSize, eInkMode, customCss, activeProfile, groupTerms,
         NativeCardOptions(showFrequencyHarmonic, showFrequencyAverage, showPitchDiagram, showPitchNumber, showPitchText, groupPitches), appearance)
-    val suppliedPlan = renderPreparation?.takeIf { resultsAreOrdered && it.matches(builder, results, styles, entryJsons) }
-
-    val plan by produceState(
-        initialValue = if (isLoading) RenderPlan.Empty else null,
-        results,
-        styles,
-        customCss,
-        activeProfile,
-        groupTerms,
-        isLoading,
-        entryJsons,
-        resultsAreOrdered,
-        themeVars,
-        onBg,
-        secondary,
-        border,
-        fontSize,
-        density,
-        layoutDirection,
-        fontResolver,
-        popupWidthPx,
-        suppliedPlan,
-    ) {
+    val providedPlan = planSlot?.matching(builder, results, styles, entryJsons) ?: renderPreparation
+    val suppliedPlan = providedPlan?.takeIf { resultsAreOrdered && it.matches(builder, results, styles, entryJsons) }
+    // produceState retains its outgoing value when its keys change. A fresh state
+    // owner makes it impossible to present another frame's plan during the handoff.
+    val planState = remember(builder, results, styles, entryJsons, resultsAreOrdered, isLoading,
+        profilingId, planSlot, if (planSlot == null) suppliedPlan else null) {
+        mutableStateOf(if (isLoading) RenderPlan.Empty else suppliedPlan?.ready())
+    }
+    val plan by planState
+    val planReadyCallback = rememberUpdatedState(onPlanReady)
+    LaunchedEffect(planState) {
         if (isLoading) {
-            value = RenderPlan.Empty
-            return@produceState
+            return@LaunchedEffect
         }
+        if (planState.value != null) return@LaunchedEffect
         val snapshotCardPreparation = cardPreparation?.takeIf {
             resultsAreOrdered && it.matches(results, groupTerms, activeProfile.dictionaryOrder)
         }
         chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.ui.await", "supplied=${suppliedPlan != null}")
-        value = suppliedPlan?.await() ?: withContext(Dispatchers.Default) {
-            chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.queued", "origin=renderer")
+        val preparedPlan = suppliedPlan?.await() ?: if (planSlot != null && resultsAreOrdered) {
+            planSlot.start(builder, results, styles, profilingId, snapshotCardPreparation, entryJsons).await()
+        } else withContext(Dispatchers.Default) {
+            val planId = NativeRenderDiagnostics.nextPlanId()
+            NativeRenderDiagnostics.mark(profilingId, planId, "plan.queued", "origin=renderer")
             val shown = if (resultsAreOrdered) results else orderLookupResultsForDisplay(results, activeProfile, context)
-            builder.prepare(shown, styles, profilingId, snapshotCardPreparation, entryJsons)
+            builder.prepare(shown, styles, profilingId, snapshotCardPreparation, entryJsons, planId)
         }
-        chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.ui.publish")
-        onPlanReady?.invoke()
+        NativeRenderDiagnostics.mark(profilingId, preparedPlan.profilingPlanId, "plan.ui.resume")
+        planState.value = preparedPlan
+        NativeRenderDiagnostics.mark(profilingId, preparedPlan.profilingPlanId, "plan.ui.publish")
+    }
+    LaunchedEffect(planState, plan) {
+        if (plan != null && plan !== RenderPlan.Empty) planReadyCallback.value?.invoke()
+        else onContentReadyChange?.invoke(false)
     }
     val effectivePlan = plan ?: RenderPlan.Empty
+    val diagnostics = remember { DictionaryPlanDiagnostics() }
+    if (LookupProfiler.sink?.enabled == true) {
+        remember(plan, profilingId) {
+            plan?.takeUnless { it === RenderPlan.Empty }?.let {
+                NativeRenderDiagnostics.mark(profilingId, it.profilingPlanId, "plan.compose.observe", "composition_not_yet_committed")
+            }
+            Unit
+        }
+        val inputs = remember(profilingId, results, styles, customCss, activeProfile, groupTerms, isLoading,
+            entryJsons, resultsAreOrdered, themeVars, onBg, secondary, border, fontSize, density, layoutDirection,
+            fontResolver, popupWidthPx, suppliedPlan) {
+            linkedMapOf<String, Any?>(
+                "request" to profilingId, "results" to results, "resultsIdentity" to System.identityHashCode(results),
+                "styles" to styles, "customCss" to customCss, "profile" to activeProfile, "groupTerms" to groupTerms,
+                "loading" to isLoading, "entryJsons" to entryJsons, "ordered" to resultsAreOrdered,
+                "themeVariables" to themeVars, "foreground" to onBg, "secondary" to secondary, "border" to border,
+                "fontSize" to fontSize, "density" to density, "direction" to layoutDirection,
+                "fontResolver" to fontResolver, "width" to popupWidthPx, "suppliedPlan" to suppliedPlan,
+            )
+        }
+        SideEffect {
+            val rejection = when {
+                !resultsAreOrdered -> listOf("resultsNotOrdered")
+                providedPlan == null -> listOf("noSuppliedPlan")
+                else -> providedPlan.mismatchReasons(builder, results, styles, entryJsons)
+            }
+            diagnostics.committed(profilingId, inputs, providedPlan, rejection, plan)
+        }
+    }
 
     // Structural-equality maps for the card subtree. Plain Map parameters are unstable-typed, so
     // under strong skipping they compare by instance: every plan rebuild or media commit (new
@@ -382,8 +415,16 @@ fun DictionaryEntryCompose(
         }
         // Bounded popup, opens at top: no item ahead to prefetch. Zero window removes the 2.1-2.3s
         // of off-screen card composition the default did on open (compose:lazy:prefetch:idle_frame).
-        val popupListState = androidx.compose.runtime.key(effectivePlan) {
+        val popupListState = historyScrollState ?: androidx.compose.runtime.key(effectivePlan) {
             rememberLazyListState(cacheWindow = LazyLayoutCacheWindow(ahead = 0.dp, behind = 0.dp))
+        }
+        val recursiveSelection = LocalNativeRecursiveSelection.current
+        if (recursiveSelection != null) {
+            LaunchedEffect(popupListState, recursiveSelection) {
+                snapshotFlow { popupListState.isScrollInProgress }.collect { scrolling ->
+                    if (scrolling) recursiveSelection.onParentScroll?.invoke()
+                }
+            }
         }
         Box(Modifier.fillMaxSize()) {
             when {
@@ -467,6 +508,7 @@ internal class RenderPlan(
     val presentation: List<TermCardPresentation> = emptyList(),
     val layoutContext: NativeGlossaryLayoutContext? = null,
     val nativeCards: List<NativeTermCard> = emptyList(),
+    val profilingPlanId: Long = 0L,
 ) {
     companion object {
         val Empty = RenderPlan(emptyList(), emptyMap(), emptyList())
@@ -533,22 +575,6 @@ internal suspend fun buildCards(
     fun rank(title: String): Int = priority[title] ?: Int.MAX_VALUE
     val titles = HashMap<String, String>()
     val parsed = HashMap<Triple<String, String, Boolean>, List<StructuredNode>>()
-    fun parseSource(source: Triple<String, String, Boolean>): List<StructuredNode> {
-        if (profilingId == 0L) return parseGlossaryNodes(source.second)
-        val start = chimahon.diagnostics.LookupProfiler.timestamp()
-        val cpu = chimahon.diagnostics.LookupProfiler.cpuTimestamp()
-        val nodes = chimahon.diagnostics.LookupProfiler.section(profilingId, "fn.glossary.parse") {
-            parseGlossaryNodes(source.second)
-        }
-        val end = chimahon.diagnostics.LookupProfiler.timestamp()
-        val usedCpu = chimahon.diagnostics.LookupProfiler.cpuTimestamp() - cpu
-        chimahon.diagnostics.LookupProfiler.section(profilingId, "fn.diagnostics.source") {
-        chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.source", JSONObject()
-            .put("dictionary", source.first).put("start_ns", start).put("end_ns", end).put("cpu_ns", usedCpu)
-            .put("sourceUtf16Units", source.second.length).put("singleGloss", source.third).put("rootNodes", nodes.size).toString())
-        }
-        return nodes
-    }
 
     class Acc {
         var expression = ""
@@ -566,7 +592,10 @@ internal suspend fun buildCards(
         fun finish(): TermCard {
             val groups = glosses.values.sortedBy { rank(it.title) }.map { group ->
                 group.copy(parsedGlosses = group.glosses.map { gloss ->
-                    parsed.getValue(Triple(group.dictName, gloss.glossary, group.glosses.size == 1))
+                    checkCancellation()
+                    parsed.getOrPut(Triple(group.dictName, gloss.glossary, group.glosses.size == 1)) {
+                        nativeCoreSource(gloss.glossary)
+                    }
                 })
             }
             return TermCard(
@@ -625,50 +654,11 @@ internal suspend fun buildCards(
         }
         for (p in result.term.pitches) acc.pitches[p.dictName] = p
     }
-    // Parse every unique glossary once. Each source is independent, so spread them over the
-    // available cores the same way the layout phase does; card order stays the source order.
-    val sources = LinkedHashSet<Triple<String, String, Boolean>>()
-    for (acc in out) for (group in acc.glosses.values) {
-        for (gloss in group.glosses) {
-            sources.add(Triple(group.dictName, gloss.glossary, group.glosses.size == 1))
-        }
-    }
-    if (sources.isNotEmpty()) {
-        val pending = sources.toList()
-        val workers = if (pending.size <= 1) 1 else
-            Runtime.getRuntime().availableProcessors().coerceIn(1, minOf(4, pending.size))
-        if (workers == 1) {
-            for (source in pending) {
-                checkCancellation()
-                parsed[source] = parseSource(source)
-            }
-        } else {
-            val next = java.util.concurrent.atomic.AtomicInteger()
-            val chunks = coroutineScope {
-                List(workers) {
-                    async(Dispatchers.Default) {
-                        val done = ArrayList<Pair<Triple<String, String, Boolean>, List<StructuredNode>>>(pending.size / workers + 1)
-                        while (true) {
-                            val index = next.getAndIncrement()
-                            if (index >= pending.size) break
-                            checkCancellation()
-                            val source = pending[index]
-                            done.add(source to parseSource(source))
-                        }
-                        done
-                    }
-                }.awaitAll()
-            }
-            for (chunk in chunks) for ((source, nodes) in chunk) parsed[source] = nodes
-        }
-    }
     return out.map { it.finish() }
 }
 
 /**
- * Glossary text to render nodes. Pure function of the text (including throw behavior: no
- * catch here, matching [GlossRow]'s structured path), so parsing once per plan source is
- * output-identical to parsing per composition.
+ * Raw source identity only; actual parsing is owned by the native batch compiler.
  */
 internal fun parseGlossaryNodes(glossary: String): List<StructuredNode> = nativeCoreSource(glossary)
 
@@ -1057,7 +1047,7 @@ private fun RecursiveNavBar(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (selected) onBg.copy(alpha = 0.10f) else Color.Transparent)
-                            .clickable { if (selected) onBack?.invoke() else onTabSelect?.invoke(index) }
+                            .clickable(enabled = !selected) { onTabSelect?.invoke(index) }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 }

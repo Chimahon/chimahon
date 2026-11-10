@@ -338,7 +338,7 @@ class DictionaryPreferences(
         const val SCROLL_INSTANT = "instant"
 
         const val RENDERER_WEBVIEW = "webview"
-        val supportsNativeRenderer: Boolean get() = Build.VERSION.SDK_INT >= 29
+        val supportsNativeRenderer: Boolean get() = Build.VERSION.SDK_INT >= 30
         const val RENDERER_COMPOSE = "compose"
     }
 

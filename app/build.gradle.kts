@@ -3,6 +3,7 @@ import mihon.buildlogic.Config
 import mihon.buildlogic.getBuildTime
 import mihon.buildlogic.getCommitCount
 import mihon.buildlogic.getGitSha
+import java.security.MessageDigest
 
 plugins {
     id("mihon.android.application")
@@ -20,7 +21,7 @@ val releaseVersionCode = providers.gradleProperty("releaseVersionCode").orNull?.
 val includeLocalDictionaryHarness = providers.gradleProperty("includeLocalDictionaryHarness").orNull == "true"
 
 // Keep diagnostic captures tied to the production renderer source set.
-val rendererDigest = java.security.MessageDigest.getInstance("SHA-256")
+val rendererDigest = MessageDigest.getInstance("SHA-256")
 val rendererSources = listOf(
     "app/src/main/java/eu/kanade/tachiyomi/ui/dictionary",
     "app/src/main/java/eu/kanade/presentation/theme",

@@ -41,7 +41,11 @@ public data class NativeGlossaryDisclosure(
 }
 
 public data class NativeGlossaryHit(val lookup: String? = null, val disclosure: StructuredNode.Element? = null,
-    val kanji: Boolean = false)
+    val kanji: Boolean = false, val sentence: String? = null, val sentenceOffset: Int? = null,
+    val tapX: Float? = null, val tapY: Float? = null) {
+    internal var surface: NativeCommandSurface? = null
+    internal var textOffset: Int = 0
+}
 
 public class NativeGlossaryDocument(
     val nodes: List<StructuredNode>,
@@ -57,6 +61,7 @@ public class NativeGlossaryDocument(
     val height: Int,
     val items: List<NativeGlossaryItem>,
     val profilingId: Long,
+    val profilingPlanId: Long = 0L,
 ) {
     val images = items.filterIsInstance<NativeGlossaryImage>()
     val disclosures = items.filterIsInstance<NativeGlossaryDisclosure>()

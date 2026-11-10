@@ -21,7 +21,7 @@ struct Token {
 };
 enum class OpKind : uint8_t { open, close, text, reading_open, reading_close };
 struct Operation { OpKind kind; uint8_t reserved[3]{}; uint32_t token; };
-struct SourceRange { uint32_t first, end; bool json; };
+struct SourceRange { uint32_t first, end; bool json; uint32_t first_operation, end_operation; };
 
 inline uint32_t checked_index(size_t size) {
     if (size >= UINT32_MAX) throw std::length_error("Document exceeds 32-bit storage limit");
@@ -134,8 +134,9 @@ struct Storage {
         if (!wrapper) operations.push_back({tag_name == "rt" ? OpKind::reading_close : OpKind::close, {}, at});
     }
     void finish_source(uint32_t first, bool json) {
-        sources.push_back({first, checked_index(tokens.size()), json});
+        const auto first_operation = checked_index(operations.size());
         lower(first);
+        sources.push_back({first, checked_index(tokens.size()), json, first_operation, checked_index(operations.size())});
     }
     void finish() {
         counts.sources = sources.size();

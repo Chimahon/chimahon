@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -210,6 +211,10 @@ struct dc_drawing_plan {
     std::vector<dc_measure_context> contexts;
     std::vector<dc_shaping_run> shaping_runs;
     std::vector<dc_run_metrics> metrics;
+    std::vector<uint32_t> font_styles, style_fonts, punctuation_probes;
+    std::vector<dc_run_metrics> font_metrics;
+    std::vector<uint8_t> punctuation_types, punctuation_classes;
+    std::vector<std::pair<uint32_t, uint32_t>> punctuation_offsets;
     std::vector<float> advances;
     std::vector<uint8_t> breaks, levels;
     std::vector<uint32_t> run_requests, image_by_run;
@@ -247,8 +252,12 @@ struct dc_drawing_plan {
             const auto features = prop("font-feature-settings");
             text_spacing[i] = {prop("text-spacing-trim") == "space-all", !features.empty() && features != "normal"};
             f.size = v.styles[i].font_size_px;
-            f.color = color(prop("color"), fg);
-            f.background = color(prop("background-color"), color(prop("background"), 0));
+            const float opacity = std::clamp(number(prop("opacity"), 1), 0.f, 1.f);
+            auto fade = [&](uint32_t c) {
+                return (c & 0x00ffffffu) | (static_cast<uint32_t>(std::lround(((c >> 24) & 255u) * opacity)) << 24);
+            };
+            f.color = fade(color(prop("color"), fg));
+            f.background = fade(color(prop("background-color"), color(prop("background"), 0)));
             auto background=prop("background-image");
             if(background.empty() || background=="none")background=prop("background");
             if(background.starts_with("radial-gradient(") && background.ends_with(')')) {
@@ -439,6 +448,7 @@ struct dc_drawing_plan {
         for (const auto &r : requests)
             std::fill(advances.begin() + r.start, advances.begin() + r.start + r.count,
                       std::numeric_limits<float>::quiet_NaN());
+        prepare_font_facts();
         run_left.resize(v.run_count);
         run_right.resize(v.run_count);
         request_shift.resize(requests.size());
@@ -466,6 +476,47 @@ struct dc_drawing_plan {
                     paragraph_boxes[previous].push_back(index(i));
                 }
                 if(run_requests[r]!=none && v.runs[r].style!=b.style)request_shift[run_requests[r]]+=f.baseline_shift;
+            }
+        }
+    }
+    void prepare_font_facts() {
+        using Key = std::tuple<float, uint32_t, uint32_t, float, std::string>;
+        std::map<Key, uint32_t> unique;
+        style_fonts.reserve(fonts.size());
+        for (uint32_t i = 0; i < fonts.size(); ++i) {
+            const auto &font = fonts[i];
+            std::string family(names, font.family_offset, font.family_bytes);
+            for (auto &c : family) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+            const auto first = family.find_first_not_of(" \t\r\n\f");
+            family = first == family.npos ? "" : family.substr(first, family.find_last_not_of(" \t\r\n\f") - first + 1);
+            const auto [it, inserted] = unique.emplace(Key{font.size, font.weight, font.flags & 7,
+                                                          font.letter_spacing, family}, index(font_styles.size()));
+            if (inserted) font_styles.push_back(i);
+            style_fonts.push_back(it->second);
+        }
+        font_metrics.resize(font_styles.size(), {std::numeric_limits<float>::quiet_NaN(), 0});
+        punctuation_classes.resize(text.size());
+        std::unordered_map<uint64_t, uint32_t> probes;
+        for (const auto &request : requests) {
+            const auto font = style_fonts[request.style];
+            for (uint32_t at = request.start; at < request.start + request.count; ++at) {
+                const uint16_t c = text[at];
+                uint8_t kind = 0;
+                switch (c) {
+                case '(': case '[': case '{': kind = 4; break;
+                case ')': case ']': case '}': kind = 5; break;
+                case 0x00b7: case 0x2027: case 0x30fb: case 0x3000: kind = 3; break;
+                default:
+                    if (c <= 0x7f || (c >= 0x3040 && c <= 0x30ff) || (c >= 0x3400 && c <= 0x9fff)) break;
+                    const auto [it, inserted] = probes.emplace((uint64_t(font) << 16) | c, index(punctuation_types.size()));
+                    if (inserted) {
+                        punctuation_probes.insert(punctuation_probes.end(), {font, c});
+                        punctuation_types.push_back(0);
+                    }
+                    punctuation_offsets.emplace_back(at, it->second);
+                    break;
+                }
+                punctuation_classes[at] = kind;
             }
         }
     }
@@ -912,6 +963,29 @@ dc_drawing_view dc_drawing_plan_view(dc_drawing_plan *d) {
             d->metrics.data(),  d->advances.data(), d->breaks.data(),   d->levels.data(),   d->commands.data(),
             d->commands.size(), d->hits.data(),     d->hits.size(),     d->sources.data(),  d->sources.size(),
             d->lines,           d->rubies, d->shaping_runs.data(), d->shaping_runs.size()};
+}
+dc_font_facts_view dc_drawing_font_facts(dc_drawing_plan *d) {
+    if (!d) return {};
+    return {d->font_styles.data(), d->style_fonts.data(), d->font_styles.size(), d->font_metrics.data(),
+            d->punctuation_probes.data(), d->punctuation_types.data(), d->punctuation_types.size()};
+}
+int dc_drawing_apply_font_facts(dc_drawing_plan *d, dc_error *error) {
+    try {
+        if (!d || d->finished) throw std::invalid_argument("Invalid drawing font facts target");
+        for (size_t i = 0; i < d->requests.size(); ++i)
+            d->metrics[i] = d->font_metrics[d->style_fonts[d->requests[i].style]];
+        for (const auto [offset, probe] : d->punctuation_offsets) {
+            const auto kind = d->punctuation_types[probe];
+            if (kind > 5) throw std::invalid_argument("Invalid punctuation class");
+            d->punctuation_classes[offset] = kind;
+        }
+        for (size_t i = 0; i < d->breaks.size(); ++i)
+            d->breaks[i] = (d->breaks[i] & 1) | (d->punctuation_classes[i] << 1);
+        return 0;
+    } catch (const std::exception &e) {
+        if (error) std::snprintf(error->message, sizeof(error->message), "%s", e.what());
+        return 1;
+    }
 }
 int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
     try {

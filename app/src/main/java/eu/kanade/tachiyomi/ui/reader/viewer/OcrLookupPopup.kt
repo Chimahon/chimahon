@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -71,9 +73,12 @@ import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryCardPreparation
 import eu.kanade.tachiyomi.ui.dictionary.compose.prepareDictionaryCards
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryPlanPreparation
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryPlanSlot
 import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryPlanBuilder
 import eu.kanade.tachiyomi.ui.dictionary.compose.rememberDictionaryPlanBuilder
 import eu.kanade.tachiyomi.ui.dictionary.compose.GlossTab
+import eu.kanade.tachiyomi.ui.dictionary.compose.LocalNativeRecursiveSelection
+import eu.kanade.tachiyomi.ui.dictionary.compose.NativeRecursiveSelection
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.resolveDictionaryTheme
@@ -227,6 +232,7 @@ private data class LookupFrame(
     val existingCardIds: Map<String, Long> = emptyMap(),
     val entryJsons: List<String>? = null,
     val profilingId: Long = 0,
+    val planSlot: DictionaryPlanSlot? = null,
 )
 
 private data class RecursivePopupRequest(
@@ -238,12 +244,14 @@ private data class RecursivePopupRequest(
     val tapY: Float? = null,
     val anchorWidth: Float = 0f,
     val anchorHeight: Float = 0f,
+    val screenAnchor: Boolean = false,
     val deferredResult: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>,
     val entryJsons: List<String>? = null,
 )
 
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun OcrLookupPopup(
     visible: Boolean = true,
     lookupString: String,
@@ -277,6 +285,7 @@ fun OcrLookupPopup(
     modifier: Modifier = Modifier,
     titleId: String? = null,
 ) {
+    chimahon.diagnostics.LookupProfiler.mark(chimahon.diagnostics.LookupProfiler.latestRequestId, "popup.compose.begin")
     val context = LocalContext.current
     remember(context) { eu.kanade.tachiyomi.ui.dictionary.LookupProfilingAndroid.install(context) }
     val scope = rememberCoroutineScope()
@@ -315,18 +324,39 @@ fun OcrLookupPopup(
     }
     var lookupStackState by remember { mutableStateOf(LookupStackState()) }
     val currentFrame = lookupStackState.currentFrame
+    // Owned by the history, not the temporarily unmounted renderer subtree.
+    val historyScrollStates = remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
+    androidx.compose.runtime.SideEffect { historyScrollStates.keys.retainAll(lookupStackState.stack.map { it.id }.toSet()) }
+    val historyScrollState = if (rendererMode != DictionaryPreferences.RENDERER_COMPOSE) null else currentFrame?.id?.let { id ->
+        historyScrollStates.getOrPut(id) {
+            androidx.compose.foundation.lazy.LazyListState(cacheWindow =
+                androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow(ahead = 0.dp, behind = 0.dp))
+        }
+    }
     val results = currentFrame?.results ?: emptyList()
     val styles = currentFrame?.styles ?: emptyList()
     val mediaDataUris = currentFrame?.mediaDataUris ?: emptyMap()
     val existingExpressions = currentFrame?.existingExpressions ?: emptySet()
     val entryJsons = currentFrame?.entryJsons
     var childPopupRequest by remember { mutableStateOf<RecursivePopupRequest?>(null) }
+    val nativeRecursiveSelection = remember { NativeRecursiveSelection() }
+    nativeRecursiveSelection.onParentScroll = {
+        childPopupRequest = null
+        nativeRecursiveSelection.clear()
+    }
     var contentReady by remember(visible) { mutableStateOf(false) }
+    var readyNativeFrameId by remember(visible) { mutableStateOf<String?>(null) }
     // Tracks the lookupGeneration value at the time content was last painted.
     // Used to distinguish a fresh lookup (hide stale content) from a same-lookup
     // invalidation like an Anki-status patch (keep content visible).
     var lastRenderedLookupGeneration by remember { mutableIntStateOf(-1) }
     var lookupGeneration by remember { mutableIntStateOf(0) }
+    val lookupInput = remember(lookupString, visible, initialLookupDeferred) { Any() }
+    val lookupInputRef = rememberUpdatedState(lookupInput)
+    data class LookupPublication(val generation: Int, val input: Any)
+    var lookupPublication by remember { mutableStateOf<LookupPublication?>(null) }
+    val nativeFrameCurrent = rendererMode != DictionaryPreferences.RENDERER_COMPOSE ||
+        lookupPublication?.let { it.generation == lookupGeneration && it.input === lookupInput } == true
     // The lookup this popup started itself, so a newer keystroke can abandon it instead of letting a
     // stale query run to completion. Caller-supplied deferreds are never cancelled - the caller may
     // still want that result.
@@ -338,6 +368,7 @@ fun OcrLookupPopup(
     val visibleRef = rememberUpdatedState(visible)
 
     fun dismissPopup() {
+        nativeRecursiveSelection.clear()
         if (!isRecursiveChild) {
             childPopupRequest = null
             webView?.evaluateJavascript(
@@ -446,7 +477,19 @@ fun OcrLookupPopup(
         deferredResult: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>? = null,
         entryJsons: List<String>? = null,
     ) {
+        chimahon.diagnostics.LookupProfiler.mark(chimahon.diagnostics.LookupProfiler.latestRequestId, "popup.lookup.begin")
+        val requestInput = lookupInput
         if (entryJsons != null) {
+            if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) {
+                lookupGeneration++
+                resultPreparation?.cancel()
+                resultPreparation = null
+                cardPreparation?.cancel()
+                cardPreparation = null
+                renderPreparation?.cancel()
+                renderPreparation = null
+                contentReady = false
+            }
             val frame = LookupFrame(
                 id = UUID.randomUUID().toString(),
                 query = query,
@@ -457,9 +500,13 @@ fun OcrLookupPopup(
                 mediaDataUris = emptyMap(),
                 existingExpressions = emptySet(),
                 entryJsons = entryJsons,
+                planSlot = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) DictionaryPlanSlot(scope) else null,
             )
-            val truncated = lookupStackState.stack.take(lookupStackState.activeIndex + 1) + frame
+            val retained = lookupStackState.stack.take(lookupStackState.activeIndex + 1)
+            lookupStackState.stack.drop(retained.size).forEach { it.planSlot?.cancel() }
+            val truncated = retained + frame
             lookupStackState = LookupStackState(stack = truncated, activeIndex = truncated.size - 1)
+            lookupPublication = LookupPublication(lookupGeneration, requestInput)
             errorMessage = null
             isLoading = false
             return
@@ -479,6 +526,8 @@ fun OcrLookupPopup(
 
         val finalQuery = if (isRecursive) cleanQuery else query
         val nativeLookup = rendererMode == DictionaryPreferences.RENDERER_COMPOSE
+        val previousContentReady = contentReady
+        nativeRecursiveSelection.clear()
         val generation = ++lookupGeneration
         resultPreparation?.cancel()
         resultPreparation = null
@@ -493,7 +542,7 @@ fun OcrLookupPopup(
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.main.resume")
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.renderer",
                 "renderer=$rendererLabel generation=$generation recursive=$isRecursive")
-            if (generation != lookupGeneration || nativeLookup && !visibleRef.value) {
+            if (generation != lookupGeneration || nativeLookup && (!visibleRef.value || requestInput !== lookupInputRef.value)) {
                 preparedCards?.cancel()
                 preparedPlan?.cancel()
                 return
@@ -501,6 +550,10 @@ fun OcrLookupPopup(
             if (isRecursive && result.results.isEmpty()) {
                 preparedCards?.cancel()
                 preparedPlan?.cancel()
+                // A miss leaves the parent frame active, including its freshness gate.
+                lookupPublication = LookupPublication(generation, requestInput)
+                lastRenderedLookupGeneration = generation
+                contentReady = previousContentReady
                 return
             }
 
@@ -515,14 +568,18 @@ fun OcrLookupPopup(
                 mediaDataUris = result.mediaDataUris,
                 existingExpressions = emptySet(),
                 profilingId = result.profilingId,
+                planSlot = if (nativeLookup) DictionaryPlanSlot(scope, preparedPlan) else null,
             )
 
             // Truncate any forward history past the current index, then push
-            val truncated = (if (nativeLookup && !isRecursive) emptyList()
-                else lookupStackState.stack.take(lookupStackState.activeIndex + 1)) + frame
+            val retained = if (nativeLookup && !isRecursive) emptyList()
+                else lookupStackState.stack.take(lookupStackState.activeIndex + 1)
+            lookupStackState.stack.drop(retained.size).forEach { it.planSlot?.cancel() }
+            val truncated = retained + frame
             cardPreparation = preparedCards
             renderPreparation = preparedPlan
             lookupStackState = LookupStackState(stack = truncated, activeIndex = truncated.size - 1)
+            lookupPublication = LookupPublication(generation, requestInput)
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "results.publish")
             errorMessage = result.error
 
@@ -623,11 +680,13 @@ fun OcrLookupPopup(
             val preparing = scope.async(Dispatchers.Default) {
                 var preparation: DictionaryCardPreparation? = null
                 try {
+                    chimahon.diagnostics.LookupProfiler.mark(profilingId, "results.prepare.enter")
                     val result = deferred.await()
+                    chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "results.await")
                     val ordered = chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") {
                         orderLookupResultsForDisplay(result.results, activeProfile, context)
                     }
-                    preparation = if (nativeLookup && generation == lookupGeneration && visibleRef.value) {
+                    preparation = if (nativeLookup && generation == lookupGeneration && visibleRef.value && requestInput === lookupInputRef.value) {
                         scope.prepareDictionaryCards(ordered, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
                             getDictionaryTitle(context, it)
                         }
@@ -1086,6 +1145,7 @@ fun OcrLookupPopup(
 
     LaunchedEffect(visible) {
         if (!visible) {
+            nativeRecursiveSelection.clear()
             resultPreparation?.cancel()
             resultPreparation = null
             cardPreparation?.cancel()
@@ -1116,8 +1176,7 @@ fun OcrLookupPopup(
             lastRenderedLookupGeneration = -1
             return@LaunchedEffect
         }
-        // Native keeps the previous subtree mounted until replacement results arrive;
-        // handleResult resets top-level history atomically with publishing the new frame.
+        // Native unmounts stale content during lookup, retaining history only as data.
         if (rendererMode != DictionaryPreferences.RENDERER_COMPOSE) lookupStackState = LookupStackState()
         isLoading = false
         pushLookup(lookupString, deferredResult = initialLookupDeferred, entryJsons = initialEntryJsons)
@@ -1147,6 +1206,7 @@ fun OcrLookupPopup(
                 buildKanjiEntryJson(kanjiResult.character, e).toString()
             } ?: emptyList()
             if (recursiveNavMode == "popup") {
+                val nativeAnchor = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) nativeRecursiveSelection.resolve(1) else null
                 val resolvedResult = CompletableDeferred(
                     chimahon.DictionaryRepository.LookupResult2(
                         results = emptyList(),
@@ -1161,6 +1221,11 @@ fun OcrLookupPopup(
                     sentenceOffset = targetOffset,
                     deferredResult = resolvedResult,
                     entryJsons = jsonStrings,
+                    tapX = nativeAnchor?.left,
+                    tapY = nativeAnchor?.top,
+                    anchorWidth = nativeAnchor?.width() ?: 0f,
+                    anchorHeight = nativeAnchor?.height() ?: 0f,
+                    screenAnchor = nativeAnchor != null,
                 )
             } else {
                 pushLookup(
@@ -1199,6 +1264,7 @@ fun OcrLookupPopup(
                         ),
                     )
                     val matchedLength = matched.codePointCount(0, matched.length)
+                    val nativeAnchor = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) nativeRecursiveSelection.resolve(matchedLength) else null
                     val openChild: (String?) -> Unit = { encodedRect ->
                         val rect = runCatching {
                             val decoded = org.json.JSONTokener(encodedRect).nextValue() as? String
@@ -1209,14 +1275,15 @@ fun OcrLookupPopup(
                             query = matched,
                             sentence = targetSentence,
                             sentenceOffset = targetOffset,
-                            tapX = (rect?.optDouble("x")?.toFloat() ?: x ?: 0f) * cssScale,
-                            tapY = (rect?.optDouble("y")?.toFloat() ?: y ?: 0f) * cssScale,
-                            anchorWidth = (rect?.optDouble("width")?.toFloat() ?: 0f) * cssScale,
-                            anchorHeight = (rect?.optDouble("height")?.toFloat() ?: 0f) * cssScale,
+                            tapX = nativeAnchor?.left ?: ((rect?.optDouble("x")?.toFloat() ?: x ?: 0f) * cssScale),
+                            tapY = nativeAnchor?.top ?: ((rect?.optDouble("y")?.toFloat() ?: y ?: 0f) * cssScale),
+                            anchorWidth = nativeAnchor?.width() ?: ((rect?.optDouble("width")?.toFloat() ?: 0f) * cssScale),
+                            anchorHeight = nativeAnchor?.height() ?: ((rect?.optDouble("height")?.toFloat() ?: 0f) * cssScale),
+                            screenAnchor = nativeAnchor != null,
                             deferredResult = resolvedResult,
                         )
                     }
-                    if (webView == null) {
+                    if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE || webView == null) {
                         openChild(null)
                     } else {
                         webView.evaluateJavascript(
@@ -1225,6 +1292,7 @@ fun OcrLookupPopup(
                         )
                     }
                 } else {
+                    nativeRecursiveSelection.clear()
                     webView?.evaluateJavascript(
                         "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                         null,
@@ -1278,18 +1346,24 @@ fun OcrLookupPopup(
             // the render plan is still being built - reporting ready there
             // published an empty popup a frame before any glossary existed,
             // which the user saw as a blank surface flash.
-            if (!ready && lookupGeneration != lastRenderedLookupGeneration) {
+            if (!ready) {
                 contentReady = false
             }
             if (!ready) contentReadyChangeRef.value?.invoke(false)
         }
     }
-    val composePlanReady: () -> Unit = remember(visible) {
+    val composePlanReady: () -> Unit = remember(visible, lookupPublication, currentFrame?.id) {
+        val publication = lookupPublication
+        val frameId = currentFrame?.id
         {
-            contentReady = true
-            lastRenderedLookupGeneration = lookupGeneration
-            chimahon.diagnostics.LookupProfiler.mark(lookupStackState.currentFrame?.profilingId ?: 0L, "popup.plan.ready")
-            contentReadyChangeRef.value?.invoke(true)
+            if (visible && publication != null && publication.generation == lookupGeneration && publication.input === lookupInputRef.value &&
+                frameId != null && lookupStackState.currentFrame?.id == frameId) {
+                readyNativeFrameId = frameId
+                contentReady = true
+                lastRenderedLookupGeneration = publication.generation
+                chimahon.diagnostics.LookupProfiler.mark(lookupStackState.currentFrame?.profilingId ?: 0L, "popup.plan.ready")
+                contentReadyChangeRef.value?.invoke(true)
+            }
         }
     }
     val webContentReady: (Boolean) -> Unit = remember(visible) {
@@ -1490,10 +1564,12 @@ fun OcrLookupPopup(
                 .height(actualHeightDp)
                 // Reveal state is read in the draw phase on purpose: flipping `contentReady` must
                 // repaint, not recompose the popup (it was one of the 4.25 compositions per open).
-                .graphicsLayer { alpha = if ((currentFrame != null && contentReady) || errorMessage != null) 1f else 0f }
+                .graphicsLayer { alpha = if ((currentFrame != null && contentReady && nativeFrameCurrent &&
+                    (rendererMode != DictionaryPreferences.RENDERER_COMPOSE || readyNativeFrameId == currentFrame.id)) || errorMessage != null) 1f else 0f }
                 .drawWithContent {
                     drawContent()
-                    val requestId = if (visible && contentReady) currentFrame?.profilingId ?: 0L else 0L
+                    val requestId = if (visible && contentReady &&
+                        (rendererMode != DictionaryPreferences.RENDERER_COMPOSE || readyNativeFrameId == currentFrame?.id)) currentFrame?.profilingId ?: 0L else 0L
                     if (requestId != 0L && revealedFrame[0] != requestId) {
                         revealedFrame[0] = requestId
                         chimahon.diagnostics.LookupProfiler.mark(requestId, "popup.ready_container.draw")
@@ -1551,16 +1627,20 @@ fun OcrLookupPopup(
                         .weight(1f),
                 ) {
                     val nativeContent = rendererMode == DictionaryPreferences.RENDERER_COMPOSE
-                    if (nativeContent && (!visible || currentFrame == null)) {
+                    if (nativeContent && (!visible || currentFrame == null || !nativeFrameCurrent)) {
                         // Only WebView needs a warm offscreen shell. Native also stays unmounted
                         // until a frame exists: composing it against the pre-result empty list builds
                         // an empty plan whose ready callback would reveal the popup before the real
                         // content is there.
                         Spacer(Modifier.fillMaxSize())
                     } else if (nativeContent) {
+                        CompositionLocalProvider(LocalNativeRecursiveSelection provides nativeRecursiveSelection) {
+                        androidx.compose.runtime.SideEffect { nativeRecursiveSelection.color = colorScheme.primary.toArgb() }
                         DictionaryEntryCompose(
+                            historyScrollState = historyScrollState,
                             cardPreparation = cardPreparation,
                             renderPreparation = renderPreparation,
+                            planSlot = currentFrame?.planSlot,
                             viewportWidthPx = with(density) { actualWidthDp.roundToPx() },
                             profilingId = currentFrame?.profilingId ?: 0L,
                             results = results,
@@ -1604,6 +1684,7 @@ fun OcrLookupPopup(
                                     if (contentReady) ContentFrameTracer.onContentDraw(size.height.toInt())
                                 },
                         )
+                        }
                     } else if (webView != null) {
                         DictionaryEntryWebView(
                             results = results,
@@ -1682,7 +1763,8 @@ fun OcrLookupPopup(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = if (visible && ((currentFrame != null && contentReady) || errorMessage != null)) 1f else 0f }
+                .graphicsLayer { alpha = if (visible && ((currentFrame != null && contentReady && nativeFrameCurrent &&
+                    (rendererMode != DictionaryPreferences.RENDERER_COMPOSE || readyNativeFrameId == currentFrame.id)) || errorMessage != null)) 1f else 0f }
                 .offset(
                     x = with(LocalDensity.current) { if (visible) layoutResult.x.toDp() else hideOffset },
                     y = with(LocalDensity.current) { if (visible) layoutResult.y.toDp() else hideOffset },
@@ -1705,14 +1787,15 @@ fun OcrLookupPopup(
     }
 
     childPopupRequest?.let { request ->
-        val childPopupWebView = eu.kanade.tachiyomi.ui.dictionary.rememberDictionaryPopupWebView(activeProfile.languageCode)
+        val childPopupWebView = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) null
+            else eu.kanade.tachiyomi.ui.dictionary.rememberDictionaryPopupWebView(activeProfile.languageCode)
         val closeChromePx = if (dismissOnOutsideTap && recursiveNavMode == "popup") {
             with(density) { 32.dp.toPx() }
         } else {
             0f
         }
-        val tapScreenX = layoutResult.x + (request.tapX ?: layoutResult.widthPx / 2f)
-        val tapScreenY = layoutResult.y + closeChromePx + (request.tapY ?: layoutResult.heightPx / 2f)
+        val tapScreenX = (if (request.screenAnchor) 0f else layoutResult.x) + (request.tapX ?: layoutResult.widthPx / 2f)
+        val tapScreenY = (if (request.screenAnchor) 0f else layoutResult.y + closeChromePx) + (request.tapY ?: layoutResult.heightPx / 2f)
         OcrLookupPopup(
             visible = visible,
             lookupString = request.query,
@@ -1720,6 +1803,7 @@ fun OcrLookupPopup(
             charOffset = request.sentenceOffset,
             onDismiss = {
                 childPopupRequest = null
+                nativeRecursiveSelection.clear()
                 webView?.evaluateJavascript(
                     "window.DictionaryRenderer && window.DictionaryRenderer.clearRecursiveSelection();",
                     null,

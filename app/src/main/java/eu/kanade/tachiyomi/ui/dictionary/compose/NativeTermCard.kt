@@ -69,81 +69,107 @@ internal class NativeTermCard(val card: TermCard, val pieces: List<NativeCardPie
     }
 }
 
-private fun cardElement(tag: String, content: Any, style: String = ""): NativeCardElement =
-    NativeCardElement(tag, content, if (style.isEmpty()) emptyMap() else mapOf("style" to style))
+private fun Color.css(): String = "#" + Integer.toUnsignedString(Integer.rotateLeft(toArgb(), 8), 16).padStart(8, '0')
 
-private fun cardSource(content: Any): List<StructuredNode> = nativeCardSource(content)
+/** Lookup-owned chrome rules. Repeated pieces carry classes, not fresh inline CSS. */
+internal class NativeCardTheme(appearance: DictionaryRenderAppearance) {
+    private val foreground: String = appearance.onBg.css()
+    private val secondary: String = appearance.secondary.css()
+    private val accent: String = appearance.accent.css()
+    val pitchColor: String = accent.take(7)
+    val css: ParsedCss = ParsedCss("body{margin:0;line-height:1.4;color:$foreground}rt{font-size:55%;line-height:1}" +
+        ".chip{font-size:.75em;background:${appearance.secondary.copy(alpha = .18f).css()};border-radius:4px;padding:2px 5px;margin-right:3px}" +
+        ".card-head{font-size:1.6em;font-weight:bold;white-space:nowrap;color:$foreground}" +
+        ".card-popular{color:$accent}.card-rare{color:${appearance.secondary.copy(alpha = .7f).css()}}" +
+        ".card-process{font-size:.8em;color:$secondary}" +
+        ".card-process-step{padding:7px 10px;margin-bottom:6px;background:${appearance.hover.css()};border:1px solid ${appearance.border.css()};border-radius:8px;font-size:.88em}" +
+        ".card-pitch-name{font-size:10px;color:$secondary}.card-pitch-number{font-size:12px;color:$accent}" +
+        ".card-pitch-mora{font-size:11px;border-top:0}.card-pitch-high{border-top:1px solid $foreground}" +
+        ".card-pitch-drop{border-right:1px solid $foreground}" +
+        ".card-group{font-size:.94em;font-weight:600;color:$secondary;padding:4px 0 4px 12px}")
+}
 
-private fun Color.css(): String = "#%08x".format((toArgb().toLong() and 0xffffffffL).let { ((it shl 8) or (it ushr 24)) and 0xffffffffL })
+private val cardTagWhitespace = Regex("\\s+")
+private fun NativeCardBuilder.chip(value: String) { element("span", "chip") { text(value) } }
 
 internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation,
-    layout: NativeGlossaryLayoutContext, appearance: DictionaryRenderAppearance,
-    options: NativeCardOptions, index: Int): List<NativeCardPiece> {
+    layout: NativeGlossaryLayoutContext, theme: NativeCardTheme,
+    options: NativeCardOptions): List<NativeCardPiece> {
     val parts = ArrayList<NativeCardPiece>()
     val scale = layout.density.density
     fun px(dp: Int) = (dp * scale).roundToInt()
     val width = (layout.viewportWidth - px(16)).coerceAtLeast(1)
-    val css = ParsedCss("body{margin:0;line-height:1.4;color:${appearance.onBg.css()}}rt{font-size:55%;line-height:1}" +
-        ".chip{font-size:.75em;background:${appearance.secondary.copy(alpha = .18f).css()};border-radius:4px;padding:2px 5px;margin-right:3px}" )
-    fun add(content: Any, group: Int = -1, expanded: Boolean? = null, left: Int = 0,
-        before: Int = 0, after: Int = 0, action: String? = null, assignedWidth: Int = width) {
-        parts.add(NativeCardPiece(cardSource(content), css, assignedWidth, group = group, expanded = expanded,
+    val css = theme.css
+    fun add(group: Int = -1, expanded: Boolean? = null, left: Int = 0,
+        before: Int = 0, after: Int = 0, action: String? = null, assignedWidth: Int = width,
+        content: NativeCardBuilder.() -> Unit) {
+        parts.add(NativeCardPiece(nativeCardSource(content), css, assignedWidth, group = group, expanded = expanded,
             left = px(left), before = px(before), after = px(after), action = action))
     }
-    fun chip(text: String): NativeCardElement = NativeCardElement("span", text, mapOf("class" to "chip"))
-    val head = ArrayList<Any>()
-    for (unit in splitHeadwordUnits(card.expression, card.reading)) {
-        val reading = unit.readingOrNull()
-        val text = when (unit) { is HeadwordUnit.Kanji -> unit.char; is HeadwordUnit.Ruby -> unit.text; is HeadwordUnit.Text -> unit.text }
-        head.add(if (reading == null) text else cardElement("ruby", listOf(text, cardElement("rt", reading))))
+    val tags = card.termTags.split(cardTagWhitespace).filter { it.isNotBlank() }.distinct()
+    val headClass = when {
+        tags.any { it.contains("popular", true) } -> "card-head card-popular"
+        tags.any { it.contains("rare", true) || it.contains("arch", true) || it.contains("obs", true) } -> "card-head card-rare"
+        else -> "card-head"
     }
-    val tags = card.termTags.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
-    val headColor = when {
-        tags.any { it.contains("popular", true) } -> appearance.accent
-        tags.any { it.contains("rare", true) || it.contains("arch", true) || it.contains("obs", true) } -> appearance.secondary.copy(alpha = .7f)
-        else -> appearance.onBg
+    add(before = 10, after = 2, assignedWidth = (width - px(84)).coerceAtLeast(1)) {
+        element("div", headClass) {
+            for (unit in splitHeadwordUnits(card.expression, card.reading)) {
+                val reading = unit.readingOrNull()
+                val base = when (unit) { is HeadwordUnit.Kanji -> unit.char; is HeadwordUnit.Ruby -> unit.text; is HeadwordUnit.Text -> unit.text }
+                if (reading == null) text(base) else element("ruby") { text(base); element("rt") { text(reading) } }
+            }
+        }
     }
-    add(cardElement("div", head, "font-size:1.6em;font-weight:bold;white-space:nowrap;color:${headColor.css()}"),
-        before = 10, after = 2, assignedWidth = (width - px(84)).coerceAtLeast(1))
-    if (tags.isNotEmpty()) add(cardElement("div", tags.take(8).map(::chip)), before = 4)
+    if (tags.isNotEmpty()) add(before = 4) { element("div") { tags.take(8).forEach { chip(it) } } }
     if (card.process.isNotEmpty() && card.process.map { it.name } != listOf(card.expression)) {
         val summary = card.process.asReversed().joinToString(" \u00bb ") { it.name }
-        for (expanded in listOf(false, true)) add(cardElement("div", summary + if (expanded) " \u25be" else " \u25b8",
-            "font-size:.8em;color:${appearance.secondary.css()}"), before = 4, action = "process", expanded = expanded)
-        val details = ArrayList<Any>()
-        val rules = card.rules.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
-        if (rules.isNotEmpty()) details.add(cardElement("div", rules.map(::chip)))
-        card.process.asReversed().forEach { step -> details.add(cardElement("div", "${step.name}: ${step.description}",
-            "padding:7px 10px;margin-bottom:6px;background:${appearance.hover.css()};border:1px solid ${appearance.border.css()};border-radius:8px;font-size:.88em")) }
-        add(cardElement("div", details), before = 2, action = "process-details")
+        for (expanded in listOf(false, true)) add(before = 4, action = "process", expanded = expanded) {
+            element("div", "card-process") { text(summary + if (expanded) " \u25be" else " \u25b8") }
+        }
+        val rules = card.rules.split(cardTagWhitespace).filter { it.isNotBlank() }.distinct()
+        add(before = 2, action = "process-details") {
+            element("div") {
+                if (rules.isNotEmpty()) element("div") { rules.forEach { chip(it) } }
+                card.process.asReversed().forEach { step ->
+                    element("div", "card-process-step") { text("${step.name}: ${step.description}") }
+                }
+            }
+        }
     }
     val frequencies = buildFrequencyChips(card.frequencies, options.harmonic, options.average)
-    if (frequencies.isNotEmpty()) add(cardElement("div", frequencies.map { chip(listOfNotNull(it.label, it.body).joinToString(" ")) }), before = 4)
+    if (frequencies.isNotEmpty()) add(before = 4) {
+        element("div") { frequencies.forEach { chip(listOfNotNull(it.label, it.body).joinToString(" ")) } }
+    }
     if (options.pitchDiagram || options.pitchNumber || options.pitchText) {
         val reading = card.reading.ifBlank { card.expression }
         val pitches = if (options.groupPitches) listOf(card.pitches.joinToString(", ") { it.dictName } to
             card.pitches.flatMap { it.pitchPositions.toList() }.distinct()) else card.pitches.map { it.dictName to it.pitchPositions.toList().distinct() }
         for ((name, positions) in pitches) for (position in positions) {
-            val row = arrayListOf<Any>(cardElement("span", name + " ", "font-size:10px;color:${appearance.secondary.css()}"))
-            if (options.pitchDiagram && reading.isNotBlank()) row.add(pitchImage(reading, position, appearance.accent))
-            if (options.pitchText) {
-                splitMorae(reading).forEachIndexed { i, mora -> row.add(cardElement("span", mora,
-                    "font-size:11px;border-top:${if (isMoraPitchHigh(i, position)) "1px solid ${appearance.onBg.css()}" else "0"};" +
-                        if (isMoraPitchHigh(i, position) && !isMoraPitchHigh(i + 1, position)) "border-right:1px solid ${appearance.onBg.css()}" else "")) }
+            add(before = 2) {
+                element("div") {
+                    element("span", "card-pitch-name") { text(name + " ") }
+                    if (options.pitchDiagram && reading.isNotBlank()) pitchImage(reading, position, theme.pitchColor)
+                    if (options.pitchText) splitMorae(reading).forEachIndexed { i, mora ->
+                        val high = isMoraPitchHigh(i, position)
+                        element("span", "card-pitch-mora" + (if (high) " card-pitch-high" else "") +
+                            (if (high && !isMoraPitchHigh(i + 1, position)) " card-pitch-drop" else "")) { text(mora) }
+                    }
+                    if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
+                }
             }
-            if (options.pitchNumber) row.add(cardElement("span", " [$position]", "font-size:12px;color:${appearance.accent.css()}"))
-            add(cardElement("div", row), before = 2)
         }
     }
     card.dictGroups.forEachIndexed { groupIndex, group ->
-        for (expanded in listOf(true, false)) add(cardElement("div", (if (expanded) "\u25be  " else "\u25b8  ") + group.title,
-            "font-size:.94em;font-weight:600;color:${appearance.secondary.css()};padding:4px 0 4px 12px"),
-            group = groupIndex, expanded = expanded, before = if (groupIndex == 0) 2 else 4, action = "group:$groupIndex")
+        for (expanded in listOf(true, false)) add(group = groupIndex, expanded = expanded,
+            before = if (groupIndex == 0) 2 else 4, action = "group:$groupIndex") {
+            element("div", "card-group") { text((if (expanded) "\u25be  " else "\u25b8  ") + group.title) }
+        }
         group.glosses.forEachIndexed { glossIndex, _ ->
             val defTags = presentation.groups[groupIndex].definitionTags[glossIndex]
             val left = if (group.glosses.size == 1) 0 else 16
-            if (defTags.isNotEmpty()) add(cardElement("div", defTags.map(::chip)), group = groupIndex,
-                expanded = true, left = left, before = 3, after = 2, assignedWidth = layout.glossaryWidth(left != 0))
+            if (defTags.isNotEmpty()) add(group = groupIndex, expanded = true, left = left, before = 3, after = 2,
+                assignedWidth = layout.glossaryWidth(left != 0)) { element("div") { defTags.forEach { chip(it) } } }
             parts.add(NativeCardPiece(group.parsedGlosses[glossIndex], presentation.groups[groupIndex].css,
                 layout.glossaryWidth(left != 0), group.dictName, groupIndex, true, px(left),
                 if (defTags.isEmpty()) px(3) else 0, px(3)))
@@ -152,17 +178,19 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
     return parts
 }
 
-private fun pitchImage(reading: String, position: Int, color: Color): NativeCardElement {
+private fun NativeCardBuilder.pitchImage(reading: String, position: Int, color: String) {
     val morae = splitMorae(reading)
     val width = morae.size * 18
     val points = morae.indices.map { i -> "${i * 18 + 9},${if (isMoraPitchHigh(i, position)) 7.48 else 19.72}" }
-    val svg = "<svg xmlns='http://www.w3.org/2000/svg' width='$width' height='34'><g fill='${color.css().take(7)}' stroke='${color.css().take(7)}' stroke-width='1.19'>" +
+    val svg = "<svg xmlns='http://www.w3.org/2000/svg' width='$width' height='34'><g fill='$color' stroke='$color' stroke-width='1.19'>" +
         "<polyline fill='none' points='${points.joinToString(" ")}'/>" + points.joinToString("") { point ->
             val (x, y) = point.split(','); "<path opacity='.55' d='M$x 26.52 L$x $y'/><circle cx='$x' cy='$y' r='1.9'/>"
         } + "</g></svg>"
-    return NativeCardElement("img", "", properties = mapOf(
-        "path" to "data:image/svg+xml;base64," + Base64.encodeToString(svg.toByteArray(), Base64.NO_WRAP),
-        "width" to width.toString(), "height" to "34", "sizeUnits" to "px"))
+    element("img") {
+        property("path", "data:image/svg+xml;base64," + Base64.encodeToString(svg.toByteArray(), Base64.NO_WRAP))
+        property("width", width.toString()); property("height", "34"); property("sizeUnits", "px")
+        text("")
+    }
 }
 
 @Composable
@@ -212,7 +240,10 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
                 val title = model.card.dictGroups[group].title
                 selected = if (selected == title) null else title
             }
-        }, onKanjiLookup = { text -> sink.value?.invoke(text, null, null, null, null, "kanji") })
+        }, onKanjiLookup = { text -> sink.value?.invoke(text, null, null, null, null, "kanji") },
+            onRecursiveLookup = { hit -> hit.lookup?.let { text ->
+                sink.value?.invoke(text, hit.sentence, hit.sentenceOffset, hit.tapX, hit.tapY, if (hit.kanji) "kanji" else "term")
+            } })
         val headHeight = with(model.layout.density) { model.documents.getValue(model.pieces.first().nodes).height.toDp() }
         Row(Modifier.align(Alignment.TopEnd).offset(y = 10.dp + (headHeight - 28.dp) / 2)) {
             if (audioEnabled) WordAudioButton(model.card.expression, model.card.reading, accent, onBg, autoplay, Modifier.size(28.dp))

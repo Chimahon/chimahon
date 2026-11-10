@@ -17,9 +17,10 @@ extern "C" {
 
 typedef struct dc_document dc_document;
 typedef struct dc_source { const char* utf8; size_t bytes; } dc_source;
-/* Typed host tree: uint32 token_count/string_bytes, then token_count records
- * (kind/end/string_offset/string_length), followed by the UTF-8 string pool.
- * Kinds: object=0,array=1,key=2,string=3,number=4,bool=5,null=6. */
+/* Host chrome: uint32 magic(0x43415244)/command_count/string_bytes, followed
+ * by command records (kind/reserved/string_offset/string_length) and UTF-8.
+ * Kinds: open=0,attribute=1,property=2,text=3,close=4,value=5.
+ * Attribute/property commands are followed by a value, before child content. */
 typedef struct dc_typed_source { const void *data; size_t bytes; } dc_typed_source;
 typedef struct dc_error { uint32_t source; size_t offset; char message[192]; } dc_error;
 typedef struct dc_counts {

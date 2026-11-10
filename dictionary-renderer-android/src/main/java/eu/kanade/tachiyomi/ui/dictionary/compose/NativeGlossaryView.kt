@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
@@ -40,6 +41,10 @@ import kotlin.math.abs
 
 public val LocalNativeGlossaryDocuments = compositionLocalOf<Map<List<StructuredNode>, NativeGlossaryDocument>> { emptyMap() }
 public val LocalLookupProfilingId = compositionLocalOf { 0L }
+
+public fun createNativeGlossaryView(context: Context, document: NativeGlossaryDocument): NativeGlossaryView =
+    NativeRenderDiagnostics.section(document.profilingId, document.profilingPlanId, "document.view.create",
+        "document=${System.identityHashCode(document)}") { NativeGlossaryView(context) }
 
 @Composable
 public fun StructuredGlossaryContent(nodes: List<StructuredNode>, parsedCss: ParsedCss, dictName: String,
@@ -100,11 +105,11 @@ public fun PreparedGlossaryContent(nodes: List<StructuredNode>, css: ParsedCss, 
         if (document != null) {
             val toggle: (StructuredNode.Element) -> Unit = { node -> toggled = if (node in toggled) toggled - node else toggled + node }
             if (document.images.isEmpty()) {
-                AndroidView(modifier = modifier, factory = { NativeGlossaryView(it) },
+                AndroidView(modifier = modifier, factory = { createNativeGlossaryView(it, document) },
                     update = { it.bind(document, dictName, onLookup, toggle) })
             } else Layout(modifier = modifier, content = {
                 val media = LocalMediaDataUris.current
-                AndroidView(factory = { NativeGlossaryView(it) }, update = { it.bind(document, dictName, onLookup, toggle) })
+                AndroidView(factory = { createNativeGlossaryView(it, document) }, update = { it.bind(document, dictName, onLookup, toggle) })
                 document.images.forEach { image ->
                     val path = image.source.attributes.properties["path"].orEmpty()
                     val uri = resolveMediaUri2(dictName, path, media)
@@ -127,11 +132,16 @@ public fun PreparedGlossaryContent(nodes: List<StructuredNode>, css: ParsedCss, 
 public class NativeGlossaryView(context: Context) : View(context) {
     private var document: NativeGlossaryDocument? = null
     private var drawn: NativeGlossaryDocument? = null
+    private var measured: NativeGlossaryDocument? = null
+    private var laidOut: NativeGlossaryDocument? = null
     private var dictionary = ""
     private var lookup: ((String) -> Unit)? = null
     private var toggle: ((StructuredNode.Element) -> Unit)? = null
     private var longAction: ((StructuredNode.Element) -> Unit)? = null
     private var kanjiLookup: ((String) -> Unit)? = null
+    private var recursiveLookup: ((NativeGlossaryHit) -> Unit)? = null
+    private var recursiveSelection: NativeRecursiveSelection? = null
+    private var selectionRects: List<android.graphics.RectF> = emptyList()
     private var longPressed = false
     private val longPress = Runnable {
         document?.hit(downX, downY)?.disclosure?.let { action ->
@@ -140,6 +150,16 @@ public class NativeGlossaryView(context: Context) : View(context) {
     }
     private val chromePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val viewport = Rect()
+    private val visibleRasterBounds = Rect()
+    private val previousRasterBounds = Rect()
+    private val viewportListener = android.view.ViewTreeObserver.OnPreDrawListener {
+        if (!getLocalVisibleRect(visibleRasterBounds)) visibleRasterBounds.setEmpty()
+        if (previousRasterBounds != visibleRasterBounds) {
+            previousRasterBounds.set(visibleRasterBounds)
+            invalidate()
+        }
+        true
+    }
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f
@@ -150,20 +170,50 @@ public class NativeGlossaryView(context: Context) : View(context) {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
     }
 
+    private fun mark(value: NativeGlossaryDocument, phase: String, detail: String = "") {
+        NativeRenderDiagnostics.mark(value.profilingId, value.profilingPlanId, phase,
+            "document=${System.identityHashCode(value)} view=${System.identityHashCode(this)} $detail")
+    }
+
     fun bind(value: NativeGlossaryDocument, name: String, onLookup: ((String) -> Unit)?, onToggle: (StructuredNode.Element) -> Unit,
-        onLongAction: ((StructuredNode.Element) -> Unit)? = null, onKanjiLookup: ((String) -> Unit)? = null) {
+        onLongAction: ((StructuredNode.Element) -> Unit)? = null, onKanjiLookup: ((String) -> Unit)? = null,
+        onRecursiveLookup: ((NativeGlossaryHit) -> Unit)? = null, selection: NativeRecursiveSelection? = null) {
         lookup = onLookup
         toggle = onToggle
         longAction = onLongAction
         kanjiLookup = onKanjiLookup
+        recursiveLookup = onRecursiveLookup
+        recursiveSelection = selection
         dictionary = name
         if (document !== value) {
+            clearRecursiveSelection()
             val resized = document?.width != value.width || document?.height != value.height
             document = value
-            LookupProfiler.mark(value.profilingId, "document.bind", "$name width=${value.width} height=${value.height} items=${value.items.size}")
+            mark(value, "document.bind", "$name width=${value.width} height=${value.height} items=${value.items.size} resized=$resized attached=$isAttachedToWindow")
             if (resized) requestLayout()
             invalidate()
         }
+    }
+
+    internal fun clearRecursiveSelection() {
+        if (selectionRects.isNotEmpty()) {
+            selectionRects = emptyList()
+            invalidate()
+        }
+    }
+
+    internal fun showRecursiveSelection(hit: NativeGlossaryHit, codePoints: Int): android.graphics.RectF? {
+        val surface = hit.surface ?: return null
+        if (!isAttachedToWindow || document?.items?.any { it === surface } != true) return null
+        selectionRects = surface.selectionRects(hit.textOffset, codePoints)
+        if (selectionRects.isEmpty()) return null
+        invalidate()
+        val bounds = android.graphics.RectF(selectionRects.first())
+        selectionRects.drop(1).forEach(bounds::union)
+        val position = IntArray(2)
+        getLocationOnScreen(position)
+        bounds.offset(position[0].toFloat(), position[1].toFloat())
+        return bounds
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -171,24 +221,68 @@ public class NativeGlossaryView(context: Context) : View(context) {
         LookupProfiler.section(value?.profilingId ?: 0L, "native.view.measure") {
             setMeasuredDimension(resolveSize(value?.width ?: 0, widthMeasureSpec), resolveSize(value?.height ?: 0, heightMeasureSpec))
         }
+        if (value != null && measured !== value) {
+            measured = value
+            mark(value, "document.first_measure", "width=$measuredWidth height=$measuredHeight")
+        }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        val value = document ?: return
+        if (laidOut !== value) {
+            laidOut = value
+            mark(value, "document.first_layout", "changed=$changed width=${right - left} height=${bottom - top}")
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        viewTreeObserver.addOnPreDrawListener(viewportListener)
+        document?.let { mark(it, "document.attached") }
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val value = document ?: return
+        if (drawn !== value) mark(value, "document.first_draw.begin")
+        val checkpoint = canvas.save()
+        if (isAttachedToWindow) {
+            if (!getLocalVisibleRect(visibleRasterBounds)) {
+                canvas.restoreToCount(checkpoint)
+                return
+            }
+            canvas.clipRect(visibleRasterBounds)
+        }
         canvas.getClipBounds(viewport)
+        val paintSink = if (drawn !== value && value.profilingId != 0L) LookupProfiler.sink?.takeIf { it.enabled } else null
+        val paintStart = paintSink?.now() ?: 0L
+        val paintCpu = paintSink?.cpu() ?: 0L
         LookupProfiler.section(value.profilingId, "native.document.paint") {
             for (item in value.items) {
                 if (item.y >= viewport.bottom || item.y + item.height <= viewport.top || item.x >= viewport.right || item.x + item.width <= viewport.left) continue
                 item.draw(canvas, chromePaint)
             }
+            if (selectionRects.isNotEmpty()) {
+                val previousColor = chromePaint.color
+                val previousStyle = chromePaint.style
+                chromePaint.color = recursiveSelection?.color ?: value.secondary.toArgb()
+                chromePaint.style = Paint.Style.FILL
+                for (rect in selectionRects) canvas.drawRect(rect.left, rect.bottom - 2 * resources.displayMetrics.density,
+                    rect.right, rect.bottom, chromePaint)
+                chromePaint.color = previousColor
+                chromePaint.style = previousStyle
+            }
         }
+        canvas.restoreToCount(checkpoint)
+        paintSink?.event(value.profilingId, "document.first_paint", paintStart, paintSink.now(), paintSink.cpu() - paintCpu,
+            "plan=${value.profilingPlanId} document=${System.identityHashCode(value)} view=${System.identityHashCode(this)} inclusive")
         if (drawn !== value) {
             drawn = value
-            LookupProfiler.mark(value.profilingId, "document.first_draw", dictionary)
+            mark(value, "document.first_draw", dictionary)
             if (value.profilingId != 0L && android.os.Build.VERSION.SDK_INT >= 29 && isHardwareAccelerated && viewTreeObserver.isAlive) {
                 viewTreeObserver.registerFrameCommitCallback {
-                    LookupProfiler.mark(value.profilingId, "document.frame_commit", "render-thread commit;not display presentation")
+                    mark(value, "document.frame_commit", "render-thread commit;not display presentation")
                 }
             }
         }
@@ -213,7 +307,16 @@ public class NativeGlossaryView(context: Context) : View(context) {
                 if (!dragged && !longPressed) {
                     val hit = document?.hit(event.x, event.y)
                     hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.lookup?.let {
-                        if (hit.kanji && kanjiLookup != null) kanjiLookup?.invoke(it) else lookup?.invoke(it)
+                        if (recursiveLookup != null) {
+                            val position = IntArray(2)
+                            getLocationInWindow(position)
+                            val tapped = hit.copy(tapX = (position[0] + event.x) / resources.displayMetrics.density,
+                                tapY = (position[1] + event.y) / resources.displayMetrics.density)
+                            tapped.surface = hit.surface
+                            tapped.textOffset = hit.textOffset
+                            recursiveSelection?.select(this, tapped)
+                            recursiveLookup?.invoke(tapped)
+                        } else if (hit.kanji && kanjiLookup != null) kanjiLookup?.invoke(it) else lookup?.invoke(it)
                     }
                     performClick()
                 }
@@ -226,7 +329,13 @@ public class NativeGlossaryView(context: Context) : View(context) {
 
     override fun performClick(): Boolean { super.performClick(); return true }
 
-    override fun onDetachedFromWindow() { removeCallbacks(longPress); super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() {
+        removeCallbacks(longPress)
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnPreDrawListener(viewportListener)
+        document?.items?.filterIsInstance<NativeCommandSurface>()?.forEach { it.clearRaster() }
+        previousRasterBounds.setEmpty()
+        super.onDetachedFromWindow()
+    }
 
     override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
         super.onInitializeAccessibilityNodeInfo(info)

@@ -1,15 +1,10 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import android.graphics.Canvas
+import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.Rect
-import android.graphics.Matrix
-import android.graphics.Path
-import android.graphics.RadialGradient
-import android.graphics.Shader
-import android.graphics.Typeface
-import android.text.TextPaint
-import androidx.compose.runtime.State
+import android.graphics.RectF
 import java.nio.ByteBuffer
 
 public data class NativeDrawingHitProbe(val x: Float, val y: Float, val category: String,
@@ -22,7 +17,7 @@ internal class NativeCommandSurface(
     private val requests: IntArray,
     private val contexts: IntArray,
     private val characters: CharArray,
-    private val fonts: Array<NativePlatformFont>,
+    private val drawing: NativePortableDrawing,
     private val source: Int,
     private val firstCommand: Int,
     private val commandCount: Int,
@@ -33,14 +28,17 @@ internal class NativeCommandSurface(
     override val height: Int,
     override val x: Int = 0,
     override val y: Int = 0,
-    private val gradients: MutableMap<Int, Shader> = HashMap(),
     private val headword: String? = null,
     private val textColor: Int? = null,
 ) : NativeGlossaryItem {
     private val viewport = Rect()
-    private val clip = Path()
-    private val borderRadii = FloatArray(8)
-    val hasStaleFonts: Boolean get() = fonts.any { it.state.value !== it.typeface }
+    private var raster: Bitmap? = null
+    private val rasterBounds = Rect()
+    private val bitmapSource = Rect()
+    // 1:1 blit: filtering would sample the same pixels and only costs time.
+    private val bitmapPaint = Paint()
+    private var rasterColor: Int? = null
+    val hasStaleFonts: Boolean get() = false
     val text: String by lazy {
         buildString {
             for (i in contexts.indices step 4) {
@@ -52,15 +50,23 @@ internal class NativeCommandSurface(
     }
 
     override fun moved(dx: Int, dy: Int): NativeGlossaryItem = NativeCommandSurface(commands, hits, requests,
-        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x + dx, y + dy, gradients, headword, textColor)
+        contexts, characters, drawing, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x + dx, y + dy, headword, textColor)
 
     fun asHeadword(expression: String): NativeCommandSurface = NativeCommandSurface(commands, hits, requests,
-        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x, y, gradients, expression, textColor)
+        contexts, characters, drawing, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x, y, expression, textColor)
 
     fun tinted(color: Int): NativeCommandSurface = NativeCommandSurface(commands, hits, requests,
-        contexts, characters, fonts, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x, y, gradients, headword, color)
+        contexts, characters, drawing, source, firstCommand, commandCount, firstHit, hitCount, scale, width, height, x, y, headword, color)
 
     fun lookupAt(px: Float, py: Float): String? = hitAt(px, py)?.lookup
+
+    private fun bodyContextAt(offset: Int): Int {
+        for (i in contexts.indices step 4) {
+            if (contexts[i] == source && contexts[i + 3] and 1 == 0 &&
+                offset >= contexts[i + 1] && offset < contexts[i + 1] + contexts[i + 2]) return i
+        }
+        return -1
+    }
 
     fun hitAt(px: Float, py: Float): NativeGlossaryHit? {
         val localX = (px - x) / scale
@@ -70,18 +76,50 @@ internal class NativeCommandSurface(
             val left = hits.getFloat(at + 12)
             val top = hits.getFloat(at + 16)
             if (localX < left || localY < top || localX >= left + hits.getFloat(at + 20) || localY >= top + hits.getFloat(at + 24)) continue
-            val request = hits.getInt(at + 4) * 5
-            val start = requests[request + 3]
-            val count = requests[request + 4]
             val offset = hits.getInt(at + 8)
             if (headword != null) {
                 val char = characters[offset]
                 val kanji = Character.UnicodeScript.of(char.code) == Character.UnicodeScript.HAN
                 return NativeGlossaryHit(lookup = if (kanji) char.toString() else headword, kanji = kanji)
+                    .also { it.surface = this; it.textOffset = offset }
             }
-            return lookupWordAt(String(characters, start, count), offset - start)?.let { NativeGlossaryHit(lookup = it) }
+            // Requests are font/style runs, not lookup boundaries. Use the paragraph's
+            // original body context, which already excludes ruby annotations.
+            val context = bodyContextAt(offset)
+            if (context < 0) return null
+            val bodyStart = contexts[context + 1]
+            val body = String(characters, bodyStart, contexts[context + 2])
+            val local = offset - bodyStart
+            val word = lookupWordAt(body, local) ?: return null
+            val lookupStart = body.lastIndexOf(word, local).takeIf { it >= 0 && local < it + word.length } ?: local
+            val delimiters = "。！？.!?\n\r"
+            var sentenceStart = local
+            while (sentenceStart > 0 && body[sentenceStart - 1] !in delimiters) sentenceStart--
+            var sentenceEnd = local
+            while (sentenceEnd < body.length && body[sentenceEnd] !in delimiters) sentenceEnd++
+            if (sentenceEnd < body.length) sentenceEnd++
+            while (sentenceStart < local && body[sentenceStart].isWhitespace()) sentenceStart++
+            return NativeGlossaryHit(lookup = word, sentence = body.substring(sentenceStart, sentenceEnd).trimEnd(),
+                sentenceOffset = local - sentenceStart).also { it.surface = this; it.textOffset = bodyStart + lookupStart }
         }
         return null
+    }
+
+    fun selectionRects(offset: Int, codePoints: Int): List<RectF> {
+        val context = bodyContextAt(offset)
+        if (context < 0) return emptyList()
+        val limit = contexts[context + 1] + contexts[context + 2]
+        val count = Character.codePointCount(characters, offset, limit - offset)
+        val end = Character.offsetByCodePoints(characters, offset, limit - offset, offset, codePoints.coerceIn(0, count))
+        return buildList {
+            for (index in firstHit until firstHit + hitCount) {
+                val at = index * 28
+                if (hits.getInt(at + 8) !in offset until end) continue
+                val left = x + hits.getFloat(at + 12) * scale
+                val top = y + hits.getFloat(at + 16) * scale
+                add(RectF(left, top, left + hits.getFloat(at + 20) * scale, top + hits.getFloat(at + 24) * scale))
+            }
+        }
     }
 
     fun hitProbes(): List<NativeDrawingHitProbe> {
@@ -94,8 +132,9 @@ internal class NativeCommandSurface(
             val offset = hits.getInt(at + 8)
             if (!characters[offset].isLetter()) continue
             val request = hits.getInt(at + 4)
-            val context = request * 5
-            val expected = lookupWordAt(String(characters, requests[context + 3], requests[context + 4]), offset - requests[context + 3]) ?: continue
+            val context = bodyContextAt(offset)
+            if (context < 0) continue
+            val expected = lookupWordAt(String(characters, contexts[context + 1], contexts[context + 2]), offset - contexts[context + 1]) ?: continue
             var isRuby = false
             for (i in firstCommand until firstCommand + commandCount) {
                 val c = i * 64
@@ -126,106 +165,33 @@ internal class NativeCommandSurface(
         return result
     }
 
+    fun clearRaster() {
+        raster = null
+        rasterBounds.setEmpty()
+    }
+
     override fun draw(canvas: Canvas, paint: Paint) {
         val checkpoint = canvas.save()
         try {
             canvas.translate(x.toFloat(), y.toFloat())
             if (headword != null) canvas.clipRect(0, 0, width, height)
-            canvas.scale(scale, scale)
-            canvas.getClipBounds(viewport)
-            for (index in firstCommand until firstCommand + commandCount) {
-                val at = index * 64
-                val kind = commands.getInt(at)
-                if (kind == 2) continue // Images use the existing Coil/SVG surface.
-                val left = commands.getFloat(at + 24)
-                val top = commands.getFloat(at + 28)
-                val right = left + commands.getFloat(at + 32)
-                val bottom = top + commands.getFloat(at + 36)
-                if (top >= viewport.bottom || bottom <= viewport.top || left >= viewport.right || right <= viewport.left) continue
-                if (kind == 0) {
-                    val request = commands.getInt(at + 8) * 5
-                    val font = fonts[commands.getInt(at + 20)].paint
-                    font.color = textColor ?: commands.getInt(at + 44)
-                    val trimmed = commands.getInt(at + 60) and 16 != 0
-                    if (trimmed) font.fontFeatureSettings = "'halt' 1"
-                    canvas.drawTextRun(characters, commands.getInt(at + 12), commands.getInt(at + 16),
-                        requests[request + 3], requests[request + 4], left, commands.getFloat(at + 40),
-                        commands.getInt(at + 60) and 1 != 0, font)
-                    if (trimmed) font.fontFeatureSettings = null
-                } else if (kind == 3) {
-                    paint.style = Paint.Style.FILL
-                    paint.color = -1
-                    paint.shader = gradients.getOrPut(index) {
-                        RadialGradient(0f, 0f, 1f,
-                            intArrayOf(commands.getInt(at + 44), commands.getInt(at + 48)),
-                            floatArrayOf(commands.getFloat(at + 52), commands.getFloat(at + 56)), Shader.TileMode.CLAMP).apply {
-                            setLocalMatrix(Matrix().apply {
-                                setScale((right - left) * 0.70710677f, (bottom - top) * 0.70710677f)
-                                postTranslate((left + right) / 2, (top + bottom) / 2)
-                            })
-                        }
-                    }
-                    if (commands.getInt(at + 60) and 1 != 0) {
-                        clip.reset()
-                        clip.addCircle((left + right) / 2, (top + bottom) / 2,
-                            minOf(right - left, bottom - top) / 2, Path.Direction.CW)
-                        val saved = canvas.save()
-                        canvas.clipPath(clip)
-                        canvas.drawRect(left, top, right, bottom, paint)
-                        canvas.restoreToCount(saved)
-                    } else canvas.drawRect(left, top, right, bottom, paint)
-                    paint.shader = null
-                } else {
-                    val fill = commands.getInt(at + 44)
-                    val radius = commands.getFloat(at + 56)
-                    paint.style = Paint.Style.FILL
-                    if (fill ushr 24 != 0) {
-                        paint.color = fill
-                        canvas.drawRoundRect(left, top, right, bottom, radius, radius, paint)
-                    }
-                    val stroke = commands.getFloat(at + 52)
-                    val border = commands.getInt(at + 48)
-                    if (stroke > 0 && border ushr 24 != 0) {
-                        val edge = commands.getInt(at + 60) and 0xF00
-                        paint.color = border
-                        if (edge != 0) {
-                            val r = minOf(radius, (right - left) / 2, (bottom - top) / 2)
-                            val bt = if (edge == 0x100) stroke else 0f
-                            val br = if (edge == 0x200) stroke else 0f
-                            val bb = if (edge == 0x400) stroke else 0f
-                            val bl = if (edge == 0x800) stroke else 0f
-                            clip.reset()
-                            clip.fillType = Path.FillType.EVEN_ODD
-                            clip.addRoundRect(left, top, right, bottom, r, r, Path.Direction.CW)
-                            if (left + bl < right - br && top + bt < bottom - bb) {
-                                borderRadii[0] = (r - bl).coerceAtLeast(0f)
-                                borderRadii[1] = (r - bt).coerceAtLeast(0f)
-                                borderRadii[2] = (r - br).coerceAtLeast(0f)
-                                borderRadii[3] = borderRadii[1]
-                                borderRadii[4] = borderRadii[2]
-                                borderRadii[5] = (r - bb).coerceAtLeast(0f)
-                                borderRadii[6] = borderRadii[0]
-                                borderRadii[7] = borderRadii[5]
-                                clip.addRoundRect(left + bl, top + bt, right - br, bottom - bb, borderRadii, Path.Direction.CW)
-                            }
-                            paint.style = Paint.Style.FILL
-                            canvas.drawPath(clip, paint)
-                        } else {
-                            paint.style = Paint.Style.STROKE
-                            paint.strokeWidth = stroke
-                            val inset = stroke / 2
-                            val strokeRadius = (radius - inset).coerceAtLeast(0f)
-                            canvas.drawRoundRect(left + inset, top + inset, right - inset, bottom - inset, strokeRadius, strokeRadius, paint)
-                        }
-                        paint.style = Paint.Style.FILL
-                    }
-                }
+            if (!canvas.getClipBounds(viewport) || !viewport.intersect(0, 0, width, height)) return
+            val w = viewport.width()
+            val h = viewport.height()
+            var bitmap = raster
+            val resized = bitmap == null || bitmap.width < w || bitmap.height < h
+            if (resized) {
+                bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                raster = bitmap
             }
+            val pixels = checkNotNull(bitmap)
+            if (resized || rasterBounds != viewport || rasterColor != textColor) {
+                drawing.raster(source, scale, viewport.left, viewport.top, w, h, pixels, textColor)
+                rasterBounds.set(viewport)
+                rasterColor = textColor
+            }
+            bitmapSource.set(0, 0, w, h)
+            canvas.drawBitmap(pixels, bitmapSource, viewport, bitmapPaint)
         } finally { canvas.restoreToCount(checkpoint) }
     }
-}
-
-internal class NativePlatformFont(val paint: TextPaint, val state: State<Any>, val typeface: Typeface) {
-    val metrics: Paint.FontMetrics = paint.fontMetrics
-    val punctuation: HanPunctuationFont by lazy(LazyThreadSafetyMode.NONE) { HanPunctuationFont(paint) }
 }

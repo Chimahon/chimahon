@@ -82,26 +82,91 @@ struct Handler : rapidjson::BaseReaderHandler<rapidjson::UTF8<>, Handler> {
     bool Double(double n) { storage.number(n); return true; }
 };
 void typed_source(Storage &storage, dc_typed_source input) {
-    if (!input.data || input.bytes < 8) throw std::invalid_argument("Invalid typed source");
+    if (!input.data || input.bytes < 12) throw std::invalid_argument("Invalid card source");
     const auto *data = static_cast<const unsigned char *>(input.data);
     auto read = [&](size_t at) { uint32_t n; std::memcpy(&n, data + at, 4); return n; };
-    const auto count = read(0), bytes = read(4);
-    if (!count || static_cast<uint64_t>(count) * 16 + bytes + 8 != input.bytes)
-        throw std::invalid_argument("Invalid typed source size");
-    const auto first = checked_index(storage.tokens.size()), offset = checked_index(storage.strings.size());
-    checked_index(static_cast<size_t>(first) + count);
-    checked_index(static_cast<size_t>(offset) + bytes);
-    const auto *strings = reinterpret_cast<const char *>(data + 8 + static_cast<size_t>(count) * 16);
+    const auto count = read(4), bytes = read(8);
+    if (read(0) != 0x43415244 || static_cast<uint64_t>(count) * 16 + bytes + 12 != input.bytes)
+        throw std::invalid_argument("Invalid card source size");
+    const auto *strings = reinterpret_cast<const char *>(data + 12 + static_cast<size_t>(count) * 16);
+    auto kind = [&](uint32_t i) { return read(12 + static_cast<size_t>(i) * 16); };
+    auto value = [&](uint32_t i) -> std::string_view {
+        const size_t at = 12 + static_cast<size_t>(i) * 16;
+        const auto start = read(at + 8), length = read(at + 12);
+        if (start > bytes || length > bytes - start)
+            throw std::invalid_argument("Invalid card command");
+        return {strings + start, length};
+    };
+    const auto string_base = checked_index(storage.strings.size());
+    checked_index(static_cast<size_t>(string_base) + bytes);
     storage.strings.append(strings, bytes);
-    for (uint32_t i = 0; i < count; ++i) {
-        const size_t at = 8 + static_cast<size_t>(i) * 16;
-        const auto kind = read(at), end = read(at + 4), start = read(at + 8), length = read(at + 12);
-        if (kind > 6 || end <= i || end > count || start > bytes || length > bytes - start ||
-            (kind >= 2 && end != i + 1)) throw std::invalid_argument("Invalid typed token");
-        const auto field = kind == 2 ? field_name({strings + start, length}) : Field::other;
-        storage.tokens.push_back({static_cast<Kind>(kind), field, 0, first + end, offset + start, length});
-    }
-    if (storage.tokens[first].end != first + count) throw std::invalid_argument("Incomplete typed root");
+    auto scalar = [&](Kind token_kind, uint32_t i, Field field = Field::other) {
+        const auto text = value(i);
+        const auto token = checked_index(storage.tokens.size());
+        storage.tokens.push_back({token_kind, field, 0, token + 1,
+            string_base + static_cast<uint32_t>(text.data() - strings), checked_index(text.size())});
+        return token;
+    };
+    const auto root = storage.begin(Kind::array);
+    const auto first_operation = checked_index(storage.operations.size());
+    uint32_t cursor = 0;
+    // Commands already describe traversal order: emit structural operations while
+    // importing attributes, without another JSON-field scan/lowering traversal.
+    auto node = [&](auto&& self, size_t depth) -> void {
+        if (depth > 512) throw std::length_error("Card nesting exceeds 512");
+        const auto command = kind(cursor);
+        if (command == 3) {
+            const auto text = value(cursor);
+            const auto token = scalar(Kind::string, cursor++);
+            storage.operations.push_back({OpKind::text, {}, token});
+            storage.counts.text_bytes += text.size();
+            return;
+        }
+        if (command != 0) throw std::invalid_argument("Expected card element");
+        const auto tag_index = cursor++;
+        const auto tag = value(tag_index);
+        const auto object = storage.begin(Kind::object);
+        storage.scalar(Kind::key, "tag", Field::tag); scalar(Kind::string, tag_index);
+        while (cursor < count && (kind(cursor) == 1 || kind(cursor) == 2)) {
+            const auto metadata = kind(cursor);
+            uint32_t attributes = UINT32_MAX;
+            if (metadata == 1) {
+                storage.scalar(Kind::key, "htmlAttributes"); attributes = storage.begin(Kind::object);
+            }
+            do {
+                const auto name_index = cursor++;
+                const auto name = value(name_index);
+                if (cursor == count || kind(cursor) != 5) throw std::invalid_argument("Missing card value");
+                scalar(Kind::key, name_index, field_name(name));
+                scalar(Kind::string, cursor++);
+            } while (cursor < count && kind(cursor) == metadata);
+            if (attributes != UINT32_MAX) storage.end(attributes);
+        }
+        ++storage.counts.elements;
+        if (tag == "ruby") ++storage.counts.ruby_groups;
+        if (tag == "rt") ++storage.counts.ruby_readings;
+        if (tag == "table") ++storage.counts.tables;
+        if (tag == "tr") ++storage.counts.rows;
+        if (tag == "td" || tag == "th") ++storage.counts.cells;
+        if (tag == "ol" || tag == "ul") ++storage.counts.lists;
+        storage.operations.push_back({tag == "rt" ? OpKind::reading_open : OpKind::open, {}, object});
+        storage.scalar(Kind::key, "content", Field::content);
+        if (cursor + 1 < count && kind(cursor) == 3 && kind(cursor + 1) == 4) {
+            self(self, depth + 1);
+        } else {
+            const auto children = storage.begin(Kind::array);
+            while (cursor < count && kind(cursor) != 4) self(self, depth + 1);
+            storage.end(children);
+        }
+        if (cursor == count) throw std::invalid_argument("Unclosed card element");
+        ++cursor;
+        storage.end(object);
+        storage.operations.push_back({tag == "rt" ? OpKind::reading_close : OpKind::close, {}, object});
+    };
+    while (cursor < count) node(node, 0);
+    storage.end(root);
+    storage.sources.push_back({root, checked_index(storage.tokens.size()), true,
+        first_operation, checked_index(storage.operations.size())});
 }
 }
 
@@ -132,9 +197,7 @@ int dc_prepare_mixed(const dc_source* sources, const dc_typed_source *typed, siz
         rapidjson::Reader reader;
         for (; source < count; ++source) {
             if (typed && typed[source].data) {
-                const auto root = checked_index(storage.tokens.size());
                 typed_source(storage, typed[source]);
-                storage.finish_source(root, true);
                 continue;
             }
             std::string_view input(sources[source].utf8 ? sources[source].utf8 : "", sources[source].bytes);

@@ -851,7 +851,17 @@ class ReaderActivity : BaseActivity() {
             is PagerViewer -> {
                 if (viewer.onShowOcrPopup == null) {
                     viewer.onShowOcrPopup = { lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, _, sourcePage ->
-                        val (activeProfile, deferredLookup) = preDeferLookup(lookupString)
+                        val (activeProfile, deferredLookup, profilingId) = preDeferLookup(lookupString)
+
+                        // Native publishes before the result lands, so the popup window's first
+                        // composition (hundreds of ms cold) overlaps the running lookup instead of
+                        // serializing ahead of the render plan. WebView keeps the old order: its
+                        // completed deferred takes the synchronous publish path.
+                        val earlyPublish = Injekt.get<DictionaryPreferences>().renderer().get() != DictionaryPreferences.RENDERER_WEBVIEW
+                        if (earlyPublish) {
+                            publishOcrPopup(profilingId, lookupString, fullText, charOffset, anchorX, anchorY,
+                                anchorWidth, anchorHeight, isVertical, sourcePage, activeProfile, deferredLookup)
+                        }
 
                         lifecycleScope.launch(Dispatchers.Default) {
                             val result = try { deferredLookup.await() } catch (_: Exception) { null }
@@ -870,21 +880,22 @@ class ReaderActivity : BaseActivity() {
                                 null as android.graphics.RectF?
                             }
 
-                                withContext(Dispatchers.Main) {
-                                val state = viewModel.state.value
-                                val mediaInfo = if (state.manga != null && state.currentChapter != null) {
-                                    chimahon.MediaInfo(mangaTitle = state.manga!!.title, chapterName = state.currentChapter!!.chapter.name)
-                                } else null
-                                chimahon.diagnostics.LookupProfiler.section(result?.profilingId ?: 0, "host.resources") { ensureOcrResources() }
-                                chimahon.diagnostics.LookupProfiler.mark(result?.profilingId ?: 0, "host.popup.publish")
-                                ocrPopupState = OcrPopupState(
-                                    lookupString, fullText, charOffset, dictionaryRepository,
+                            if (earlyPublish) {
+                                // The popup is still invisible until its content is ready, so
+                                // repositioning onto the matched word is never seen.
+                                if (rect != null) withContext(Dispatchers.Main) {
+                                    ocrPopupState = ocrPopupState?.copy(
+                                        anchorX = rect.left,
+                                        anchorY = rect.top,
+                                        anchorWidth = rect.width(),
+                                        anchorHeight = rect.height(),
+                                    )
+                                }
+                            } else {
+                                publishOcrPopup(profilingId, lookupString, fullText, charOffset,
                                     rect?.left ?: anchorX, rect?.top ?: anchorY,
                                     rect?.width() ?: anchorWidth, rect?.height() ?: anchorHeight,
-                                    isVertical, activeProfile, mediaInfo, sourcePage, null
-                                )
-                                ocrSelectionPanelState = null
-                                ocrPopupVisible = true
+                                    isVertical, sourcePage, activeProfile, deferredLookup)
                             }
                         }
                     }
@@ -912,7 +923,13 @@ class ReaderActivity : BaseActivity() {
             is WebtoonViewer -> {
                 if (viewer.onShowOcrPopup == null) {
                     viewer.onShowOcrPopup = { lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, _, sourcePage ->
-                        val (activeProfile, deferredLookup) = preDeferLookup(lookupString)
+                        val (activeProfile, deferredLookup, profilingId) = preDeferLookup(lookupString)
+
+                        val earlyPublish = Injekt.get<DictionaryPreferences>().renderer().get() != DictionaryPreferences.RENDERER_WEBVIEW
+                        if (earlyPublish) {
+                            publishOcrPopup(profilingId, lookupString, fullText, charOffset, anchorX, anchorY,
+                                anchorWidth, anchorHeight, isVertical, sourcePage, activeProfile, deferredLookup)
+                        }
 
                         lifecycleScope.launch(Dispatchers.Default) {
                             val result = try { deferredLookup.await() } catch (_: Exception) { null }
@@ -930,21 +947,20 @@ class ReaderActivity : BaseActivity() {
                                 null as android.graphics.RectF?
                             }
 
-                                withContext(Dispatchers.Main) {
-                                val state = viewModel.state.value
-                                val mediaInfo = if (state.manga != null && state.currentChapter != null) {
-                                    chimahon.MediaInfo(mangaTitle = state.manga!!.title, chapterName = state.currentChapter!!.chapter.name)
-                                } else null
-                                chimahon.diagnostics.LookupProfiler.section(result?.profilingId ?: 0, "host.resources") { ensureOcrResources() }
-                                chimahon.diagnostics.LookupProfiler.mark(result?.profilingId ?: 0, "host.popup.publish")
-                                ocrPopupState = OcrPopupState(
-                                    lookupString, fullText, charOffset, dictionaryRepository,
+                            if (earlyPublish) {
+                                if (rect != null) withContext(Dispatchers.Main) {
+                                    ocrPopupState = ocrPopupState?.copy(
+                                        anchorX = rect.left,
+                                        anchorY = rect.top,
+                                        anchorWidth = rect.width(),
+                                        anchorHeight = rect.height(),
+                                    )
+                                }
+                            } else {
+                                publishOcrPopup(profilingId, lookupString, fullText, charOffset,
                                     rect?.left ?: anchorX, rect?.top ?: anchorY,
                                     rect?.width() ?: anchorWidth, rect?.height() ?: anchorHeight,
-                                    isVertical, activeProfile, mediaInfo, sourcePage, null
-                                )
-                                ocrSelectionPanelState = null
-                                ocrPopupVisible = true
+                                    isVertical, sourcePage, activeProfile, deferredLookup)
                             }
                         }
                     }
@@ -2627,19 +2643,48 @@ class ReaderActivity : BaseActivity() {
         return profile to paths
     }
 
+    /** Publishes the OCR popup on the main thread, optionally carrying a lookup already in flight. */
+    private fun publishOcrPopup(
+        profilingId: Long,
+        lookupString: String,
+        fullText: String,
+        charOffset: Int,
+        anchorX: Float,
+        anchorY: Float,
+        anchorWidth: Float,
+        anchorHeight: Float,
+        isVertical: Boolean,
+        sourcePage: ReaderPage?,
+        activeProfile: chimahon.anki.AnkiProfile,
+        deferredLookup: kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>?,
+    ) = runOnUiThread {
+        val state = viewModel.state.value
+        val mediaInfo = if (state.manga != null && state.currentChapter != null) {
+            chimahon.MediaInfo(mangaTitle = state.manga!!.title, chapterName = state.currentChapter!!.chapter.name)
+        } else null
+        chimahon.diagnostics.LookupProfiler.section(profilingId, "host.resources") { ensureOcrResources() }
+        chimahon.diagnostics.LookupProfiler.mark(profilingId, "host.popup.publish")
+        ocrPopupState = OcrPopupState(
+            lookupString, fullText, charOffset, dictionaryRepository,
+            anchorX, anchorY, anchorWidth, anchorHeight,
+            isVertical, activeProfile, mediaInfo, sourcePage, deferredLookup,
+        )
+        ocrSelectionPanelState = null
+        ocrPopupVisible = true
+    }
+
     /**
-     * Start lookup work immediately so the anchor can be refined before the popup appears.
+     * Start the lookup before the popup is published.
      *
-     * The repository executes the canonical search-resolution lookup and retains the latest
-     * successful result for an immediately following identical request. The popup therefore
-     * consumes this prefetch through its own normal lookup call; no lookup object crosses the
-     * activity/popup boundary.
+     * The popup's first composition is several hundred ms of cold Compose work, and the lookup
+     * used to run only after it finished, so the two serialized. Starting the query here makes
+     * them overlap; the popup consumes this deferred directly instead of repeating the query.
      *
      * The query is passed untrimmed, matching what the popup looks up, so the two agree exactly.
      */
     private fun preDeferLookup(
         lookupString: String,
-    ): Pair<chimahon.anki.AnkiProfile, kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>> {
+    ): Triple<chimahon.anki.AnkiProfile, kotlinx.coroutines.Deferred<chimahon.DictionaryRepository.LookupResult2>, Long> {
         eu.kanade.tachiyomi.ui.dictionary.LookupProfilingAndroid.install(this)
         val profilingId = chimahon.diagnostics.LookupProfiler.start(lookupString)
         val (profile, termPaths) = chimahon.diagnostics.LookupProfiler.section(profilingId, "host.paths") { getOrRefreshLookupPaths() }
@@ -2652,7 +2697,7 @@ class ReaderActivity : BaseActivity() {
                 profilingId = profilingId,
             )
         }
-        return profile to deferred
+        return Triple(profile, deferred, profilingId)
     }
 
     @SuppressLint("SetJavaScriptEnabled")

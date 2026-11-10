@@ -9,16 +9,48 @@
 #include <cctype>
 #include <charconv>
 #include <cstdio>
-#include <map>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 using namespace dictionary_core;
 constexpr uint32_t none = UINT32_MAX;
-using Properties = std::map<std::string, std::string, std::less<>>;
+// CSS property sets are small and ordered. Keep them contiguous instead of
+// allocating a tree node for every inherited property of every element.
+// Insertion invalidates references; interned property sets remain immutable.
+class Properties {
+    using Values = std::vector<std::pair<std::string, std::string>>;
+    Values values;
+public:
+    using iterator = Values::iterator;
+    using const_iterator = Values::const_iterator;
+    iterator begin() { return values.begin(); }
+    iterator end() { return values.end(); }
+    const_iterator begin() const { return values.begin(); }
+    const_iterator end() const { return values.end(); }
+    void reserve(size_t count) { values.reserve(count); }
+    size_t size() const { return values.size(); }
+    iterator find(std::string_view name) {
+        auto at=std::lower_bound(values.begin(),values.end(),name,[](const auto& p,std::string_view key){return p.first<key;});
+        return at!=values.end() && at->first==name?at:values.end();
+    }
+    const_iterator find(std::string_view name) const {
+        auto at=std::lower_bound(values.begin(),values.end(),name,[](const auto& p,std::string_view key){return p.first<key;});
+        return at!=values.end() && at->first==name?at:values.end();
+    }
+    bool contains(std::string_view name) const { return find(name)!=end(); }
+    void erase(iterator at) { values.erase(at); }
+    std::string& operator[](std::string_view name) {
+        auto at=std::lower_bound(values.begin(),values.end(),name,[](const auto& p,std::string_view key){return p.first<key;});
+        if(at==values.end() || at->first!=name)at=values.emplace(at,std::string(name),std::string{});
+        return at->second;
+    }
+    bool operator==(const Properties&) const = default;
+};
 const lxb_char_t* bytes(std::string_view s) { return reinterpret_cast<const lxb_char_t*>(s.data()); }
 void require_status(lxb_status_t status, const char* operation) {
     if (status != LXB_STATUS_OK) throw std::runtime_error(operation);
@@ -166,29 +198,55 @@ lxb_status_t serialize(const lxb_char_t* data, size_t length, void* context) {
     return LXB_STATUS_OK;
 }
 struct Declaration { std::string_view value; uint32_t specificity; size_t offset; };
+using DeclarationText = std::pair<std::string, std::string>;
+using DeclarationTexts = std::unordered_map<const lxb_css_rule_declaration_t*, DeclarationText>;
+DeclarationText declaration_text(const lxb_css_rule_declaration_t* value) {
+    DeclarationText result;
+    require_status(lxb_css_property_serialize_name(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &result.first), "Property name serialization failed");
+    require_status(lxb_css_property_serialize(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &result.second), "Property serialization failed");
+    return result;
+}
 struct DeclarationCollector {
-    std::map<std::string_view,Declaration,std::less<>> declarations;
-    std::unordered_map<const lxb_css_rule_declaration_t*, std::pair<std::string,std::string>>& cache;
+    std::vector<std::pair<std::string_view,Declaration>> declarations;
+    DeclarationTexts& inline_text;
+    const DeclarationTexts& sheet_text;
+    // Keep name slots across elements instead of allocating a map node per property.
+    struct Slot { size_t generation, index; };
+    std::unordered_map<std::string_view, Slot> slots;
+    size_t generation = 0;
+    void reset() { declarations.clear(); ++generation; }
+    bool contains(std::string_view name) const {
+        const auto it = std::lower_bound(declarations.begin(), declarations.end(), name,
+                                        [](const auto& item, auto key) { return item.first < key; });
+        return it != declarations.end() && it->first == name;
+    }
 };
 lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* value, void* context,
                          lxb_css_selector_specificity_t specificity, bool) {
     try {
         auto& collector = *static_cast<DeclarationCollector*>(context);
-        auto it = collector.cache.find(value);
-        if (it == collector.cache.end()) {
-            std::string name, text;
-            require_status(lxb_css_property_serialize_name(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &name), "Property name serialization failed");
-            require_status(lxb_css_property_serialize(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &text), "Property serialization failed");
-            it = collector.cache.emplace(value, std::make_pair(std::move(name), std::move(text))).first;
+        const DeclarationText* text;
+        if (auto it = collector.sheet_text.find(value); it != collector.sheet_text.end()) text = &it->second;
+        else {
+            auto found = collector.inline_text.find(value);
+            if (found == collector.inline_text.end())
+                found = collector.inline_text.emplace(value, declaration_text(value)).first;
+            text = &found->second;
         }
         // Lexbor stores every declaration its typed parser rejected (var(), etc.) under the single
         // __UNDEF id, so a later declaration for one property evicts earlier ones into the weak
         // chain. Rank every callback, including weak ones, to recover the real winner per name.
         const std::pair<uint32_t,size_t> rank{specificity,value->offset.name_begin};
-        auto found = collector.declarations.find(it->second.first);
-        if (found != collector.declarations.end() && !(std::pair{found->second.specificity,found->second.offset} < rank))
-            return LXB_STATUS_OK;
-        collector.declarations[it->second.first] = {it->second.second, rank.first, rank.second};
+        const Declaration result{text->second, rank.first, rank.second};
+        auto [it, inserted] = collector.slots.try_emplace(text->first, DeclarationCollector::Slot{collector.generation, collector.declarations.size()});
+        auto& slot = it->second;
+        if (inserted || slot.generation != collector.generation) {
+            slot = {collector.generation, collector.declarations.size()};
+            collector.declarations.emplace_back(text->first, result);
+        } else {
+            auto& found = collector.declarations[slot.index].second;
+            if (std::pair{found.specificity, found.offset} < rank) found = result;
+        }
         return LXB_STATUS_OK;
     } catch (...) { return LXB_STATUS_ERROR; }
 }
@@ -335,22 +393,32 @@ struct RuleCandidate {
     std::vector<std::vector<std::string>> alternatives;
 };
 struct GeneratedRule { size_t candidate; lxb_css_selector_list_t* list; };
-struct dc_stylesheets {
+struct ParsedSheet {
     std::atomic<uint32_t> refs{1};
     lxb_css_parser_t* parser = nullptr;
-    std::vector<lxb_css_stylesheet_t*> sheets;
-    std::vector<uint64_t> unsupported_rules;
-    std::vector<std::vector<RuleCandidate>> candidates;
-    std::vector<std::vector<GeneratedRule>> generated;
-    bool verify_candidates = false;
-    ~dc_stylesheets() {
-        for (auto* sheet : sheets) lxb_css_stylesheet_destroy(sheet, true);
+    lxb_css_stylesheet_t* sheet = nullptr;
+    uint64_t unsupported = 0;
+    std::vector<RuleCandidate> candidates;
+    std::vector<GeneratedRule> generated;
+    DeclarationTexts declaration_texts;
+    ~ParsedSheet() {
+        if (sheet) lxb_css_stylesheet_destroy(sheet, true);
         if (parser) lxb_css_parser_destroy(parser, true);
     }
 };
-/* A popup open parses the same stylesheet set once per preparation worker, and
-   again on every later open. The parsed sheets are read-only while compiling and
-   are never referenced by a prepared document, so they can be kept and shared. */
+void release_parsed(ParsedSheet* sheet) {
+    if(sheet && sheet->refs.fetch_sub(1)==1) delete sheet;
+}
+struct dc_stylesheets {
+    std::atomic<uint32_t> refs{1};
+    std::vector<ParsedSheet*> sheets;
+    bool verify_candidates = false;
+    ~dc_stylesheets() { for (auto* sheet : sheets) release_parsed(sheet); }
+};
+/* A popup open parses the same stylesheets once per preparation worker and again
+   on later opens, often in a different order or subset. Each parsed sheet is
+   read-only while compiling and is never referenced by a prepared document, so
+   sheets are kept individually and composed into sets. */
 void release_sheets(dc_stylesheets* sheets) {
     if(sheets && sheets->refs.fetch_sub(1)==1) delete sheets;
 }
@@ -366,10 +434,69 @@ uint64_t stylesheet_key(const dc_css_source* sources,size_t count) {
 }
 struct SheetCache {
     std::mutex mutex;
-    std::vector<std::pair<uint64_t,dc_stylesheets*>> entries;
-    ~SheetCache() { for(auto& entry:entries) release_sheets(entry.second); }
+    std::vector<std::pair<uint64_t,ParsedSheet*>> entries;
+    ~SheetCache() { for(auto& entry:entries) release_parsed(entry.second); }
 };
 SheetCache& sheet_cache() { static SheetCache cache; return cache; }
+ParsedSheet* parse_sheet(const dc_css_source& source) {
+    auto parsed=std::make_unique<ParsedSheet>();
+    parsed->parser=lxb_css_parser_create();
+    if(!parsed->parser) throw std::bad_alloc();
+    require_status(lxb_css_parser_init(parsed->parser,nullptr),"CSS parser initialization failed");
+    auto* sheet=lxb_css_stylesheet_create(nullptr);
+    if(!sheet) throw std::bad_alloc();
+    parsed->sheet=sheet;
+    require_status(lxb_css_stylesheet_parse(sheet,parsed->parser,reinterpret_cast<const lxb_char_t*>(source.utf8),source.bytes),"CSS parse failed");
+    if(dictionary_core::has_nested_rules(lxb_css_rule_list(sheet->root))) {
+        std::string flattened;
+        dictionary_core::flatten_css(lxb_css_rule_list(sheet->root),{},flattened);
+        lxb_css_stylesheet_destroy(sheet,true);
+        parsed->sheet=nullptr;
+        auto* normalized=lxb_css_stylesheet_create(nullptr);
+        if(!normalized)throw std::bad_alloc();
+        parsed->sheet=normalized;
+        require_status(lxb_css_stylesheet_parse(normalized,parsed->parser,bytes(flattened),flattened.size()),"Flattened CSS parse failed");
+        sheet=normalized;
+    }
+    for (auto* rule = lxb_css_rule_list(sheet->root)->first; rule; rule = rule->next) {
+        if (rule->type != LXB_CSS_RULE_STYLE) { ++parsed->unsupported; continue; }
+        RuleCandidate candidate{lxb_css_rule_style(rule),{}};
+        if (candidate.rule->declarations) {
+            for (auto* item = candidate.rule->declarations->first; item; item = item->next) {
+                if (item->type == LXB_CSS_RULE_DECLARATION) {
+                    auto* value = lxb_css_rule_declaration(item);
+                    parsed->declaration_texts.emplace(value, declaration_text(value));
+                }
+            }
+        }
+        if(candidate.rule->declarations) for(auto* list=candidate.rule->selector;list;list=list->next) {
+            const auto* pseudo=list->last;
+            if(!pseudo || pseudo->type!=LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)continue;
+            const std::string_view name(reinterpret_cast<const char*>(pseudo->name.data),pseudo->name.length);
+            if(name=="data-dc-generated-before" || name=="data-dc-generated-after")parsed->generated.push_back({parsed->candidates.size(),list});
+        }
+        for(auto* list=candidate.rule->selector;list;list=list->next) {
+            std::vector<std::string> required;
+            for(auto* selector=list->first;selector;selector=selector->next) {
+                if(selector->ns.length)continue;
+                const auto type=selector->type;
+                std::string prefix;
+                if(type==LXB_CSS_SELECTOR_TYPE_ELEMENT)prefix="t:";
+                else if(type==LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)prefix="a:";
+                else if(type==LXB_CSS_SELECTOR_TYPE_CLASS)prefix="c:";
+                else if(type==LXB_CSS_SELECTOR_TYPE_ID)prefix="i:";
+                else continue;
+                std::string name(reinterpret_cast<const char*>(selector->name.data),selector->name.length);
+                if(type==LXB_CSS_SELECTOR_TYPE_ELEMENT || type==LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)
+                    for(auto& c:name)if(c>='A' && c<='Z')c=static_cast<char>(c+32);
+                required.push_back(prefix+name);
+            }
+            candidate.alternatives.push_back(std::move(required));
+        }
+        parsed->candidates.push_back(std::move(candidate));
+    }
+    return parsed.release();
+}
 struct StyleInfo {
     std::string_view display, white_space, list_style_type;
     int8_t box_extra = -1; /* -1 unknown, 0 none, 1 non-zero box property */
@@ -391,7 +518,7 @@ struct dc_prepared_document {
     std::unique_ptr<dictionary_core::ResolvedStyles> resolved;
     std::vector<StyleInfo> info;
     std::vector<float> font_sizes;
-    std::unordered_map<std::string, uint32_t> interned;
+    std::unordered_multimap<size_t, uint32_t> interned;
     std::unordered_map<std::string, uint32_t> resolved_styles;
     float box_extra_base = -1;
     bool has_box_extra(uint32_t style, float base) {
@@ -420,15 +547,20 @@ struct dc_prepared_document {
     float base_font_size_px = 16;
     uint32_t save(std::string_view s) { auto at = checked_index(text.size()); text.append(s); return at; }
     uint32_t intern(Properties properties, float size, float computed_size) {
-        std::string key=std::to_string(size)+";";
-        key.reserve(1024);
-        char digits[24];
-        auto put=[&](size_t n) { auto r=std::to_chars(digits,digits+sizeof digits,n); key.append(digits,r.ptr); };
+        const auto size_key=std::to_string(size);
+        size_t key=std::hash<std::string_view>{}(size_key);
+        auto combine=[&](std::string_view value) {
+            key ^= std::hash<std::string_view>{}(value) + size_t(0x9e3779b9u) + (key << 6) + (key >> 2);
+        };
         for (const auto& [name,value] : properties) {
-            put(name.size()); key.push_back(':'); key.append(name);
-            put(value.size()); key.push_back(':'); key.append(value);
+            combine(name); combine(value);
         }
-        if (auto found = interned.find(key); found != interned.end()) return found->second;
+        // Hashes select candidates only; compare the original values to handle collisions.
+        const auto [first_match,last_match]=interned.equal_range(key);
+        for(auto found=first_match;found!=last_match;++found) {
+            const auto style=found->second;
+            if(std::to_string(styles[style].font_size_px)==size_key && computed[style]==properties)return style;
+        }
         const auto index = checked_index(styles.size());
         const auto first = checked_index(this->properties.size());
         for (const auto& [name,value] : properties) {
@@ -439,7 +571,7 @@ struct dc_prepared_document {
         font_sizes.push_back(computed_size);
         computed.push_back(std::move(properties));
         info.push_back({property(computed.back(),"display"),property(computed.back(),"white-space"),property(computed.back(),"list-style-type"),-1});
-        interned.emplace(std::move(key), index);
+        interned.emplace(key, index);
         return index;
     }
 };
@@ -464,7 +596,8 @@ struct SourceCompiler {
     uint32_t source;
     dc_compile_options options;
     std::vector<Element> elements;
-    std::unordered_map<const lxb_css_rule_declaration_t*, std::pair<std::string,std::string>> declaration_cache;
+    DeclarationTexts declaration_cache;
+    const DeclarationTexts* sheet_declarations = nullptr;
     std::vector<uint32_t> operation_elements;
     uint32_t paragraph = none, cell = none, row = none, table = none, ruby = none;
     uint32_t block_style = 0;
@@ -535,10 +668,14 @@ struct SourceCompiler {
     void resolve_styles() {
         std::string signature;
         char digits[24];
+        DeclarationCollector collector{{},declaration_cache,*sheet_declarations};
+        collector.declarations.reserve(24);
         for (auto& node : elements) {
-            DeclarationCollector collector{{},declaration_cache};
+            collector.reset();
             if (node.dom->style)
                 require_status(lxb_dom_element_style_walk(node.dom, declaration, &collector, false), "CSS cascade extraction failed");
+            std::sort(collector.declarations.begin(), collector.declarations.end(),
+                      [](const auto& a, const auto& b) { return a.first < b.first; });
             const auto parent_style = node.parent == none ? none : elements[node.parent].style;
             signature.clear();
             signature.reserve(256);
@@ -562,6 +699,7 @@ struct SourceCompiler {
                 continue;
             }
             Properties computed;
+            computed.reserve(collector.declarations.size()+16+(node.parent==none?0:output.computed[parent_style].size()));
             float parent_size = 16.f;
             if (node.parent != none) {
                 const auto& parent = elements[node.parent];
@@ -581,19 +719,19 @@ struct SourceCompiler {
                 if(value == "initial" || value == "unset") { if(auto found=computed.find(name);found!=computed.end())computed.erase(found); continue; }
                 computed[std::string(name)] = value;
             }
-            if(!collector.declarations.contains("font-weight") && (node.tag=="b" || node.tag=="strong" || node.tag=="th"))computed["font-weight"]="bold";
-            if(!collector.declarations.contains("font-style") && (node.tag=="i" || node.tag=="em"))computed["font-style"]="italic";
-            if(!collector.declarations.contains("text-decoration") && node.tag=="u")computed["text-decoration"]="underline";
+            if(!collector.contains("font-weight") && (node.tag=="b" || node.tag=="strong" || node.tag=="th"))computed["font-weight"]="bold";
+            if(!collector.contains("font-style") && (node.tag=="i" || node.tag=="em"))computed["font-style"]="italic";
+            if(!collector.contains("text-decoration") && node.tag=="u")computed["text-decoration"]="underline";
             if(!computed.contains("display"))computed["display"]=default_display(node.tag);
-            if(!collector.declarations.contains("list-style-type") && (node.tag=="ul" || node.tag=="ol"))computed["list-style-type"]=node.tag=="ol"?"decimal":"disc";
-            if(node.tag=="summary" && !collector.declarations.contains("list-style-position"))computed["list-style-position"]="inside";
+            if(!collector.contains("list-style-type") && (node.tag=="ul" || node.tag=="ol"))computed["list-style-type"]=node.tag=="ol"?"decimal":"disc";
+            if(node.tag=="summary" && !collector.contains("list-style-position"))computed["list-style-position"]="inside";
             for (auto& [name,value] : computed) if (!name.starts_with("--") && value.find("var(") != value.npos)
                 value = resolve_vars(value, computed, 0, output.unresolved);
             expand_spacing(computed,collector);
             expand_borders(computed,collector);
             // Relative font sizes resolve only on the element that specifies them.
             float size = parent_size;
-            if (collector.declarations.contains("font-size")) size = font_size(property(computed,"font-size"),parent_size,output.base_font_size_px,output.unresolved);
+            if (collector.contains("font-size")) size = font_size(property(computed,"font-size"),parent_size,output.base_font_size_px,output.unresolved);
             else if(node.tag=="rt")size=parent_size*.5f;
             else if(node.tag=="small")size=parent_size*.8f;
             else if(node.tag=="sup" || node.tag=="sub")size=parent_size*.75f;
@@ -602,7 +740,7 @@ struct SourceCompiler {
             node.computed_font_size=size;
             if(node.parent==none)output.base_font_size_px=size;
             const float used_size=size>0 && !node.sizing_only?std::max(size,options.minimum_font_size_px):size;
-            if(node.tag=="rt" && !collector.declarations.contains("line-height"))computed["line-height"]="normal";
+            if(node.tag=="rt" && !collector.contains("line-height"))computed["line-height"]="normal";
             computed["font-size"] = std::to_string(size) + "px";
             node.hidden = node.hidden || property(computed,"display") == "none";
             node.style = output.intern(std::move(computed), used_size, size);
@@ -611,7 +749,8 @@ struct SourceCompiler {
         }
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
-        const std::vector<GeneratedRule>& generated_rules, bool verify_candidates) {
+        const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
+        sheet_declarations = &declarations;
         structured_line_breaks=range.json;
         Dom doc;
         auto* body = lxb_dom_interface_element(lxb_html_document_body_element(doc.value));
@@ -627,11 +766,9 @@ struct SourceCompiler {
         elements.push_back({body,0,none,0,"body"});
         elements.push_back({root,1,none,0,"span"});
         std::vector<uint32_t> stack{2};
-        size_t first = 0;
-        while (first < input.operations.size() && input.operations[first].token < range.first) ++first;
-        size_t last = first;
-        while (last < input.operations.size() && input.operations[last].token < range.end) ++last;
+        const size_t first = range.first_operation, last = range.end_operation;
         operation_elements.reserve(last - first);
+        elements.reserve(last - first + 8);
         for (size_t at = first; at < last; ++at) {
             const auto& op = input.operations[at];
             if (op.kind == OpKind::close || op.kind == OpKind::reading_close) {
@@ -719,6 +856,7 @@ struct SourceCompiler {
             elements.push_back({node,stack.back(),op.token,0,tag,false,disclosure_hidden}); stack.push_back(id); operation_elements.push_back(id);
         }
         std::unordered_set<std::string_view> present;
+        present.reserve(elements.size() * 3);
         for(const auto& node:elements) {
             size_t size=0;const auto* tag=lxb_dom_element_local_name(node.dom,&size);
             present.emplace(reinterpret_cast<const char*>(tag),size);
@@ -961,88 +1099,41 @@ int dc_stylesheets_create(const dc_css_source* sources,size_t count,dc_styleshee
     if(error) *error={};
     try {
         if(!output || (!sources && count)) throw std::invalid_argument("Invalid stylesheet arguments");
-        const auto key=stylesheet_key(sources,count);
-        {
-            std::lock_guard<std::mutex> lock(sheet_cache().mutex);
-            for(auto& entry:sheet_cache().entries)if(entry.first==key) {
-                ++entry.second->refs;
-                *output=entry.second;
-                return 0;
-            }
-        }
         auto result=std::make_unique<dc_stylesheets>();
-        result->parser=lxb_css_parser_create();
-        if(!result->parser) throw std::bad_alloc();
-        require_status(lxb_css_parser_init(result->parser,nullptr),"CSS parser initialization failed");
         for(size_t i=0;i<count;++i) {
-            auto* sheet=lxb_css_stylesheet_create(nullptr);
-            if(!sheet) throw std::bad_alloc();
-            result->sheets.push_back(sheet);
-            require_status(lxb_css_stylesheet_parse(sheet,result->parser,reinterpret_cast<const lxb_char_t*>(sources[i].utf8),sources[i].bytes),"CSS parse failed");
-            if(dictionary_core::has_nested_rules(lxb_css_rule_list(sheet->root))) {
-                std::string flattened;
-                dictionary_core::flatten_css(lxb_css_rule_list(sheet->root),{},flattened);
-                auto* normalized=lxb_css_stylesheet_create(nullptr);
-                if(!normalized)throw std::bad_alloc();
-                result->sheets.push_back(normalized);
-                require_status(lxb_css_stylesheet_parse(normalized,result->parser,bytes(flattened),flattened.size()),"Flattened CSS parse failed");
-                result->sheets.pop_back();
-                lxb_css_stylesheet_destroy(sheet,true);sheet=normalized;result->sheets.back()=sheet;
-            }
-            uint64_t unsupported = 0;
-            std::vector<RuleCandidate> candidates;
-            std::vector<GeneratedRule> generated;
-            for (auto* rule = lxb_css_rule_list(sheet->root)->first; rule; rule = rule->next) {
-                if (rule->type != LXB_CSS_RULE_STYLE) { ++unsupported; continue; }
-                RuleCandidate candidate{lxb_css_rule_style(rule),{}};
-                if(candidate.rule->declarations) for(auto* list=candidate.rule->selector;list;list=list->next) {
-                    const auto* pseudo=list->last;
-                    if(!pseudo || pseudo->type!=LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)continue;
-                    const std::string_view name(reinterpret_cast<const char*>(pseudo->name.data),pseudo->name.length);
-                    if(name=="data-dc-generated-before" || name=="data-dc-generated-after")generated.push_back({candidates.size(),list});
+            const auto key=stylesheet_key(sources+i,1);
+            ParsedSheet* parsed=nullptr;
+            {
+                std::lock_guard<std::mutex> lock(sheet_cache().mutex);
+                for(auto& entry:sheet_cache().entries)if(entry.first==key) {
+                    parsed=entry.second;
+                    ++parsed->refs;
+                    break;
                 }
-                for(auto* list=candidate.rule->selector;list;list=list->next) {
-                    std::vector<std::string> required;
-                    for(auto* selector=list->first;selector;selector=selector->next) {
-                        if(selector->ns.length)continue;
-                        const auto type=selector->type;
-                        std::string prefix;
-                        if(type==LXB_CSS_SELECTOR_TYPE_ELEMENT)prefix="t:";
-                        else if(type==LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)prefix="a:";
-                        else if(type==LXB_CSS_SELECTOR_TYPE_CLASS)prefix="c:";
-                        else if(type==LXB_CSS_SELECTOR_TYPE_ID)prefix="i:";
-                        else continue;
-                        std::string name(reinterpret_cast<const char*>(selector->name.data),selector->name.length);
-                        if(type==LXB_CSS_SELECTOR_TYPE_ELEMENT || type==LXB_CSS_SELECTOR_TYPE_ATTRIBUTE)
-                            for(auto& c:name)if(c>='A' && c<='Z')c=static_cast<char>(c+32);
-                        required.push_back(prefix+name);
+            }
+            if(!parsed) {
+                auto* fresh=parse_sheet(sources[i]);
+                std::lock_guard<std::mutex> lock(sheet_cache().mutex);
+                for(auto& entry:sheet_cache().entries)if(entry.first==key) {
+                    parsed=entry.second;
+                    ++parsed->refs;
+                    break;
+                }
+                if(parsed) release_parsed(fresh);
+                else {
+                    parsed=fresh;
+                    if(sheet_cache().entries.size()>=16) {
+                        release_parsed(sheet_cache().entries.front().second);
+                        sheet_cache().entries.erase(sheet_cache().entries.begin());
                     }
-                    candidate.alternatives.push_back(std::move(required));
+                    ++parsed->refs;
+                    sheet_cache().entries.emplace_back(key,parsed);
                 }
-                candidates.push_back(std::move(candidate));
             }
-            result->candidates.push_back(std::move(candidates));
-            result->generated.push_back(std::move(generated));
-            result->unsupported_rules.push_back(unsupported);
+            result->sheets.push_back(parsed);
         }
-        {
-            std::lock_guard<std::mutex> lock(sheet_cache().mutex);
-            for(auto& entry:sheet_cache().entries)if(entry.first==key) {
-                ++entry.second->refs;
-                release_sheets(result.release());
-                *output=entry.second;
-                return 0;
-            }
-            if(sheet_cache().entries.size()>=4) {
-                release_sheets(sheet_cache().entries.front().second);
-                sheet_cache().entries.erase(sheet_cache().entries.begin());
-            }
-            auto* created=result.release();
-            ++created->refs;
-            sheet_cache().entries.emplace_back(key,created);
-            *output=created;
-            return 0;
-        }
+        *output=result.release();
+        return 0;
     } catch(const std::exception& e) { failure(error,e);return 1; }
     catch(...) { if(error) std::snprintf(error->message,sizeof(error->message),"Unknown native CSS failure"); return 1; }
 }
@@ -1064,9 +1155,10 @@ int dc_compile_styled_configured(const dc_document* input,dc_stylesheets* sheets
         for(size_t i=0;i<count;++i) {
             if(error) error->source=static_cast<uint32_t>(i);
             if(indices[i]>=sheets->sheets.size()) throw std::out_of_range("Invalid stylesheet index");
-            result->unsupported += sheets->unsupported_rules[indices[i]];
+            const auto* sheet=sheets->sheets[indices[i]];
+            result->unsupported += sheet->unsupported;
             SourceCompiler compiler{input->storage,*result,static_cast<uint32_t>(i),*options};
-            compiler.compile(input->storage.sources[i],sheets->candidates[indices[i]],sheets->generated[indices[i]],sheets->verify_candidates);
+            compiler.compile(input->storage.sources[i],sheet->candidates,sheet->generated,sheet->declaration_texts,sheets->verify_candidates);
         }
         result->resolved=std::make_unique<dictionary_core::ResolvedStyles>(dc_prepared_document_view(result.get()));
         *output=result.release();return 0;

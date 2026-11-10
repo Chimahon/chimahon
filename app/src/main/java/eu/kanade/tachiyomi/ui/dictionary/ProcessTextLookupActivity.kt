@@ -17,10 +17,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import chimahon.DictionaryRepository
+import chimahon.anki.AnkiProfile
+import chimahon.diagnostics.LookupProfiler
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLookupPopup
 import eu.kanade.tachiyomi.util.view.setComposeContent
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -38,9 +44,25 @@ class ProcessTextLookupActivity : BaseActivity() {
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         setFinishOnTouchOutside(true)
 
+        // Start the query here, not from the popup's first effect. The overlay's first
+        // composition is several hundred ms of cold Compose work, and the lookup used to run
+        // only after it finished; starting both makes the query disappear inside that window.
+        LookupProfilingAndroid.install(this)
+        val dictionaryPreferences = Injekt.get<DictionaryPreferences>()
+        val activeProfile = dictionaryPreferences.profileStore.getActiveProfile()
+        val repository = Injekt.get<DictionaryRepository>()
+        val profilingId = LookupProfiler.start(request.query)
+        val deferredLookup = lifecycleScope.async(Dispatchers.Default) {
+            val paths = getDictionaryPaths(this@ProcessTextLookupActivity, activeProfile)
+            repository.lookupWithSearchResolution(request.query, paths, activeProfile, profilingId)
+        }
+
         setComposeContent {
             ProcessTextLookupOverlay(
                 query = request.query,
+                activeProfile = activeProfile,
+                repository = repository,
+                deferredLookup = deferredLookup,
                 onClose = ::finish,
             )
         }
@@ -50,6 +72,9 @@ class ProcessTextLookupActivity : BaseActivity() {
 @Composable
 private fun ProcessTextLookupOverlay(
     query: String,
+    activeProfile: AnkiProfile,
+    repository: DictionaryRepository,
+    deferredLookup: Deferred<DictionaryRepository.LookupResult2>,
     onClose: () -> Unit,
 ) {
     BackHandler(onBack = onClose)
@@ -57,8 +82,6 @@ private fun ProcessTextLookupOverlay(
     val context = LocalContext.current
     val density = LocalDensity.current
     val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
-    val activeProfile = remember { dictionaryPreferences.profileStore.getActiveProfile() }
-    val repository = remember { Injekt.get<DictionaryRepository>() }
     val webView = rememberDictionaryPopupWebView(activeProfile.languageCode)
 
     BoxWithConstraints(
@@ -96,6 +119,7 @@ private fun ProcessTextLookupOverlay(
                 anchorHeight = 1f,
                 isVertical = false,
                 activeProfile = activeProfile,
+                initialLookupDeferred = deferredLookup,
                 type = "novel",
                 usePopup = false,
             )

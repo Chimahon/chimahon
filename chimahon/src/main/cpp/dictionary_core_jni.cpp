@@ -2,6 +2,9 @@
 #include "document_layout.h"
 #include "drawing_plan.h"
 #include "styled_document.h"
+#include "portable_renderer.h"
+#include "android_dictionary_fonts.h"
+#include <android/bitmap.h>
 #include <climits>
 #include <cstdio>
 #include <jni.h>
@@ -19,6 +22,7 @@ struct Context {
 struct Drawing {
     Owned<dc_prepared_document, dc_prepared_document_destroy> prepared{nullptr, dc_prepared_document_destroy};
     Owned<dc_drawing_plan, dc_drawing_plan_destroy> plan{nullptr, dc_drawing_plan_destroy};
+    Owned<dc_portable_document, dc_portable_destroy> portable{nullptr, dc_portable_destroy};
 };
 void failure(JNIEnv *env, const char *message) {
     if (env->ExceptionCheck())
@@ -61,6 +65,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
         for (const auto &s : strings)
             sources.push_back({s.data(), s.size()});
         auto result = std::make_unique<Context>();
+        // Enumerate the system font catalog while the popup is still composing; the
+        // first portable batch would otherwise pay it on the plan's critical path.
+        dictionary_system_fonts();
         // Match the unchanged Android WebView's default minimum text size.
         result->options = {font, dark != 0, expanded != 0,8.f};
         dc_stylesheets *sheets = nullptr;
@@ -155,19 +162,21 @@ extern "C" JNIEXPORT jintArray JNICALL Java_chimahon_renderer_DictionaryCore_dra
         auto &d = object<Drawing>(handle);
         const auto v = dc_drawing_plan_view(d.plan.get());
         const auto p = dc_prepared_document_view(d.prepared.get());
+        const auto facts = dc_drawing_font_facts(d.plan.get());
         const size_t sizes[]{
             v.font_count,    v.names_bytes,     v.text_count,   v.request_count, v.context_count,
             v.command_count, v.hit_count,       v.source_count, p.image_count,   p.property_count,
-            p.text_bytes,    p.paragraph_count, p.ruby_count,   p.table_count,   static_cast<size_t>(v.lines), v.shaping_run_count};
-        jint values[16];
-        for (size_t i = 0; i < 16; ++i) {
+            p.text_bytes,    p.paragraph_count, p.ruby_count,   p.table_count,   static_cast<size_t>(v.lines), v.shaping_run_count,
+            facts.font_count, facts.punctuation_count};
+        jint values[18];
+        for (size_t i = 0; i < 18; ++i) {
             if (sizes[i] > INT_MAX)
                 throw std::length_error("Drawing packet limit");
             values[i] = static_cast<jint>(sizes[i]);
         }
-        auto result = env->NewIntArray(16);
+        auto result = env->NewIntArray(18);
         if (result)
-            env->SetIntArrayRegion(result, 0, 16, values);
+            env->SetIntArrayRegion(result, 0, 18, values);
         return result;
     } catch (const std::exception &e) {
         failure(env, e.what());
@@ -184,6 +193,7 @@ extern "C" JNIEXPORT jobject JNICALL Java_chimahon_renderer_DictionaryCore_drawi
         const auto p = dc_prepared_document_view(d.prepared.get());
         const void *data = nullptr;
         size_t size = 0;
+        const auto facts = dc_drawing_font_facts(d.plan.get());
         switch (section) {
         case 0:
             data = v.fonts;
@@ -249,6 +259,11 @@ extern "C" JNIEXPORT jobject JNICALL Java_chimahon_renderer_DictionaryCore_drawi
             data = v.shaping_runs;
             size = v.shaping_run_count * sizeof(dc_shaping_run);
             break;
+        case 16: data = facts.styles; size = facts.font_count * sizeof(uint32_t); break;
+        case 17: data = facts.style_fonts; size = v.font_count * sizeof(uint32_t); break;
+        case 18: data = facts.metrics; size = facts.font_count * sizeof(dc_run_metrics); break;
+        case 19: data = facts.punctuation; size = facts.punctuation_count * sizeof(uint32_t) * 2; break;
+        case 20: data = facts.punctuation_types; size = facts.punctuation_count; break;
         default:
             throw std::invalid_argument("Unknown drawing section");
         }
@@ -266,6 +281,8 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_finishDr
     try {
         auto &d = object<Drawing>(handle);
         dc_error error{};
+        if (!d.portable && dc_drawing_apply_font_facts(d.plan.get(), &error))
+            throw std::runtime_error(error.message);
         if (dc_drawing_finish(d.plan.get(), &error))
             throw std::runtime_error(error.message);
     } catch (const std::exception &e) {
@@ -273,6 +290,57 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_finishDr
     } catch (...) {
         failure(env, "Drawing layout failed");
     }
+}
+extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_measurePortable(
+    JNIEnv *env, jobject, jlong handle, jfloat scale, jobjectArray paths, jintArray indices) {
+    try {
+        auto &drawing = object<Drawing>(handle);
+        if (drawing.portable) throw std::invalid_argument("Document already measured");
+        const auto count = paths ? env->GetArrayLength(paths) : 0;
+        if (!indices || env->GetArrayLength(indices) != count) throw std::invalid_argument("Font file indices differ");
+        std::vector<std::string> names;
+        std::vector<jint> collections(count);
+        if (count) env->GetIntArrayRegion(indices, 0, count, collections.data());
+        if (env->ExceptionCheck()) return;
+        for (jsize i = 0; i < count; ++i) {
+            auto path = static_cast<jstring>(env->GetObjectArrayElement(paths, i));
+            if (env->ExceptionCheck()) return;
+            try { names.push_back(utf8(env, path)); }
+            catch (...) { env->DeleteLocalRef(path); throw; }
+            env->DeleteLocalRef(path);
+        }
+        std::vector<dc_font_file> files;
+        for (jsize i = 0; i < count; ++i) files.push_back({names[i].c_str(), static_cast<uint32_t>(collections[i])});
+        const auto &fonts = count ? files : dictionary_system_fonts();
+        dc_portable_document *document = nullptr;
+        dc_error error{};
+        if (dc_portable_create(drawing.plan.get(), fonts.data(), fonts.size(), &document, &error))
+            throw std::runtime_error(error.message);
+        drawing.portable.reset(document);
+        if (dc_portable_measure(document, scale, &error)) throw std::runtime_error(error.message);
+    } catch (const std::exception &error) { failure(env, error.what()); }
+      catch (...) { failure(env, "Portable font preparation failed"); }
+}
+extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_rasterPortable(
+    JNIEnv *env, jobject, jlong handle, jint source, jfloat scale, jfloat left, jfloat top,
+    jint width, jint height, jobject bitmap, jint text_color, jboolean override_color) {
+    try {
+        auto &drawing = object<Drawing>(handle);
+        AndroidBitmapInfo info{};
+        if (!bitmap || AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS ||
+            info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || width <= 0 || height <= 0 ||
+            static_cast<uint32_t>(width) > info.width || static_cast<uint32_t>(height) > info.height)
+            throw std::invalid_argument("Invalid portable raster bitmap");
+        void *pixels = nullptr;
+        if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS)
+            throw std::runtime_error("Cannot lock portable bitmap");
+        struct Unlock { JNIEnv *env; jobject bitmap; ~Unlock() { AndroidBitmap_unlockPixels(env, bitmap); } } unlock{env, bitmap};
+        dc_error error{};
+        if (dc_portable_raster_tinted(drawing.portable.get(), source, scale, left, top, width, height,
+            static_cast<uint8_t *>(pixels), info.stride, text_color, override_color, &error))
+            throw std::runtime_error(error.message);
+    } catch (const std::exception &error) { failure(env, error.what()); }
+      catch (...) { failure(env, "Portable raster failed"); }
 }
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_closeDrawing(JNIEnv *, jobject, jlong handle) {
     delete reinterpret_cast<Drawing *>(static_cast<uintptr_t>(handle));

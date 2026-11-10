@@ -17,6 +17,9 @@ object DictionaryCore {
     external fun drawingCounts(handle: Long): IntArray
     external fun drawingSection(handle: Long, section: Int): ByteBuffer
     external fun finishDrawing(handle: Long)
+    external fun measurePortable(handle: Long, pixelScale: Float, fontFiles: Array<String>, fontIndices: IntArray)
+    external fun rasterPortable(handle: Long, source: Int, pixelScale: Float, left: Float, top: Float,
+        width: Int, height: Int, bitmap: android.graphics.Bitmap, textColor: Int, overrideColor: Boolean)
     external fun closeDrawing(handle: Long)
     external fun placeCard(parts: FloatArray): FloatArray
 }

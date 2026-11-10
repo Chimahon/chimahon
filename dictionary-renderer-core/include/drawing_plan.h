@@ -17,6 +17,7 @@ typedef struct dc_measure_request {
     uint32_t style, start, count, context_start, context_count;
 } dc_measure_request;
 typedef struct dc_measure_context {
+    /* annotation bit0: atomic reading/marker; needs shaping/bidi, not line-break analysis. */
     uint32_t source, start, count, annotation;
 } dc_measure_context;
 /* Adjacent drawing requests with identical shaping properties and context.
@@ -25,6 +26,17 @@ typedef struct dc_shaping_run { uint32_t first_request, request_count; } dc_shap
 typedef struct dc_run_metrics {
     float ascent, descent, em_ascent, em_descent;
 } dc_run_metrics;
+/* Unique platform font work, independent of paint/layout styles. The platform
+ * fills one metrics record per font and one class per unresolved punctuation
+ * probe. Native code distributes both back to the original requests. */
+typedef struct dc_font_facts_view {
+    const uint32_t *styles, *style_fonts;
+    size_t font_count;
+    dc_run_metrics *metrics;
+    const uint32_t *punctuation; /* pairs: font index, UTF-16 character */
+    uint8_t *punctuation_types;
+    size_t punctuation_count;
+} dc_font_facts_view;
 /* kind: text=0, rounded rectangle=1, image=2, two-stop radial gradient=3.
  * Gradient color/border hold the stops, stroke/radius their positions; flag 1 clips a circle.
  * Rectangle flags 8..11 select a single rounded border edge (top/right/bottom/left).
@@ -77,6 +89,8 @@ typedef struct dc_drawing_view {
 DC_API int dc_drawing_begin(const dc_prepared_document *, const float *widths, size_t, uint32_t foreground,
                             uint32_t border, dc_drawing_plan **, dc_error *);
 DC_API dc_drawing_view dc_drawing_plan_view(dc_drawing_plan *);
+DC_API dc_font_facts_view dc_drawing_font_facts(dc_drawing_plan *);
+DC_API int dc_drawing_apply_font_facts(dc_drawing_plan *, dc_error *);
 DC_API int dc_drawing_finish(dc_drawing_plan *, dc_error *);
 DC_API void dc_drawing_plan_destroy(dc_drawing_plan *);
 /* Prepared card fragments retain independent stylesheet scopes. Six floats per part:
