@@ -48,6 +48,24 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    if (providers.gradleProperty("includeLocalDictionaryHarness").orNull == "true") {
+        sourceSets.getByName("test").java.srcDir("../tools/dictionary-harness/tests/renderer/java")
+    }
+}
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3ExpressiveApi",
+            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+            "-opt-in=coil3.annotation.ExperimentalCoilApi",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+        )
+    }
 }
 
 dependencies {
@@ -66,6 +84,7 @@ dependencies {
     implementation(compose.material.icons)
     implementation(compose.animation)
     implementation(compose.ui.util)
+    implementation(compose.ui.tooling.preview)
 
     // ChimaReader
     implementation(platform(libs.coil.bom))

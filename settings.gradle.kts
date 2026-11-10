@@ -55,7 +55,6 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 rootProject.name = "Komikku"
 include(":chimahon")
-include(":dictionary-renderer-android")
 project(":chimahon").projectDir = file("chimahon")
 if (providers.gradleProperty("includeLocalDictionaryHarness").orNull == "true") {
     include(":dictionary-fidelity")

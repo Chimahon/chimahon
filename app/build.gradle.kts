@@ -25,9 +25,9 @@ val rendererDigest = MessageDigest.getInstance("SHA-256")
 val rendererSources = listOf(
     "app/src/main/java/eu/kanade/tachiyomi/ui/dictionary",
     "app/src/main/java/eu/kanade/presentation/theme",
-    "dictionary-renderer-android/src/main", "gradle",
+    "chimahon/src/main/java/eu/kanade/tachiyomi/ui/dictionary", "gradle",
 ).flatMap { rootProject.fileTree(it).matching { include("**/*.kt", "**/*.toml") }.files } + listOf(
-    rootProject.file("app/build.gradle.kts"), rootProject.file("dictionary-renderer-android/build.gradle.kts"),
+    rootProject.file("app/build.gradle.kts"), rootProject.file("chimahon/build.gradle.kts"),
     rootProject.file("chimahon/src/main/java/chimahon/HoshiDicts.kt"),
     rootProject.file("chimahon/src/main/java/chimahon/anki/AnkiProfile.kt"),
     rootProject.file("chimahon/src/main/java/chimahon/diagnostics/LookupProfiler.kt"),
@@ -263,7 +263,6 @@ kotlin {
 
 dependencies {
     implementation(projects.chimahon)
-    implementation(projects.dictionaryRendererAndroid)
 
     if (hasLocalOcr) {
         implementation(project(":chimahon-local-ocr"))
