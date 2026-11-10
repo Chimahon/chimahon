@@ -23,6 +23,30 @@ internal class NativePortableDrawing(handle: Long) {
     }
 
     @Synchronized
+    fun hitAt(source: Int, x: Float, y: Float): Array<String>? {
+        val handle = allocation.handle.get()
+        check(handle != 0L) { "Portable document is closed" }
+        try { return DictionaryCore.hitAt(handle, source, x, y) }
+        finally { java.lang.ref.Reference.reachabilityFence(this) }
+    }
+
+    @Synchronized
+    fun selectionRects(source: Int, offset: Int, codePoints: Int): FloatArray {
+        val handle = allocation.handle.get()
+        check(handle != 0L) { "Portable document is closed" }
+        try { return DictionaryCore.selectionRects(handle, source, offset, codePoints) }
+        finally { java.lang.ref.Reference.reachabilityFence(this) }
+    }
+
+    @Synchronized
+    fun text(source: Int): String {
+        val handle = allocation.handle.get()
+        check(handle != 0L) { "Portable document is closed" }
+        try { return DictionaryCore.sourceText(handle, source) ?: "" }
+        finally { java.lang.ref.Reference.reachabilityFence(this) }
+    }
+
+    @Synchronized
     fun close() = allocation.release()
 
     private class Allocation(owner: NativePortableDrawing, pointer: Long) : PhantomReference<NativePortableDrawing>(owner, queue) {

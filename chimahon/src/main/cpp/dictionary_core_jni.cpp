@@ -548,3 +548,77 @@ extern "C" JNIEXPORT jint JNICALL Java_chimahon_renderer_DictionaryCore_headword
     } catch (const std::exception &e) { failure(env, e.what()); }
     return 0;
 }
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_chimahon_renderer_DictionaryCore_hitAt(JNIEnv *env, jobject,
+                                                                                       jlong handle, jint source,
+                                                                                       jfloat x, jfloat y) {
+    try {
+        auto &d = object<Drawing>(handle);
+        if (!d.plan) throw std::invalid_argument("Missing drawing plan");
+        dc_hit_lookup_result hit{};
+        dc_error error{};
+        const int status = dc_hit_lookup(d.plan.get(), static_cast<uint32_t>(source), x, y, &hit, &error);
+        if (status < 0) throw std::runtime_error(error.message);
+        if (status == 0) return nullptr;
+        jclass string_class = env->FindClass("java/lang/String");
+        jobjectArray result = env->NewObjectArray(6, string_class, nullptr);
+        if (result) {
+            static const jchar empty_char = 0;
+            jstring word = env->NewString(hit.word ? reinterpret_cast<const jchar *>(hit.word) : &empty_char,
+                                          static_cast<jsize>(hit.word_length));
+            jstring sentence = env->NewString(hit.sentence ? reinterpret_cast<const jchar *>(hit.sentence) : &empty_char,
+                                              static_cast<jsize>(hit.sentence_length));
+            jstring values[] = {
+                word,
+                sentence,
+                env->NewStringUTF(std::to_string(hit.offset).c_str()),
+                env->NewStringUTF(std::to_string(hit.text_offset).c_str()),
+                env->NewStringUTF(std::to_string(hit.sentence_offset).c_str()),
+                env->NewStringUTF(std::to_string(hit.character).c_str()),
+            };
+            for (int i = 0; i < 6 && !env->ExceptionCheck(); ++i) {
+                env->SetObjectArrayElement(result, i, values[i]);
+                env->DeleteLocalRef(values[i]);
+            }
+        }
+        dc_hit_lookup_result_destroy(&hit);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_selectionRects(
+    JNIEnv *env, jobject, jlong handle, jint source, jint offset, jint code_points) {
+    try {
+        auto &d = object<Drawing>(handle);
+        if (!d.plan) throw std::invalid_argument("Missing drawing plan");
+        float *rects = nullptr;
+        size_t count = 0;
+        const int status = dc_selection_rects(d.plan.get(), static_cast<uint32_t>(source),
+                                              static_cast<uint32_t>(offset), static_cast<uint32_t>(code_points),
+                                              &rects, &count);
+        if (status < 0) throw std::runtime_error("Selection rects failed");
+        auto result = env->NewFloatArray(static_cast<jsize>(count));
+        if (result) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(count), rects);
+        dc_selection_rects_destroy(rects);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_chimahon_renderer_DictionaryCore_sourceText(JNIEnv *env, jobject,
+                                                                                       jlong handle, jint source) {
+    try {
+        auto &d = object<Drawing>(handle);
+        if (!d.plan) throw std::invalid_argument("Missing drawing plan");
+        uint16_t *text = nullptr;
+        size_t length = 0;
+        const int status = dc_source_text(d.plan.get(), static_cast<uint32_t>(source), &text, &length);
+        if (status < 0) throw std::runtime_error("Source text failed");
+        jstring result = text ? env->NewString(reinterpret_cast<const jchar *>(text),
+                                               static_cast<jsize>(length)) : nullptr;
+        dc_source_text_destroy(text);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}

@@ -27,4 +27,7 @@ object DictionaryCore {
     external fun headwordTapeInto(buffer: ByteBuffer, expression: String, reading: String, classes: String): Int
     external fun splitMorae(text: String): Array<String>
     external fun moraHighFlags(reading: String, accent: Int): BooleanArray
+    external fun hitAt(handle: Long, source: Int, x: Float, y: Float): Array<String>?
+    external fun selectionRects(handle: Long, source: Int, offset: Int, codePoints: Int): FloatArray
+    external fun sourceText(handle: Long, source: Int): String?
 }

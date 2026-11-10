@@ -16,6 +16,7 @@ extern "C" {
 #endif
 
 typedef struct dc_document dc_document;
+typedef struct dc_drawing_plan dc_drawing_plan;
 typedef struct dc_source { const char* utf8; size_t bytes; } dc_source;
 /* Host chrome: uint32 magic(0x43415244)/command_count/string_bytes, followed
  * by command records (kind/reserved/string_offset/string_length) and UTF-8.
@@ -66,6 +67,26 @@ DC_API int dc_headword_tape_into(uint8_t *out, size_t capacity,
                                  const uint16_t *reading, size_t reading_length,
                                  const uint16_t *classes, size_t classes_length,
                                  size_t *written, dc_error *error);
+/* Native hit testing, selection and copy text. Offsets are UTF-16 units and
+ * rectangle coordinates are CSS pixels local to the source. */
+typedef struct dc_hit_lookup_result {
+    int32_t offset;         /* text offset under the point, -1 when none */
+    int32_t character;      /* UTF-16 code unit at offset, -1 when unknown */
+    int32_t text_offset;    /* lookup word start, -1 when none */
+    int32_t sentence_offset;
+    uint16_t *word;
+    size_t word_length;
+    uint16_t *sentence;
+    size_t sentence_length;
+} dc_hit_lookup_result;
+DC_API int dc_hit_lookup(dc_drawing_plan *plan, uint32_t source, float x, float y,
+                         dc_hit_lookup_result *result, dc_error *error);
+DC_API void dc_hit_lookup_result_destroy(dc_hit_lookup_result *result);
+DC_API int dc_selection_rects(dc_drawing_plan *plan, uint32_t source, uint32_t offset,
+                              uint32_t code_points, float **rects, size_t *count);
+DC_API void dc_selection_rects_destroy(float *rects);
+DC_API int dc_source_text(dc_drawing_plan *plan, uint32_t source, uint16_t **text, size_t *length);
+DC_API void dc_source_text_destroy(uint16_t *text);
 /* Japanese moras; a small kana extends the previous mora. */
 typedef struct dc_text_slice { uint32_t offset, length; } dc_text_slice;
 DC_API int dc_split_morae(const uint16_t *text, size_t length, dc_text_slice **morae, size_t *count);

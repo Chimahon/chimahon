@@ -97,11 +97,8 @@ public class NativeCoreCompiler(
             fun copied(index: Int, bytes: Int) = ByteBuffer.allocate(bytes).order(ByteOrder.nativeOrder()).apply {
                 put(section(index)); rewind()
             }
-            val commands = copied(9, counts[5] * 64)
-            val hits = copied(10, counts[6] * 28)
-            val characters = CharArray(counts[2]).also { section(2).asCharBuffer().get(it) }
-            val requests = IntArray(counts[3] * 5).also { section(3).asIntBuffer().get(it) }
-            val contexts = IntArray(counts[4] * 4).also { section(4).asIntBuffer().get(it) }
+            // Commands are only needed to place image nodes; hits, selection and copy text stay native.
+            val commands = if (counts[8] == 0) null else copied(9, counts[5] * 64)
             val geometry = section(11)
             val imageNodes = if (counts[8] == 0) emptyList() else {
                 val pool = ByteArray(counts[10]).also { section(12).get(it) }
@@ -127,16 +124,17 @@ public class NativeCoreCompiler(
                 val height = ceil(geometry.getFloat(at + 4) * density.density).toInt().coerceAtLeast(1)
                 val first = geometry.getInt(at + 8)
                 val count = geometry.getInt(at + 12)
-                val surface = NativeCommandSurface(commands, hits, requests, contexts, characters, drawing, source,
-                    first, count, geometry.getInt(at + 16), geometry.getInt(at + 20), density.density, input.width, height)
+                val surface = NativeCommandSurface(drawing, source, density.density, input.width, height)
                 val items = ArrayList<NativeGlossaryItem>()
                 items.add(surface)
-                for (i in first until first + count) {
-                    val c = i * 64
-                    if (commands.getInt(c) == 2) items.add(NativeGlossaryImage(
-                        (commands.getFloat(c + 24) * density.density).roundToInt(), (commands.getFloat(c + 28) * density.density).roundToInt(),
-                        (commands.getFloat(c + 32) * density.density).roundToInt().coerceAtLeast(1),
-                        (commands.getFloat(c + 36) * density.density).roundToInt().coerceAtLeast(1), imageNodes[commands.getInt(c + 8)]))
+                if (commands != null) {
+                    for (i in first until first + count) {
+                        val c = i * 64
+                        if (commands.getInt(c) == 2) items.add(NativeGlossaryImage(
+                            (commands.getFloat(c + 24) * density.density).roundToInt(), (commands.getFloat(c + 28) * density.density).roundToInt(),
+                            (commands.getFloat(c + 32) * density.density).roundToInt().coerceAtLeast(1),
+                            (commands.getFloat(c + 36) * density.density).roundToInt().coerceAtLeast(1), imageNodes[commands.getInt(c + 8)]))
+                    }
                 }
                 NativeGlossaryDocument(input.identity, input.cssIdentity, style, emptyList(), density, direction, resolver,
                     secondary, border, input.width, height, items, profilingId, planId)
@@ -146,7 +144,7 @@ public class NativeCoreCompiler(
                 configurationMs = (start - configuration) / 1e6)
             transferred = true
             trace.checkpoint("transfer")
-            if (trace.enabled) trace.report("backend=portable-cpp retained=true sources=${inputs.size} utf16=${characters.size} requests=${counts[3]} shapingGroups=${counts[15]} paragraphs=${counts[11]} rubyPairs=${counts[12]} platformShapeCalls=0")
+            if (trace.enabled) trace.report("backend=portable-cpp retained=true sources=${inputs.size} utf16=${counts[2]} requests=${counts[3]} shapingGroups=${counts[15]} paragraphs=${counts[11]} rubyPairs=${counts[12]} platformShapeCalls=0")
             return documents
         } finally {
             if (!transferred) {

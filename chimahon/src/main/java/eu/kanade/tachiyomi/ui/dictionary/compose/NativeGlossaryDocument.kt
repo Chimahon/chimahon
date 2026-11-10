@@ -66,7 +66,6 @@ public class NativeGlossaryDocument(
     val images = items.filterIsInstance<NativeGlossaryImage>()
     val disclosures = items.filterIsInstance<NativeGlossaryDisclosure>()
     val commandSurfaces: List<NativeGlossaryItem> = items.filterIsInstance<NativeCommandSurface>()
-    fun drawingHitProbes(): List<NativeDrawingHitProbe> = items.filterIsInstance<NativeCommandSurface>().flatMap { it.hitProbes() }
     val hasStaleFonts: Boolean get() = items.any { it is NativeCommandSurface && it.hasStaleFonts }
     val text: String by lazy {
         items.mapNotNull { item -> when (item) {
