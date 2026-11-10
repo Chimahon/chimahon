@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import chimahon.renderer.DictionaryCore
 import java.nio.ByteBuffer
 
 public data class NativeDrawingHitProbe(val x: Float, val y: Float, val category: String,
@@ -90,7 +91,7 @@ internal class NativeCommandSurface(
             val bodyStart = contexts[context + 1]
             val body = String(characters, bodyStart, contexts[context + 2])
             val local = offset - bodyStart
-            val word = lookupWordAt(body, local) ?: return null
+            val word = DictionaryCore.lookupWordAt(body, local) ?: return null
             val lookupStart = body.lastIndexOf(word, local).takeIf { it >= 0 && local < it + word.length } ?: local
             val delimiters = "。！？.!?\n\r"
             var sentenceStart = local
@@ -134,7 +135,7 @@ internal class NativeCommandSurface(
             val request = hits.getInt(at + 4)
             val context = bodyContextAt(offset)
             if (context < 0) continue
-            val expected = lookupWordAt(String(characters, contexts[context + 1], contexts[context + 2]), offset - contexts[context + 1]) ?: continue
+            val expected = DictionaryCore.lookupWordAt(String(characters, contexts[context + 1], contexts[context + 2]), offset - contexts[context + 1]) ?: continue
             var isRuby = false
             for (i in firstCommand until firstCommand + commandCount) {
                 val c = i * 64

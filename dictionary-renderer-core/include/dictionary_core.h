@@ -40,6 +40,35 @@ DC_API dc_counts dc_document_counts(const dc_document* document);
 DC_API uint64_t dc_document_digest(const dc_document* document);
 DC_API void dc_document_destroy(dc_document* document);
 
+/* Host text helpers. All offsets are UTF-16 code units, matching Java/Kotlin
+ * strings and the drawing plan's text buffer. Natives own the algorithms so the
+ * host keeps no word-breaking, furigana or character-class logic. */
+typedef struct dc_headword_unit {
+    uint32_t kind; /* 0 = text, 1 = kanji, 2 = ruby */
+    size_t text_offset, text_length;
+    size_t reading_offset, reading_length;
+} dc_headword_unit;
+/* 1 when the offset lands on a lookup word; the word is a slice of text. */
+DC_API int dc_lookup_word_at(const uint16_t *text, size_t length, int32_t offset,
+                             const uint16_t **word, size_t *word_length);
+/* Splits a term into per-kanji/plain/ruby units. Slices point into the inputs. */
+DC_API int dc_split_headword(const uint16_t *expression, size_t expression_length,
+                             const uint16_t *reading, size_t reading_length,
+                             dc_headword_unit **units, size_t *count, dc_error *error);
+DC_API void dc_headword_units_destroy(dc_headword_unit *units);
+/* Finished headword HTML: one <ruby> per annotated unit, plain text otherwise. */
+DC_API int dc_headword_html(const uint16_t *expression, size_t expression_length,
+                            const uint16_t *reading, size_t reading_length,
+                            const uint16_t *classes, size_t classes_length,
+                            uint16_t **html, size_t *html_length, dc_error *error);
+DC_API void dc_html_destroy(uint16_t *html);
+/* Japanese moras; a small kana extends the previous mora. */
+typedef struct dc_text_slice { uint32_t offset, length; } dc_text_slice;
+DC_API int dc_split_morae(const uint16_t *text, size_t length, dc_text_slice **morae, size_t *count);
+DC_API void dc_text_slices_destroy(dc_text_slice *slices);
+/* Pitch-accent rule: 0 = heiban, 1 = atamadaka, otherwise downstep position. */
+DC_API int dc_mora_high(size_t mora_index, int32_t accent);
+
 #ifdef __cplusplus
 }
 #endif

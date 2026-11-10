@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import chimahon.anki.AnkiProfile
 import chimahon.diagnostics.LookupProfiler
+import chimahon.renderer.DictionaryCore
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -106,21 +107,19 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
         parts.add(NativeCardPiece(nativeCardSource(content), css, assignedWidth, group = group, expanded = expanded,
             left = px(left), before = px(before), after = px(after), action = action))
     }
+    fun addHtml(html: String, group: Int = -1, expanded: Boolean? = null, left: Int = 0,
+        before: Int = 0, after: Int = 0, action: String? = null, assignedWidth: Int = width) {
+        parts.add(NativeCardPiece(nativeCoreSource(html), css, assignedWidth, group = group,
+            expanded = expanded, left = px(left), before = px(before), after = px(after), action = action))
+    }
     val tags = card.termTags.split(cardTagWhitespace).filter { it.isNotBlank() }.distinct()
     val headClass = when {
         tags.any { it.contains("popular", true) } -> "card-head card-popular"
         tags.any { it.contains("rare", true) || it.contains("arch", true) || it.contains("obs", true) } -> "card-head card-rare"
         else -> "card-head"
     }
-    add(before = 10, after = 2, assignedWidth = (width - px(84)).coerceAtLeast(1)) {
-        element("div", headClass) {
-            for (unit in splitHeadwordUnits(card.expression, card.reading)) {
-                val reading = unit.readingOrNull()
-                val base = when (unit) { is HeadwordUnit.Kanji -> unit.char; is HeadwordUnit.Ruby -> unit.text; is HeadwordUnit.Text -> unit.text }
-                if (reading == null) text(base) else element("ruby") { text(base); element("rt") { text(reading) } }
-            }
-        }
-    }
+    addHtml(DictionaryCore.headwordHtml(card.expression, card.reading, headClass),
+        before = 10, after = 2, assignedWidth = (width - px(84)).coerceAtLeast(1))
     if (tags.isNotEmpty()) add(before = 4) { element("div") { tags.take(8).forEach { chip(it) } } }
     if (card.process.isNotEmpty() && card.process.map { it.name } != listOf(card.expression)) {
         val summary = card.process.asReversed().joinToString(" \u00bb ") { it.name }
@@ -143,17 +142,18 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
     }
     if (options.pitchDiagram || options.pitchNumber || options.pitchText) {
         val reading = card.reading.ifBlank { card.expression }
+        val morae = if (reading.isNotBlank()) DictionaryCore.splitMorae(reading).toList() else emptyList()
         val pitches = if (options.groupPitches) listOf(card.pitches.joinToString(", ") { it.dictName } to
             card.pitches.flatMap { it.pitchPositions.toList() }.distinct()) else card.pitches.map { it.dictName to it.pitchPositions.toList().distinct() }
         for ((name, positions) in pitches) for (position in positions) {
+            val high = DictionaryCore.moraHighFlags(reading, position)
             add(before = 2) {
                 element("div") {
                     element("span", "card-pitch-name") { text(name + " ") }
-                    if (options.pitchDiagram && reading.isNotBlank()) pitchImage(reading, position, theme.pitchColor)
-                    if (options.pitchText) splitMorae(reading).forEachIndexed { i, mora ->
-                        val high = isMoraPitchHigh(i, position)
-                        element("span", "card-pitch-mora" + (if (high) " card-pitch-high" else "") +
-                            (if (high && !isMoraPitchHigh(i + 1, position)) " card-pitch-drop" else "")) { text(mora) }
+                    if (options.pitchDiagram && morae.isNotEmpty()) pitchImage(morae, high, theme.pitchColor)
+                    if (options.pitchText) morae.forEachIndexed { i, mora ->
+                        element("span", "card-pitch-mora" + (if (high[i]) " card-pitch-high" else "") +
+                            (if (high[i] && !high[i + 1]) " card-pitch-drop" else "")) { text(mora) }
                     }
                     if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
                 }
@@ -178,10 +178,9 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
     return parts
 }
 
-private fun NativeCardBuilder.pitchImage(reading: String, position: Int, color: String) {
-    val morae = splitMorae(reading)
+private fun NativeCardBuilder.pitchImage(morae: List<String>, high: BooleanArray, color: String) {
     val width = morae.size * 18
-    val points = morae.indices.map { i -> "${i * 18 + 9},${if (isMoraPitchHigh(i, position)) 7.48 else 19.72}" }
+    val points = morae.indices.map { i -> "${i * 18 + 9},${if (high[i]) 7.48 else 19.72}" }
     val svg = "<svg xmlns='http://www.w3.org/2000/svg' width='$width' height='34'><g fill='$color' stroke='$color' stroke-width='1.19'>" +
         "<polyline fill='none' points='${points.joinToString(" ")}'/>" + points.joinToString("") { point ->
             val (x, y) = point.split(','); "<path opacity='.55' d='M$x 26.52 L$x $y'/><circle cx='$x' cy='$y' r='1.9'/>"

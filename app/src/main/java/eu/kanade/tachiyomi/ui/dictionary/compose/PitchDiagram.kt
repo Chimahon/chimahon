@@ -19,23 +19,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-/**
- * Split [text] into Japanese moras, combining small kana with the previous
- * mora (matches the WebView's `getMorae` + `SMALL_KANA_SET`).
- */
-internal fun splitMorae(text: String): List<String> {
-    val smallKana = "ぁぃぅぇぉゃゅょゎァィゥェォャュョヮ".toSet()
-    val morae = mutableListOf<String>()
-    for (c in text) {
-        if (c in smallKana && morae.isNotEmpty()) {
-            morae[morae.size - 1] = morae.last() + c
-        } else {
-            morae.add(c.toString())
-        }
-    }
-    return morae
-}
+import chimahon.renderer.DictionaryCore
 
 /**
  * A compact pitch-accent diagram mirroring the WebView's pitch graph.
@@ -50,7 +34,8 @@ fun PitchAccentDiagram(
     modifier: Modifier = Modifier,
 ) {    if (text.isBlank()) return
     val accent = remember(downsteps) { downsteps.minOrNull() }
-    val morae = remember(text) { splitMorae(text) }
+    val morae = remember(text) { DictionaryCore.splitMorae(text).toList() }
+    val high = remember(text, accent) { accent?.let { DictionaryCore.moraHighFlags(text, it) } }
     val n = morae.size
     if (n == 0) return
     val density = LocalDensity.current
@@ -63,7 +48,7 @@ fun PitchAccentDiagram(
         val lowY = size.height * 0.58f
         val lineW = size.height * 0.035f
 
-        fun isHigh(i: Int): Boolean = accent == null || isMoraPitchHigh(i, accent)
+        fun isHigh(i: Int): Boolean = accent == null || (high != null && high[i])
 
         val slotWpx = with(density) { slotWdp.toPx() }
         fun dotX(i: Int) = slotWpx * (i + 0.5f)
@@ -128,15 +113,16 @@ fun PitchTextLine(
 ) {
     if (text.isBlank()) return
     val accent = positions.minOrNull()
-    val morae = remember(text) { splitMorae(text) }
+    val morae = remember(text) { DictionaryCore.splitMorae(text).toList() }
     if (morae.isEmpty()) return
+    val highFlags = remember(text, accent) { accent?.let { DictionaryCore.moraHighFlags(text, it) } }
     val annotation = color
     val ls = (fontSize * 0.9).sp
 
     Row(modifier = modifier) {
         morae.forEachIndexed { i, mora ->
-            val high = accent == null || isMoraPitchHigh(i, accent)
-            val highNext = accent == null || isMoraPitchHigh(i + 1, accent)
+            val high = highFlags?.get(i) ?: true
+            val highNext = highFlags?.get(i + 1) ?: true
             val dropDown = high && !highNext
             Text(
                 text = mora,

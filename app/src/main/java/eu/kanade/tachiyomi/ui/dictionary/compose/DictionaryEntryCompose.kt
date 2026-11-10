@@ -818,12 +818,6 @@ internal fun buildFrequencyChips(
     return chips
 }
 
-internal fun isMoraPitchHigh(moraIndex: Int, pitchAccentValue: Int): Boolean = when (pitchAccentValue) {
-    0 -> moraIndex > 0
-    1 -> moraIndex < 1
-    else -> moraIndex > 0 && moraIndex < pitchAccentValue
-}
-
 @Composable
 internal fun WordAudioButton(
     expression: String,

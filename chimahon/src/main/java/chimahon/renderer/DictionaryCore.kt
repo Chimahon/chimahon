@@ -22,4 +22,8 @@ object DictionaryCore {
         width: Int, height: Int, bitmap: android.graphics.Bitmap, textColor: Int, overrideColor: Boolean)
     external fun closeDrawing(handle: Long)
     external fun placeCard(parts: FloatArray): FloatArray
+    external fun lookupWordAt(text: String, offset: Int): String?
+    external fun headwordHtml(expression: String, reading: String, classes: String): String
+    external fun splitMorae(text: String): Array<String>
+    external fun moraHighFlags(reading: String, accent: Int): BooleanArray
 }

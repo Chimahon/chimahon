@@ -1,4 +1,4 @@
-#include "dictionary_core.h"
+﻿#include "dictionary_core.h"
 #include "document_layout.h"
 #include "drawing_plan.h"
 #include "styled_document.h"
@@ -401,6 +401,120 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_p
         rectangles.back() = dc_card_place(parts.data(), count, rectangles.data());
         auto result = env->NewFloatArray(static_cast<jsize>(rectangles.size()));
         if (result) env->SetFloatArrayRegion(result, 0, static_cast<jsize>(rectangles.size()), rectangles.data());
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jstring JNICALL Java_chimahon_renderer_DictionaryCore_lookupWordAt(JNIEnv *env, jobject,
+                                                                                        jstring text, jint offset) {
+    try {
+        if (!text) return nullptr;
+        const jsize length = env->GetStringLength(text);
+        const jchar *chars = env->GetStringChars(text, nullptr);
+        if (!chars) return nullptr;
+        const uint16_t *word = nullptr;
+        size_t word_length = 0;
+        const int found = dc_lookup_word_at(reinterpret_cast<const uint16_t *>(chars), length, offset,
+                                            &word, &word_length);
+        jstring result = found ? env->NewString(reinterpret_cast<const jchar *>(word), word_length) : nullptr;
+        env->ReleaseStringChars(text, chars);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+
+extern "C" JNIEXPORT jstring JNICALL Java_chimahon_renderer_DictionaryCore_headwordHtml(JNIEnv *env, jobject,
+                                                                                        jstring expression, jstring reading,
+                                                                                        jstring classes) {
+    try {
+        if (!expression || !classes) throw std::invalid_argument("Null headword");
+        const jsize expression_length = env->GetStringLength(expression);
+        const jsize reading_length = reading ? env->GetStringLength(reading) : 0;
+        const jsize classes_length = env->GetStringLength(classes);
+        const jchar *expression_chars = env->GetStringChars(expression, nullptr);
+        const jchar *reading_chars = reading ? env->GetStringChars(reading, nullptr) : nullptr;
+        const jchar *class_chars = env->GetStringChars(classes, nullptr);
+        if (!expression_chars || !class_chars || (reading && !reading_chars)) {
+            if (expression_chars) env->ReleaseStringChars(expression, expression_chars);
+            if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+            if (class_chars) env->ReleaseStringChars(classes, class_chars);
+            throw std::invalid_argument("Headword chars");
+        }
+        uint16_t *html = nullptr;
+        size_t html_length = 0;
+        dc_error error{};
+        if (dc_headword_html(reinterpret_cast<const uint16_t *>(expression_chars), expression_length,
+                             reinterpret_cast<const uint16_t *>(reading_chars), reading_length,
+                             reinterpret_cast<const uint16_t *>(class_chars), classes_length,
+                             &html, &html_length, &error)) {
+            env->ReleaseStringChars(expression, expression_chars);
+            if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+            env->ReleaseStringChars(classes, class_chars);
+            throw std::runtime_error(error.message);
+        }
+        jstring result = env->NewString(reinterpret_cast<const jchar *>(html), static_cast<jsize>(html_length));
+        dc_html_destroy(html);
+        env->ReleaseStringChars(expression, expression_chars);
+        if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+        env->ReleaseStringChars(classes, class_chars);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL Java_chimahon_renderer_DictionaryCore_splitMorae(JNIEnv *env, jobject,
+                                                                                           jstring text) {
+    try {
+        if (!text) return nullptr;
+        const jsize length = env->GetStringLength(text);
+        const jchar *chars = env->GetStringChars(text, nullptr);
+        if (!chars) return nullptr;
+        dc_text_slice *morae = nullptr;
+        size_t count = 0;
+        if (dc_split_morae(reinterpret_cast<const uint16_t *>(chars), length, &morae, &count)) {
+            env->ReleaseStringChars(text, chars);
+            throw std::runtime_error("Mora split failed");
+        }
+        jclass string_class = env->FindClass("java/lang/String");
+        jobjectArray result = env->NewObjectArray(static_cast<jsize>(count), string_class, nullptr);
+        if (result) {
+            for (size_t i = 0; i < count && !env->ExceptionCheck(); ++i) {
+                jstring value = env->NewString(
+                    reinterpret_cast<const jchar *>(chars) + morae[i].offset,
+                    static_cast<jsize>(morae[i].length));
+                env->SetObjectArrayElement(result, static_cast<jsize>(i), value);
+                env->DeleteLocalRef(value);
+            }
+        }
+        dc_text_slices_destroy(morae);
+        env->ReleaseStringChars(text, chars);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jbooleanArray JNICALL Java_chimahon_renderer_DictionaryCore_moraHighFlags(JNIEnv *env, jobject,
+                                                                                              jstring reading, jint accent) {
+    try {
+        if (!reading) return nullptr;
+        const jsize length = env->GetStringLength(reading);
+        const jchar *chars = env->GetStringChars(reading, nullptr);
+        if (!chars) return nullptr;
+        dc_text_slice *morae = nullptr;
+        size_t count = 0;
+        if (dc_split_morae(reinterpret_cast<const uint16_t *>(chars), length, &morae, &count)) {
+            env->ReleaseStringChars(reading, chars);
+            throw std::runtime_error("Mora split failed");
+        }
+        std::vector<jboolean> flags(count + 1);
+        for (size_t i = 0; i <= count; ++i)
+            flags[i] = dc_mora_high(i, accent) ? JNI_TRUE : JNI_FALSE;
+        dc_text_slices_destroy(morae);
+        env->ReleaseStringChars(reading, chars);
+        auto result = env->NewBooleanArray(static_cast<jsize>(flags.size()));
+        if (result) env->SetBooleanArrayRegion(result, 0, static_cast<jsize>(flags.size()), flags.data());
         return result;
     } catch (const std::exception &e) { failure(env, e.what()); }
     return nullptr;
