@@ -687,7 +687,7 @@ fun OcrLookupPopup(
                         orderLookupResultsForDisplay(result.results, activeProfile, context)
                     }
                     preparation = if (nativeLookup && generation == lookupGeneration && visibleRef.value && requestInput === lookupInputRef.value) {
-                        scope.prepareDictionaryCards(ordered, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
+                        scope.prepareDictionaryCards(ordered, result.session, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
                             getDictionaryTitle(context, it)
                         }
                     } else null

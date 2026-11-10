@@ -1,5 +1,6 @@
-package eu.kanade.tachiyomi.ui.dictionary.compose
+﻿package eu.kanade.tachiyomi.ui.dictionary.compose
 
+import chimahon.HoshiDicts
 import chimahon.LookupResult
 import chimahon.diagnostics.LookupProfiler
 import kotlinx.coroutines.CancellationException
@@ -7,8 +8,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 
 /** One pending lookup's card preparation, independent of viewport, theme and UI mounting. */
 class DictionaryCardPreparation internal constructor(
@@ -27,6 +26,7 @@ class DictionaryCardPreparation internal constructor(
 
 internal fun CoroutineScope.prepareDictionaryCards(
     results: List<LookupResult>,
+    session: Long,
     groupTerms: Boolean,
     dictionaryOrder: List<String>,
     profilingId: Long,
@@ -34,11 +34,11 @@ internal fun CoroutineScope.prepareDictionaryCards(
 ): DictionaryCardPreparation {
     val order = dictionaryOrder.toList()
     val task = async(Dispatchers.Default) {
-        val caller = currentCoroutineContext()
         try {
             Result.success(LookupProfiler.elapsedSection(profilingId, "plan.cards_parse") {
                 val priority = order.map(resolveTitle).withIndex().associate { it.value to it.index }
-                buildCards(results, groupTerms, resolveTitle, priority, profilingId) { caller.ensureActive() }
+                // Grouping runs in C++ over the session's last lookup; no Java object walk.
+                parseCards(HoshiDicts.cards(session, groupTerms), resolveTitle, priority)
             })
         } catch (e: CancellationException) {
             throw e

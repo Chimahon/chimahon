@@ -210,6 +210,7 @@ class DictionaryRepository(
             mediaDataUris = emptyMap(),  // Empty on critical path
             error = null,
             profilingId = requestId,
+            session = activeSession,
         )
         } }
     }
@@ -447,6 +448,8 @@ class DictionaryRepository(
         val mediaDataUris: Map<String, String>,
         val error: String?,
         val profilingId: Long = 0,
+        /** Native session owning the results, for native card grouping. */
+        val session: Long = 0,
     )
 
     companion object {
