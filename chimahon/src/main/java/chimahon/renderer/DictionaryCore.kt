@@ -17,6 +17,7 @@ object DictionaryCore {
     external fun openBatch(css: Array<String>, fontSize: Float, dark: Boolean, expandDetails: Boolean): Long
     external fun prepareDrawing(context: Long, sources: Array<String>, typedSources: Array<ByteBuffer?>, sheets: IntArray, widths: FloatArray,
         foreground: Int, border: Int): Long
+    external fun drawingTimings(handle: Long): FloatArray
     external fun drawingCounts(handle: Long): IntArray
     external fun drawingSection(handle: Long, section: Int): ByteBuffer
     external fun finishDrawing(handle: Long)

@@ -18,7 +18,8 @@ public data class NativeDrawingInput(val raw: String, val css: String, val width
 
 public data class NativeDrawingTiming(val inputMs: Double = 0.0, val measureMs: Double = 0.0,
     val finishMs: Double = 0.0, val transferMs: Double = 0.0, val releaseMs: Double = 0.0,
-    val configurationMs: Double = 0.0)
+    val configurationMs: Double = 0.0, val parseMs: Double = 0.0, val styleMs: Double = 0.0,
+    val beginMs: Double = 0.0)
 
 /** Native parse, shape, layout and retained glyphs. Android supplies fonts and a viewport only. */
 public class NativeCoreCompiler(
@@ -79,6 +80,7 @@ public class NativeCoreCompiler(
             Array(inputs.size) { nativeCardTape(inputs[it].identity) }, context.sourceSheets,
             FloatArray(inputs.size) { inputs[it].width / density.density }, style.color.toArgb(), border.toArgb())
         check(handle != 0L)
+        val nativeTimings = DictionaryCore.drawingTimings(handle)
         trace.checkpoint("nativeInput")
         var owner: NativePortableDrawing? = null
         var transferred = false
@@ -141,7 +143,9 @@ public class NativeCoreCompiler(
             }
             lastTiming = NativeDrawingTiming((prepared - start) / 1e6, (measured - prepared) / 1e6,
                 (finished - measured) / 1e6, (System.nanoTime() - finished) / 1e6,
-                configurationMs = (start - configuration) / 1e6)
+                configurationMs = (start - configuration) / 1e6,
+                parseMs = nativeTimings[0].toDouble(), styleMs = nativeTimings[1].toDouble(),
+                beginMs = nativeTimings[2].toDouble())
             transferred = true
             trace.checkpoint("transfer")
             if (trace.enabled) trace.report("backend=portable-cpp retained=true sources=${inputs.size} utf16=${counts[2]} requests=${counts[3]} shapingGroups=${counts[15]} paragraphs=${counts[11]} rubyPairs=${counts[12]} platformShapeCalls=0")

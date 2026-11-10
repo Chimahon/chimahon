@@ -5,6 +5,7 @@
 #include "portable_renderer.h"
 #include "android_dictionary_fonts.h"
 #include <android/bitmap.h>
+#include <chrono>
 #include <climits>
 #include <cstdio>
 #include <jni.h>
@@ -23,6 +24,7 @@ struct Drawing {
     Owned<dc_prepared_document, dc_prepared_document_destroy> prepared{nullptr, dc_prepared_document_destroy};
     Owned<dc_drawing_plan, dc_drawing_plan_destroy> plan{nullptr, dc_drawing_plan_destroy};
     Owned<dc_portable_document, dc_portable_destroy> portable{nullptr, dc_portable_destroy};
+    float parse_ms = 0, style_ms = 0, begin_ms = 0;
 };
 void failure(JNIEnv *env, const char *message) {
     if (env->ExceptionCheck())
@@ -133,20 +135,28 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
         env->GetFloatArrayRegion(widths, 0, count, sizes.data());
         if (env->ExceptionCheck())
             return 0;
+        const auto clock = [] { return std::chrono::steady_clock::now(); };
+        const auto start = clock();
         dc_document *parsed = nullptr;
         dc_error error{};
         if (dc_prepare_mixed(sources.data(), tapes.data(), sources.size(), &parsed, &error))
             throw std::runtime_error(error.message);
+        const auto parsed_at = clock();
         Owned<dc_document, dc_document_destroy> raw(parsed, dc_document_destroy);
         auto result = std::make_unique<Drawing>();
         dc_prepared_document *prepared = nullptr;
         if (dc_compile_styled_configured(parsed, c.sheets.get(), mapping.data(), mapping.size(), &c.options, &prepared,
                                          &error))
             throw std::runtime_error(error.message);
+        const auto styled_at = clock();
         result->prepared.reset(prepared);
         dc_drawing_plan *plan = nullptr;
         if (dc_drawing_begin(prepared, sizes.data(), sizes.size(), foreground, border, &plan, &error))
             throw std::runtime_error(error.message);
+        const auto begin_at = clock();
+        result->parse_ms = std::chrono::duration<float, std::milli>(parsed_at - start).count();
+        result->style_ms = std::chrono::duration<float, std::milli>(styled_at - parsed_at).count();
+        result->begin_ms = std::chrono::duration<float, std::milli>(begin_at - styled_at).count();
         result->plan.reset(plan);
         return reinterpret_cast<uintptr_t>(result.release());
     } catch (const std::exception &e) {
@@ -618,6 +628,18 @@ extern "C" JNIEXPORT jstring JNICALL Java_chimahon_renderer_DictionaryCore_sourc
         jstring result = text ? env->NewString(reinterpret_cast<const jchar *>(text),
                                                static_cast<jsize>(length)) : nullptr;
         dc_source_text_destroy(text);
+        return result;
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return nullptr;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_drawingTimings(JNIEnv *env, jobject,
+                                                                                              jlong handle) {
+    try {
+        auto &d = object<Drawing>(handle);
+        jfloat values[3] = {d.parse_ms, d.style_ms, d.begin_ms};
+        auto result = env->NewFloatArray(3);
+        if (result) env->SetFloatArrayRegion(result, 0, 3, values);
         return result;
     } catch (const std::exception &e) { failure(env, e.what()); }
     return nullptr;

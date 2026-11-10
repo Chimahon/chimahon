@@ -216,7 +216,7 @@ internal suspend fun prepareGlossaryBatch(profilingId: Long, nextWork: () -> Glo
             documents.forEachIndexed { index, document -> out[pending[index].nodes] = document }
             if (profilingId != 0L) NativeRenderDiagnostics.mark(profilingId, planId, "plan.native.batch",
                 "worker=$workerId documents=${pending.size} paragraphs=${stats.paragraphs} ruby=${stats.rubyPairs} " +
-                    "inputMs=${core.lastTiming.inputMs} measureMs=${core.lastTiming.measureMs} finishMs=${core.lastTiming.finishMs} transferMs=${core.lastTiming.transferMs} releaseMs=${core.lastTiming.releaseMs} configurationMs=${core.lastTiming.configurationMs}")
+                    "inputMs=${core.lastTiming.inputMs} parseMs=${core.lastTiming.parseMs} styleMs=${core.lastTiming.styleMs} beginMs=${core.lastTiming.beginMs} measureMs=${core.lastTiming.measureMs} finishMs=${core.lastTiming.finishMs} transferMs=${core.lastTiming.transferMs} releaseMs=${core.lastTiming.releaseMs} configurationMs=${core.lastTiming.configurationMs}")
         }
         out
     }
