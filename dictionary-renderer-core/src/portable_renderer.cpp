@@ -25,6 +25,7 @@
 #include <cmath>
 #include <climits>
 #include <cstdio>
+#include <array>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -144,14 +145,26 @@ struct dc_portable_document {
         catch (...) { faces.clear(); FT_Done_FreeType(library); library = nullptr; throw; }
     }
     ~dc_portable_document() { faces.clear(); if (library) FT_Done_FreeType(library); }
+    /* Direct-mapped front cache: most text is a few hundred distinct code points,
+     * so this avoids the hash lookup on nearly every grapheme. */
+    std::array<uint32_t, 512> face_keys{};
+    std::array<uint32_t, 512> face_values{};
     uint32_t face_for(uint32_t cp) {
-        if (const auto found = coverage.find(cp); found != coverage.end()) return found->second;
+        const uint32_t slot = cp & 511;
+        if (face_keys[slot] == cp + 1) return face_values[slot];
+        if (const auto found = coverage.find(cp); found != coverage.end()) {
+            face_keys[slot] = cp + 1;
+            face_values[slot] = found->second;
+            return found->second;
+        }
         uint32_t selected = 0;
         for (uint32_t i = 0; i < faces.size(); ++i) {
             faces[i]->load();
             if (FT_Get_Char_Index(faces[i]->ft, cp)) { selected = i; break; }
         }
         coverage.emplace(cp, selected);
+        face_keys[slot] = cp + 1;
+        face_values[slot] = selected;
         return selected;
     }
     uint32_t cluster_face(const uint16_t *text, uint32_t start, uint32_t end) {
@@ -343,14 +356,38 @@ struct dc_portable_document {
         for (size_t i = 0; i < v.context_count; ++i) {
             const auto &c = v.contexts[i];
             if (!c.count) continue;
-            boundaries.resize(c.count);
-            set_graphemebreaks_utf16(v.text+c.start, c.count, "ja", boundaries.data());
-            for (uint32_t from = 0; from < c.count;) {
-                auto until = from + 1;
-                while (until < c.count && boundaries[until-1] != GRAPHEMEBREAK_BREAK) ++until;
-                const auto face = cluster_face(v.text, c.start+from, c.start+until);
-                std::fill(text_faces.begin()+c.start+from, text_faces.begin()+c.start+until, face);
-                from = until;
+            // Grapheme segmentation only matters for combining marks, ZWJ emoji and
+            // variation/regional sequences. Japanese and English glossaries have none,
+            // so their graphemes are code points and the libunibreak pass is skipped.
+            bool simple = true;
+            for (uint32_t j = c.start; j < c.start + c.count && simple;) {
+                const auto cp = codepoint(v.text, v.text_count, j);
+                simple = !(cp == 0x200d || (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xe0100 && cp <= 0xe01ef) ||
+                           (cp >= 0x1f1e6 && cp <= 0x1f1ff) || (cp >= 0x1f3fb && cp <= 0x1f3ff) ||
+                           (cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x0483 && cp <= 0x0489) ||
+                           (cp >= 0x0591 && cp <= 0x05bd) || (cp >= 0x0610 && cp <= 0x061a) ||
+                           (cp >= 0x064b && cp <= 0x065f) || (cp >= 0x0900 && cp <= 0x0e3a) ||
+                           (cp >= 0x1ab0 && cp <= 0x1aff) || (cp >= 0x1dc0 && cp <= 0x1dff) ||
+                           (cp >= 0x20d0 && cp <= 0x20ff) || (cp >= 0xfe20 && cp <= 0xfe2f));
+                j += cp > 0xffff ? 2 : 1;
+            }
+            if (simple) {
+                for (uint32_t j = c.start; j < c.start + c.count;) {
+                    const auto cp = codepoint(v.text, v.text_count, j);
+                    const uint32_t width = cp > 0xffff ? 2 : 1;
+                    std::fill(text_faces.begin() + j, text_faces.begin() + j + width, face_for(cp));
+                    j += width;
+                }
+            } else {
+                boundaries.resize(c.count);
+                set_graphemebreaks_utf16(v.text+c.start, c.count, "ja", boundaries.data());
+                for (uint32_t from = 0; from < c.count;) {
+                    auto until = from + 1;
+                    while (until < c.count && boundaries[until-1] != GRAPHEMEBREAK_BREAK) ++until;
+                    const auto face = cluster_face(v.text, c.start+from, c.start+until);
+                    std::fill(text_faces.begin()+c.start+from, text_faces.begin()+c.start+until, face);
+                    from = until;
+                }
             }
             if (!(c.annotation & 1)) {
                 boundaries.resize(c.count);
