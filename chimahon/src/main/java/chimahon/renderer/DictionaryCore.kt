@@ -10,6 +10,9 @@ object DictionaryCore {
         val override = if (mihon.chimahon.BuildConfig.DEBUG) System.getProperty("chimahon.debug.dictionaryCore") else null
         if (override == null) System.loadLibrary("dictionary_core") else System.load(override)
     }
+    /** Triggers the library load when a caller only needs the lookup JNI. */
+    fun ensureLoaded() = Unit
+
     external fun closeContext(handle: Long)
     external fun openBatch(css: Array<String>, fontSize: Float, dark: Boolean, expandDetails: Boolean): Long
     external fun prepareDrawing(context: Long, sources: Array<String>, typedSources: Array<ByteBuffer?>, sheets: IntArray, widths: FloatArray,

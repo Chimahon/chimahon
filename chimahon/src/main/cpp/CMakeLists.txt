@@ -14,10 +14,12 @@ target_link_libraries(dictionary_core PRIVATE android jnigraphics dl)
 
 add_subdirectory(hoshidicts)
 
-add_library(hoshidicts_jni SHARED
-    hoshidicts_jni.cpp
-)
-target_link_libraries(hoshidicts_jni PRIVATE hoshidicts)
+# One shared library owns both the lookup engine and the renderer, so a native
+# card plan can consume hoshidicts structs without crossing a library boundary
+# or duplicating the static dictionary state.
+target_sources(dictionary_core PRIVATE hoshidicts_jni.cpp)
+target_include_directories(dictionary_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(dictionary_core PRIVATE hoshidicts)
 
 # DICT_PROFILE: remove this block with the temporary profiling header/call sites.
 target_include_directories(hoshidicts PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

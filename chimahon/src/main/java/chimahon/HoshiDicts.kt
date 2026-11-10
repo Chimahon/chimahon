@@ -89,7 +89,9 @@ data class LookupResult(
 
 object HoshiDicts {
     init {
-        System.loadLibrary("hoshidicts_jni")
+        // One native library owns lookup and rendering; DictionaryCore also
+        // honours the debug .so override used by the fast-swap workflow.
+        chimahon.renderer.DictionaryCore.ensureLoaded()
     }
 
     external fun importDictionary(zipPath: String, outputDir: String): ImportResult
