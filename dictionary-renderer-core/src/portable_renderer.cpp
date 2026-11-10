@@ -175,11 +175,19 @@ struct dc_portable_document {
         }
         return face_for(first);
     }
+    uint32_t configured_face = UINT32_MAX;
+    uint32_t configured_key = 0;
+    float configured_size = 0;
     void configure(uint32_t i, const dc_drawing_font &font) {
+        const uint32_t key = (font.flags & 1) | (font.weight >= 600 ? 2 : 0);
+        if (i == configured_face && key == configured_key && font.size == configured_size) return;
         hb_font_set_scale(faces[i]->hb, std::lround(font.size * 65536), std::lround(font.size * 65536));
         hb_font_set_synthetic_slant(faces[i]->hb, font.flags & 1 ? .25f : 0.f);
         // Match synthetic bold without changing the requested font file/family.
         hb_font_set_synthetic_bold(faces[i]->hb, font.weight >= 600 ? .025f : 0.f, 0.f, true);
+        configured_face = i;
+        configured_key = key;
+        configured_size = font.size;
     }
     const GlyphVariant &half_variant(uint32_t face, uint32_t cp, const dc_drawing_font &font) {
         const PathKey key{face, cp, static_cast<uint32_t>(std::lround(font.size * 64)),
@@ -283,7 +291,8 @@ struct dc_portable_document {
         }
         return true;
     }
-    void shape(dc_drawing_view &v, uint32_t style, uint32_t start, uint32_t end, uint32_t context, uint32_t context_count) {
+    void shape(dc_drawing_view &v, hb_buffer_t *buffer, uint32_t style, uint32_t start, uint32_t end,
+               uint32_t context, uint32_t context_count) {
         Run run{start, end, style, (v.levels[start] & 1) != 0, {}};
         const auto &font = v.fonts[style];
         uint32_t at = start;
@@ -293,7 +302,7 @@ struct dc_portable_document {
             while (until < end && text_faces[until] == face && v.levels[until] == v.levels[at])
                 until += codepoint(v.text, v.text_count, until) > 0xffff ? 2 : 1;
             configure(face, font);
-            auto buffer = hb_buffer_create();
+            hb_buffer_clear_contents(buffer);
             hb_buffer_add_utf16(buffer, v.text + context, context_count, at - context, until - at);
             hb_buffer_set_direction(buffer, v.levels[at] & 1 ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
             hb_buffer_set_language(buffer, hb_language_from_string("ja", -1));
@@ -308,7 +317,6 @@ struct dc_portable_document {
                 run.glyphs.push_back({info[g].codepoint, cluster, face, advance, position[g].x_offset / 65536.f, -position[g].y_offset / 65536.f});
                 v.advances[cluster] += advance;
             }
-            hb_buffer_destroy(buffer);
             at = until;
         }
         // Letter spacing belongs to clusters, not continuation code units.
@@ -350,19 +358,31 @@ struct dc_portable_document {
                 for (uint32_t j = 0; j < c.count; ++j) v.breaks[c.start + j] = boundaries[j] <= LINEBREAK_ALLOWBREAK;
                 v.breaks[c.start + c.count - 1] = 1;
             }
-            const SBCodepointSequence sequence{SBStringEncodingUTF16, v.text + c.start, c.count};
-            auto algorithm = SBAlgorithmCreate(&sequence);
-            require(algorithm != nullptr, "Cannot allocate bidi analysis");
-            for (SBUInteger at = 0; at < c.count;) {
-                auto paragraph = SBAlgorithmCreateParagraph(algorithm, at, c.count - at, SBLevelDefaultLTR);
-                if (!paragraph) { SBAlgorithmRelease(algorithm); throw std::runtime_error("Cannot resolve bidi paragraph"); }
-                const auto length = SBParagraphGetLength(paragraph);
-                std::copy_n(SBParagraphGetLevelsPtr(paragraph), length, v.levels + c.start + at);
-                SBParagraphRelease(paragraph);
-                if (!length) break;
-                at += length;
+            // ICU bidi setup is per paragraph and expensive; Japanese/English dictionaries
+            // contain no RTL code points, and levels are already zero-filled above.
+            bool rtl = false;
+            for (uint32_t j = c.start; j < c.start + c.count && !rtl;) {
+                const auto cp = codepoint(v.text, v.text_count, j);
+                rtl = (cp >= 0x0590 && cp <= 0x08FF) || (cp >= 0xFB1D && cp <= 0xFDFF) ||
+                      (cp >= 0xFE70 && cp <= 0xFEFF) || (cp >= 0x10800 && cp <= 0x10FFF) ||
+                      (cp >= 0x1E800 && cp <= 0x1EFFF);
+                j += cp > 0xffff ? 2 : 1;
             }
-            SBAlgorithmRelease(algorithm);
+            if (rtl) {
+                const SBCodepointSequence sequence{SBStringEncodingUTF16, v.text + c.start, c.count};
+                auto algorithm = SBAlgorithmCreate(&sequence);
+                require(algorithm != nullptr, "Cannot allocate bidi analysis");
+                for (SBUInteger at = 0; at < c.count;) {
+                    auto paragraph = SBAlgorithmCreateParagraph(algorithm, at, c.count - at, SBLevelDefaultLTR);
+                    if (!paragraph) { SBAlgorithmRelease(algorithm); throw std::runtime_error("Cannot resolve bidi paragraph"); }
+                    const auto length = SBParagraphGetLength(paragraph);
+                    std::copy_n(SBParagraphGetLevelsPtr(paragraph), length, v.levels + c.start + at);
+                    SBParagraphRelease(paragraph);
+                    if (!length) break;
+                    at += length;
+                }
+                SBAlgorithmRelease(algorithm);
+            }
         }
         const auto facts = dc_drawing_font_facts(plan);
         faces.front()->load();
@@ -395,11 +415,14 @@ struct dc_portable_document {
         }
         dc_error error{};
         if (dc_drawing_apply_font_facts(plan, &error)) throw std::runtime_error(error.message);
+        auto buffer = hb_buffer_create();
+        require(buffer != nullptr, "Cannot allocate shaping buffer");
         for (size_t i = 0; i < v.shaping_run_count; ++i) {
             const auto &g = v.shaping_runs[i];
             const auto &first = v.requests[g.first_request], &last = v.requests[g.first_request + g.request_count - 1];
-            shape(v, first.style, first.start, last.start + last.count, first.context_start, first.context_count);
+            shape(v, buffer, first.style, first.start, last.start + last.count, first.context_start, first.context_count);
         }
+        hb_buffer_destroy(buffer);
         std::sort(runs.begin(), runs.end(), [](const Run &a, const Run &b) { return a.start < b.start; });
         measured = true;
     }
