@@ -1,4 +1,4 @@
-#include "dictionary_core.h"
+﻿#include "dictionary_core.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -6,6 +6,7 @@
 #include <cstring>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -365,67 +366,7 @@ bool small_kana(uint16_t c) {
     return false;
 }
 
-void append_escaped(std::u16string &out, const uint16_t *text, size_t length) {
-    for (size_t i = 0; i < length; ++i) {
-        switch (text[i]) {
-        case u'&': out += u"&amp;"; break;
-        case u'<': out += u"&lt;"; break;
-        case u'>': out += u"&gt;"; break;
-        case u'"': out += u"&quot;"; break;
-        default: out.push_back(static_cast<char16_t>(text[i])); break;
-        }
-    }
-}
-
 } // namespace
-
-int dc_headword_html(const uint16_t *expression, size_t expression_length, const uint16_t *reading,
-                     size_t reading_length, const uint16_t *classes, size_t classes_length,
-                     uint16_t **html, size_t *html_length, dc_error *error) {
-    if (html)
-        *html = nullptr;
-    if (html_length)
-        *html_length = 0;
-    if (!html || !html_length || (!expression && expression_length) || (!classes && classes_length))
-        return 1;
-    try {
-        dc_headword_unit *units = nullptr;
-        size_t count = 0;
-        if (dc_split_headword(expression, expression_length, reading, reading_length, &units, &count, error))
-            return 1;
-        std::u16string out = u"<div class=\"";
-        append_escaped(out, classes, classes_length);
-        out += u"\">";
-        for (size_t i = 0; i < count; ++i) {
-            const auto &unit = units[i];
-            if (unit.kind == 0 || unit.reading_length == 0) {
-                append_escaped(out, expression + unit.text_offset, unit.text_length);
-                continue;
-            }
-            out += u"<ruby>";
-            append_escaped(out, expression + unit.text_offset, unit.text_length);
-            out += u"<rt>";
-            if (unit.reading_length)
-                append_escaped(out, reading + unit.reading_offset, unit.reading_length);
-            out += u"</rt></ruby>";
-        }
-        out += u"</div>";
-        dc_headword_units_destroy(units);
-        auto *storage = static_cast<uint16_t *>(std::malloc(out.size() * sizeof(uint16_t)));
-        if (!storage)
-            throw std::bad_alloc();
-        std::memcpy(storage, out.data(), out.size() * sizeof(uint16_t));
-        *html = storage;
-        *html_length = out.size();
-        return 0;
-    } catch (const std::exception &failure) {
-        if (error)
-            std::snprintf(error->message, sizeof(error->message), "%s", failure.what());
-        return 1;
-    }
-}
-
-void dc_html_destroy(uint16_t *html) { std::free(html); }
 
 int dc_split_morae(const uint16_t *text, size_t length, dc_text_slice **morae, size_t *count) {
     if (morae)
@@ -461,4 +402,158 @@ int dc_mora_high(size_t mora_index, int32_t accent) {
     if (accent == 1)
         return mora_index < 1;
     return mora_index > 0 && mora_index < static_cast<size_t>(accent);
+}
+
+namespace {
+
+void append_utf8(std::string &out, const uint16_t *text, size_t length) {
+    for (size_t i = 0; i < length; ++i) {
+        uint32_t c = text[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < length && text[i + 1] >= 0xDC00 && text[i + 1] <= 0xDFFF) {
+            c = 0x10000 + ((c - 0xD800) << 10) + (text[i + 1] - 0xDC00);
+            ++i;
+        }
+        if (c < 0x80) {
+            out.push_back(static_cast<char>(c));
+        } else if (c < 0x800) {
+            out.push_back(static_cast<char>(0xC0 | (c >> 6)));
+            out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+        } else if (c < 0x10000) {
+            out.push_back(static_cast<char>(0xE0 | (c >> 12)));
+            out.push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+        } else {
+            out.push_back(static_cast<char>(0xF0 | (c >> 18)));
+            out.push_back(static_cast<char>(0x80 | ((c >> 12) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (c & 0x3F)));
+        }
+    }
+}
+
+struct TapeBuilder {
+    std::vector<uint32_t> kinds, values;
+    std::vector<std::string> strings;
+    uint32_t string(const std::string &value) {
+        strings.push_back(value);
+        return static_cast<uint32_t>(strings.size() - 1);
+    }
+    void emit(uint32_t kind, uint32_t value) {
+        kinds.push_back(kind);
+        values.push_back(value);
+    }
+    void emit(uint32_t kind) { emit(kind, 0xFFFFFFFFu); }
+};
+
+int build_headword_tape(const uint16_t *expression, size_t expression_length, const uint16_t *reading,
+                        size_t reading_length, const uint16_t *classes, size_t classes_length,
+                        TapeBuilder &tape, dc_error *error) {
+    dc_headword_unit *units = nullptr;
+    size_t count = 0;
+    if (dc_split_headword(expression, expression_length, reading, reading_length, &units, &count, error))
+        return 1;
+    std::string class_text;
+    append_utf8(class_text, classes, classes_length);
+    tape.emit(0, tape.string("div"));
+    tape.emit(1, tape.string("class"));
+    tape.emit(5, tape.string(class_text));
+    for (size_t i = 0; i < count; ++i) {
+        const auto &unit = units[i];
+        std::string text;
+        append_utf8(text, expression + unit.text_offset, unit.text_length);
+        if (unit.kind == 0 || unit.reading_length == 0) {
+            tape.emit(3, tape.string(text));
+            continue;
+        }
+        std::string annotation;
+        append_utf8(annotation, reading + unit.reading_offset, unit.reading_length);
+        tape.emit(0, tape.string("ruby"));
+        tape.emit(3, tape.string(text));
+        tape.emit(0, tape.string("rt"));
+        tape.emit(3, tape.string(annotation));
+        tape.emit(4);
+        tape.emit(4);
+    }
+    tape.emit(4);
+    dc_headword_units_destroy(units);
+    return 0;
+}
+
+size_t tape_bytes(const TapeBuilder &tape) {
+    size_t strings = 0;
+    for (const auto &value : tape.strings)
+        strings += value.size();
+    return 12 + tape.kinds.size() * 16 + strings;
+}
+
+} // namespace
+
+int dc_headword_tape_size(const uint16_t *expression, size_t expression_length, const uint16_t *reading,
+                          size_t reading_length, const uint16_t *classes, size_t classes_length,
+                          size_t *bytes, dc_error *error) {
+    if (bytes)
+        *bytes = 0;
+    if (!bytes)
+        return 1;
+    try {
+        TapeBuilder tape;
+        if (build_headword_tape(expression, expression_length, reading, reading_length, classes, classes_length,
+                                tape, error))
+            return 1;
+        *bytes = tape_bytes(tape);
+        return 0;
+    } catch (const std::exception &failure) {
+        if (error)
+            std::snprintf(error->message, sizeof(error->message), "%s", failure.what());
+        return 1;
+    }
+}
+
+int dc_headword_tape_into(uint8_t *out, size_t capacity, const uint16_t *expression, size_t expression_length,
+                          const uint16_t *reading, size_t reading_length, const uint16_t *classes,
+                          size_t classes_length, size_t *written, dc_error *error) {
+    if (written)
+        *written = 0;
+    if (!out || !written)
+        return 1;
+    try {
+        TapeBuilder tape;
+        if (build_headword_tape(expression, expression_length, reading, reading_length, classes, classes_length,
+                                tape, error))
+            return 1;
+        const size_t total = tape_bytes(tape);
+        if (total > capacity)
+            throw std::length_error("Headword tape exceeds buffer");
+        uint32_t header[3] = {0x43415244u, static_cast<uint32_t>(tape.kinds.size()), 0};
+        for (const auto &value : tape.strings)
+            header[2] += static_cast<uint32_t>(value.size());
+        std::memcpy(out, header, sizeof(header));
+        size_t at = sizeof(header);
+        std::vector<uint32_t> offsets(tape.strings.size()), lengths(tape.strings.size());
+        uint32_t start = 0;
+        for (size_t i = 0; i < tape.strings.size(); ++i) {
+            offsets[i] = start;
+            lengths[i] = static_cast<uint32_t>(tape.strings[i].size());
+            start += lengths[i];
+        }
+        for (size_t i = 0; i < tape.kinds.size(); ++i) {
+            uint32_t record[4] = {tape.kinds[i], 0, 0, 0};
+            if (tape.values[i] != 0xFFFFFFFFu) {
+                record[2] = offsets[tape.values[i]];
+                record[3] = lengths[tape.values[i]];
+            }
+            std::memcpy(out + at, record, sizeof(record));
+            at += sizeof(record);
+        }
+        for (const auto &value : tape.strings) {
+            std::memcpy(out + at, value.data(), value.size());
+            at += value.size();
+        }
+        *written = at;
+        return 0;
+    } catch (const std::exception &failure) {
+        if (error)
+            std::snprintf(error->message, sizeof(error->message), "%s", failure.what());
+        return 1;
+    }
 }

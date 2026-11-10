@@ -56,12 +56,16 @@ DC_API int dc_split_headword(const uint16_t *expression, size_t expression_lengt
                              const uint16_t *reading, size_t reading_length,
                              dc_headword_unit **units, size_t *count, dc_error *error);
 DC_API void dc_headword_units_destroy(dc_headword_unit *units);
-/* Finished headword HTML: one <ruby> per annotated unit, plain text otherwise. */
-DC_API int dc_headword_html(const uint16_t *expression, size_t expression_length,
-                            const uint16_t *reading, size_t reading_length,
-                            const uint16_t *classes, size_t classes_length,
-                            uint16_t **html, size_t *html_length, dc_error *error);
-DC_API void dc_html_destroy(uint16_t *html);
+/* Headword chrome as the host card tape (CARDR), so it skips the HTML parser. */
+DC_API int dc_headword_tape_size(const uint16_t *expression, size_t expression_length,
+                                 const uint16_t *reading, size_t reading_length,
+                                 const uint16_t *classes, size_t classes_length,
+                                 size_t *bytes, dc_error *error);
+DC_API int dc_headword_tape_into(uint8_t *out, size_t capacity,
+                                 const uint16_t *expression, size_t expression_length,
+                                 const uint16_t *reading, size_t reading_length,
+                                 const uint16_t *classes, size_t classes_length,
+                                 size_t *written, dc_error *error);
 /* Japanese moras; a small kana extends the previous mora. */
 typedef struct dc_text_slice { uint32_t offset, length; } dc_text_slice;
 DC_API int dc_split_morae(const uint16_t *text, size_t length, dc_text_slice **morae, size_t *count);

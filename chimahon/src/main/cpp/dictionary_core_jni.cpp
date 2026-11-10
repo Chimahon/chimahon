@@ -424,46 +424,6 @@ extern "C" JNIEXPORT jstring JNICALL Java_chimahon_renderer_DictionaryCore_looku
     return nullptr;
 }
 
-
-extern "C" JNIEXPORT jstring JNICALL Java_chimahon_renderer_DictionaryCore_headwordHtml(JNIEnv *env, jobject,
-                                                                                        jstring expression, jstring reading,
-                                                                                        jstring classes) {
-    try {
-        if (!expression || !classes) throw std::invalid_argument("Null headword");
-        const jsize expression_length = env->GetStringLength(expression);
-        const jsize reading_length = reading ? env->GetStringLength(reading) : 0;
-        const jsize classes_length = env->GetStringLength(classes);
-        const jchar *expression_chars = env->GetStringChars(expression, nullptr);
-        const jchar *reading_chars = reading ? env->GetStringChars(reading, nullptr) : nullptr;
-        const jchar *class_chars = env->GetStringChars(classes, nullptr);
-        if (!expression_chars || !class_chars || (reading && !reading_chars)) {
-            if (expression_chars) env->ReleaseStringChars(expression, expression_chars);
-            if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
-            if (class_chars) env->ReleaseStringChars(classes, class_chars);
-            throw std::invalid_argument("Headword chars");
-        }
-        uint16_t *html = nullptr;
-        size_t html_length = 0;
-        dc_error error{};
-        if (dc_headword_html(reinterpret_cast<const uint16_t *>(expression_chars), expression_length,
-                             reinterpret_cast<const uint16_t *>(reading_chars), reading_length,
-                             reinterpret_cast<const uint16_t *>(class_chars), classes_length,
-                             &html, &html_length, &error)) {
-            env->ReleaseStringChars(expression, expression_chars);
-            if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
-            env->ReleaseStringChars(classes, class_chars);
-            throw std::runtime_error(error.message);
-        }
-        jstring result = env->NewString(reinterpret_cast<const jchar *>(html), static_cast<jsize>(html_length));
-        dc_html_destroy(html);
-        env->ReleaseStringChars(expression, expression_chars);
-        if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
-        env->ReleaseStringChars(classes, class_chars);
-        return result;
-    } catch (const std::exception &e) { failure(env, e.what()); }
-    return nullptr;
-}
-
 extern "C" JNIEXPORT jobjectArray JNICALL Java_chimahon_renderer_DictionaryCore_splitMorae(JNIEnv *env, jobject,
                                                                                            jstring text) {
     try {
@@ -518,4 +478,73 @@ extern "C" JNIEXPORT jbooleanArray JNICALL Java_chimahon_renderer_DictionaryCore
         return result;
     } catch (const std::exception &e) { failure(env, e.what()); }
     return nullptr;
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_chimahon_renderer_DictionaryCore_headwordTapeSize(JNIEnv *env, jobject,
+                                                                                          jstring expression, jstring reading,
+                                                                                          jstring classes) {
+    try {
+        if (!expression || !classes) throw std::invalid_argument("Null headword");
+        const jsize expression_length = env->GetStringLength(expression);
+        const jsize reading_length = reading ? env->GetStringLength(reading) : 0;
+        const jsize classes_length = env->GetStringLength(classes);
+        const jchar *expression_chars = env->GetStringChars(expression, nullptr);
+        const jchar *reading_chars = reading ? env->GetStringChars(reading, nullptr) : nullptr;
+        const jchar *class_chars = env->GetStringChars(classes, nullptr);
+        if (!expression_chars || !class_chars || (reading && !reading_chars)) {
+            if (expression_chars) env->ReleaseStringChars(expression, expression_chars);
+            if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+            if (class_chars) env->ReleaseStringChars(classes, class_chars);
+            throw std::invalid_argument("Headword chars");
+        }
+        size_t bytes = 0;
+        dc_error error{};
+        const int status = dc_headword_tape_size(
+            reinterpret_cast<const uint16_t *>(expression_chars), expression_length,
+            reinterpret_cast<const uint16_t *>(reading_chars), reading_length,
+            reinterpret_cast<const uint16_t *>(class_chars), classes_length, &bytes, &error);
+        env->ReleaseStringChars(expression, expression_chars);
+        if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+        env->ReleaseStringChars(classes, class_chars);
+        if (status) throw std::runtime_error(error.message);
+        if (bytes > INT_MAX) throw std::length_error("Headword tape too large");
+        return static_cast<jint>(bytes);
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL Java_chimahon_renderer_DictionaryCore_headwordTapeInto(JNIEnv *env, jobject,
+                                                                                          jobject buffer, jstring expression,
+                                                                                          jstring reading, jstring classes) {
+    try {
+        if (!buffer || !expression || !classes) throw std::invalid_argument("Null headword tape");
+        auto *out = static_cast<uint8_t *>(env->GetDirectBufferAddress(buffer));
+        const auto capacity = env->GetDirectBufferCapacity(buffer);
+        if (!out || capacity < 0) throw std::invalid_argument("Headword tape needs a direct buffer");
+        const jsize expression_length = env->GetStringLength(expression);
+        const jsize reading_length = reading ? env->GetStringLength(reading) : 0;
+        const jsize classes_length = env->GetStringLength(classes);
+        const jchar *expression_chars = env->GetStringChars(expression, nullptr);
+        const jchar *reading_chars = reading ? env->GetStringChars(reading, nullptr) : nullptr;
+        const jchar *class_chars = env->GetStringChars(classes, nullptr);
+        if (!expression_chars || !class_chars || (reading && !reading_chars)) {
+            if (expression_chars) env->ReleaseStringChars(expression, expression_chars);
+            if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+            if (class_chars) env->ReleaseStringChars(classes, class_chars);
+            throw std::invalid_argument("Headword chars");
+        }
+        size_t written = 0;
+        dc_error error{};
+        const int status = dc_headword_tape_into(
+            out, static_cast<size_t>(capacity),
+            reinterpret_cast<const uint16_t *>(expression_chars), expression_length,
+            reinterpret_cast<const uint16_t *>(reading_chars), reading_length,
+            reinterpret_cast<const uint16_t *>(class_chars), classes_length, &written, &error);
+        env->ReleaseStringChars(expression, expression_chars);
+        if (reading_chars) env->ReleaseStringChars(reading, reading_chars);
+        env->ReleaseStringChars(classes, class_chars);
+        if (status) throw std::runtime_error(error.message);
+        return static_cast<jint>(written);
+    } catch (const std::exception &e) { failure(env, e.what()); }
+    return 0;
 }

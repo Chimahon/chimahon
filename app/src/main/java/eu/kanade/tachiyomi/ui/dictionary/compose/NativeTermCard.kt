@@ -107,9 +107,9 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
         parts.add(NativeCardPiece(nativeCardSource(content), css, assignedWidth, group = group, expanded = expanded,
             left = px(left), before = px(before), after = px(after), action = action))
     }
-    fun addHtml(html: String, group: Int = -1, expanded: Boolean? = null, left: Int = 0,
+    fun addSource(nodes: List<StructuredNode>, group: Int = -1, expanded: Boolean? = null, left: Int = 0,
         before: Int = 0, after: Int = 0, action: String? = null, assignedWidth: Int = width) {
-        parts.add(NativeCardPiece(nativeCoreSource(html), css, assignedWidth, group = group,
+        parts.add(NativeCardPiece(nodes, css, assignedWidth, group = group,
             expanded = expanded, left = px(left), before = px(before), after = px(after), action = action))
     }
     val tags = card.termTags.split(cardTagWhitespace).filter { it.isNotBlank() }.distinct()
@@ -118,7 +118,7 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
         tags.any { it.contains("rare", true) || it.contains("arch", true) || it.contains("obs", true) } -> "card-head card-rare"
         else -> "card-head"
     }
-    addHtml(DictionaryCore.headwordHtml(card.expression, card.reading, headClass),
+    addSource(headwordCardSource(card.expression, card.reading, headClass),
         before = 10, after = 2, assignedWidth = (width - px(84)).coerceAtLeast(1))
     if (tags.isNotEmpty()) add(before = 4) { element("div") { tags.take(8).forEach { chip(it) } } }
     if (card.process.isNotEmpty() && card.process.map { it.name } != listOf(card.expression)) {

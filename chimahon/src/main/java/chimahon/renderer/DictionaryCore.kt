@@ -23,7 +23,8 @@ object DictionaryCore {
     external fun closeDrawing(handle: Long)
     external fun placeCard(parts: FloatArray): FloatArray
     external fun lookupWordAt(text: String, offset: Int): String?
-    external fun headwordHtml(expression: String, reading: String, classes: String): String
+    external fun headwordTapeSize(expression: String, reading: String, classes: String): Int
+    external fun headwordTapeInto(buffer: ByteBuffer, expression: String, reading: String, classes: String): Int
     external fun splitMorae(text: String): Array<String>
     external fun moraHighFlags(reading: String, accent: Int): BooleanArray
 }

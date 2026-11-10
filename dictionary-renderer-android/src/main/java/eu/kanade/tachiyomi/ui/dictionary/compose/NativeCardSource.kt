@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
+import chimahon.renderer.DictionaryCore
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -11,8 +12,12 @@ public class NativeCardSource internal constructor(
     public val sourceWeight: Int,
     /** Sum of the text-value lengths only; tags and attributes excluded. */
     public val textUnits: Int,
+    /** Native-built tape (headword chrome) skips the HTML parser. */
+    private val prebuilt: ByteBuffer? = null,
 ) {
-    public val tape: ByteBuffer by lazy {
+    public val tape: ByteBuffer by lazy { prebuilt ?: buildTape() }
+
+    private fun buildTape(): ByteBuffer {
         val strings = ByteArrayOutputStream()
         val offsets = IntArray(values.size)
         val lengths = IntArray(values.size)
@@ -22,7 +27,7 @@ public class NativeCardSource internal constructor(
             lengths[i] = bytes.size
             strings.write(bytes)
         }
-        ByteBuffer.allocateDirect(12 + commands.size * 8 + strings.size())
+        return ByteBuffer.allocateDirect(12 + commands.size * 8 + strings.size())
             .order(ByteOrder.nativeOrder()).apply {
                 putInt(0x43415244); putInt(commands.size / 2); putInt(strings.size())
                 var i = 0
@@ -81,3 +86,13 @@ internal fun nativeCardInput(nodes: List<StructuredNode>): NativeCardSource? =
     (nodes.singleOrNull() as? StructuredNode.Element)?.attributes?.nativeCard
 
 internal fun nativeCardTape(nodes: List<StructuredNode>): ByteBuffer? = nativeCardInput(nodes)?.tape
+
+/** Headword chrome built in C++ as a card tape: no HTML parse, no Kotlin split. */
+public fun headwordCardSource(expression: String, reading: String, classes: String): List<StructuredNode> {
+    val size = DictionaryCore.headwordTapeSize(expression, reading, classes)
+    val buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder())
+    DictionaryCore.headwordTapeInto(buffer, expression, reading, classes)
+    val source = NativeCardSource(IntArray(0), emptyList(), size, expression.length + reading.length, buffer)
+    return listOf(StructuredNode.Element(StructuredTag.Unknown,
+        attributes = StructuredAttributes(nativeCard = source)))
+}
