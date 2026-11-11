@@ -214,6 +214,7 @@ struct DeclarationCollector {
     // Keep name slots across elements instead of allocating a map node per property.
     struct Slot { size_t generation, index; };
     std::unordered_map<std::string_view, Slot> slots;
+    int64_t callback_ns = 0, slots_ns = 0;
     size_t generation = 0;
     void reset() { declarations.clear(); ++generation; }
     bool contains(std::string_view name) const {
@@ -226,6 +227,7 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
                          lxb_css_selector_specificity_t specificity, bool) {
     try {
         auto& collector = *static_cast<DeclarationCollector*>(context);
+        const auto callback_start = dc_profile::now();
         const DeclarationText* text;
         if (auto it = collector.sheet_text.find(value); it != collector.sheet_text.end()) text = &it->second;
         else {
@@ -239,7 +241,9 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
         // chain. Rank every callback, including weak ones, to recover the real winner per name.
         const std::pair<uint32_t,size_t> rank{specificity,value->offset.name_begin};
         const Declaration result{text->second, rank.first, rank.second};
+        const auto slots_start = dc_profile::now();
         auto [it, inserted] = collector.slots.try_emplace(text->first, DeclarationCollector::Slot{collector.generation, collector.declarations.size()});
+        collector.slots_ns += dc_profile::now() - slots_start;
         auto& slot = it->second;
         if (inserted || slot.generation != collector.generation) {
             slot = {collector.generation, collector.declarations.size()};
@@ -248,6 +252,7 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
             auto& found = collector.declarations[slot.index].second;
             if (std::pair{found.specificity, found.offset} < rank) found = result;
         }
+        collector.callback_ns += dc_profile::now() - callback_start;
         return LXB_STATUS_OK;
     } catch (...) { return LXB_STATUS_ERROR; }
 }
@@ -776,6 +781,8 @@ struct SourceCompiler {
         dc_profile::add("resolve.reset", reset_ns);
         dc_profile::add("resolve.store", store_ns);
         dc_profile::add("resolve.hit", hit_ns);
+        dc_profile::add("resolve.callback", collector.callback_ns);
+        dc_profile::add("resolve.slots", collector.slots_ns);
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
         const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
