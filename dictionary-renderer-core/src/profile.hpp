@@ -39,6 +39,13 @@ inline bool &active() {
     static thread_local bool value = false;
     return value;
 }
+/* Deep spans sit inside the per-element loop and cost two clock reads each.
+ * On a device where the clock is a syscall that is the difference between a
+ * usable profile and a measurement of the profiler, so they are opt-in. */
+inline bool &deep_mode() {
+    static thread_local bool value = false;
+    return value;
+}
 inline int64_t &request() {
     static thread_local int64_t value = 0;
     return value;
@@ -79,11 +86,11 @@ struct Span {
 };
 
 inline void open(Span &span) {
-    if (active())
+    if (active() && deep_mode())
         span.start = now();
 }
 inline void close(Span &span) {
-    if (active())
+    if (active() && deep_mode())
         span.total += now() - span.start;
 }
 
@@ -101,8 +108,9 @@ struct Scope {
     }
 };
 
-inline void begin(int64_t id) {
+inline void begin(int64_t id, bool deep = false) {
     active() = true;
+    deep_mode() = deep;
     request() = id;
     costs().clear();
     order().clear();

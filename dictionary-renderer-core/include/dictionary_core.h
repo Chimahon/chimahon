@@ -44,6 +44,7 @@ DC_API void dc_document_destroy(dc_document* document);
 /* Debug only: request-scoped native profiler. Every native phase between
  * begin() and end() on the calling thread is reported when end() runs. */
 DC_API void dc_profile_begin(int64_t id);
+DC_API void dc_profile_begin_deep(int64_t id);
 DC_API void dc_profile_end(void);
 
 /* Host text helpers. All offsets are UTF-16 code units, matching Java/Kotlin

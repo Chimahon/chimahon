@@ -80,20 +80,60 @@ struct Face {
     FT_Face ft = nullptr;
     hb_font_t *hb = nullptr;
     std::shared_ptr<FontData> data;
+    std::shared_ptr<struct CachedFace> cached;
     Face(FT_Library library, const dc_font_file &file) : library(library), path(file.path ? file.path : ""), collection(file.collection_index) {}
-    void load() {
-        if (ft) return;
+    void load();
+    ~Face() = default;
+};
+/* One FT_Face per file and collection, kept for the life of the thread. Parsing
+ * a CJK face costs milliseconds and every render batch used to pay it again for
+ * every font, which made measurement the largest native phase on the device.
+ * Faces are stateful (size, synthetic slant) but every use configures them
+ * first, and a thread only ever runs one document at a time. */
+struct CachedFace {
+    FT_Face ft = nullptr;
+    hb_font_t *hb = nullptr;
+    ~CachedFace() {
+        if (hb) hb_font_destroy(hb);
+        if (ft) FT_Done_Face(ft);
+    }
+};
+struct FontCache {
+    FT_Library library = nullptr;
+    std::map<std::pair<std::string, uint32_t>, std::shared_ptr<CachedFace>> faces;
+    ~FontCache() {
+        faces.clear();
+        if (library) FT_Done_FreeType(library);
+    }
+    std::shared_ptr<CachedFace> face(const std::string &path, uint32_t collection) {
+        auto &entry = faces[{path, collection}];
+        if (entry) return entry;
         require(!path.empty(), "Missing portable font path");
-        data = font_data(path, collection);
+        if (!library) require(FT_Init_FreeType(&library) == 0, "Cannot initialize FreeType");
+        auto loaded = std::make_shared<CachedFace>();
+        const auto data = font_data(path, collection);
         unsigned bytes = 0;
         const auto *memory = reinterpret_cast<const FT_Byte *>(hb_blob_get_data(data->blob, &bytes));
-        require(bytes <= LONG_MAX && FT_New_Memory_Face(library, memory, bytes, collection, &ft) == 0,
+        require(bytes <= LONG_MAX && FT_New_Memory_Face(library, memory, bytes, collection, &loaded->ft) == 0,
             "Cannot open portable font");
-        hb = hb_font_create(data->face);
-        hb_ot_font_set_funcs(hb);
+        loaded->hb = hb_font_create(data->face);
+        hb_ot_font_set_funcs(loaded->hb);
+        entry = std::move(loaded);
+        return entry;
     }
-    ~Face() { if (hb) hb_font_destroy(hb); if (ft) FT_Done_Face(ft); }
 };
+FontCache &font_cache() {
+    static thread_local FontCache cache;
+    return cache;
+}
+void Face::load() {
+    if (cached) return;
+    require(!path.empty(), "Missing portable font path");
+    cached = font_cache().face(path, collection);
+    ft = cached->ft;
+    hb = cached->hb;
+    data = nullptr;
+}
 struct Glyph { uint32_t id, cluster, face; float advance, dx, dy; };
 struct GlyphVariant { uint32_t id; float dx, dy; };
 struct Run { uint32_t start, end, style; bool rtl; std::vector<Glyph> glyphs; };
@@ -141,11 +181,10 @@ struct dc_portable_document {
     bool measured = false;
     dc_portable_document(dc_drawing_plan *p, const dc_font_file *files, size_t count) : plan(p) {
         require(p && files && count, "Portable renderer needs a drawing plan and font files");
-        require(FT_Init_FreeType(&library) == 0, "Cannot initialize FreeType");
-        try { for (size_t i = 0; i < count; ++i) faces.push_back(std::make_unique<Face>(library, files[i])); }
-        catch (...) { faces.clear(); FT_Done_FreeType(library); library = nullptr; throw; }
+        faces.reserve(count);
+        for (size_t i = 0; i < count; ++i) faces.push_back(std::make_unique<Face>(library, files[i]));
     }
-    ~dc_portable_document() { faces.clear(); if (library) FT_Done_FreeType(library); }
+    ~dc_portable_document() { faces.clear(); }
     /* Direct-mapped front cache: most text is a few hundred distinct code points,
      * so this avoids the hash lookup on nearly every grapheme. */
     std::array<uint32_t, 512> face_keys{};

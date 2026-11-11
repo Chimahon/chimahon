@@ -21,14 +21,19 @@
 
 namespace {
 thread_local bool profiling = false;
-bool profiling_enabled() {
+int profile_mode() {
 #if defined(__ANDROID__)
     char value[PROP_VALUE_MAX] = {};
-    return __system_property_get("debug.chima.profile", value) > 0 && value[0] == '1';
-#else
-    return false;
+    if (__system_property_get("debug.chima.profile", value) <= 0)
+        return 0;
+    if (value[0] == '2')
+        return 2;
+    if (value[0] == '1')
+        return 1;
 #endif
+    return 0;
 }
+bool profiling_enabled() { return profile_mode() != 0; }
 template <class T, auto Destroy> using Owned = std::unique_ptr<T, decltype(Destroy)>;
 struct Context {
     Owned<dc_stylesheets, dc_stylesheets_destroy> sheets{nullptr, dc_stylesheets_destroy};
@@ -669,8 +674,10 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_d
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_profileBegin(JNIEnv *, jobject, jlong id) {
     // The host asks for native scopes whenever its own profiler runs, but the
     // native clock is far more expensive than the host's on some devices, so the
-    // native side keeps its own switch.
-    if (profiling_enabled()) dc_profile::begin(id);
+    // native side keeps its own switch: 1 = document phases, 2 = per element too.
+    const int mode = profile_mode();
+    if (mode == 2) dc_profile::begin(id, true);
+    else if (mode == 1) dc_profile::begin(id, false);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_profileEnd(JNIEnv *, jobject) {

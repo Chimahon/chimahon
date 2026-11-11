@@ -215,6 +215,7 @@ struct DeclarationCollector {
     struct Slot { size_t generation, index; };
     std::unordered_map<std::string_view, Slot> slots;
     dc_profile::Span callback_span, slots_span;
+    int64_t declaration_count = 0, inline_count = 0;
     size_t generation = 0;
     void reset() { declarations.clear(); ++generation; }
     bool contains(std::string_view name) const {
@@ -228,9 +229,11 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
     try {
         auto& collector = *static_cast<DeclarationCollector*>(context);
         dc_profile::open(collector.callback_span);
+        ++collector.declaration_count;
         const DeclarationText* text;
         if (auto it = collector.sheet_text.find(value); it != collector.sheet_text.end()) text = &it->second;
         else {
+            ++collector.inline_count;
             auto found = collector.inline_text.find(value);
             if (found == collector.inline_text.end())
                 found = collector.inline_text.emplace(value, declaration_text(value)).first;
@@ -783,6 +786,8 @@ struct SourceCompiler {
         dc_profile::add("resolve.hit", hit.total);
         dc_profile::add("resolve.callback", collector.callback_span.total);
         dc_profile::add("resolve.slots", collector.slots_span.total);
+        dc_profile::count("decl.total", collector.declaration_count);
+        dc_profile::count("decl.inline", collector.inline_count);
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
         const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
