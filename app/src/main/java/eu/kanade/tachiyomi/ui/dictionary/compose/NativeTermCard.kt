@@ -246,7 +246,12 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
                 sink.value?.invoke(text, hit.sentence, hit.sentenceOffset, hit.tapX, hit.tapY, if (hit.kanji) "kanji" else "term")
             } })
         val headHeight = with(model.layout.density) { model.documents.getValue(model.pieces.first().nodes).height.toDp() }
-        Row(Modifier.align(Alignment.TopEnd).offset(y = 10.dp + (headHeight - 28.dp) / 2)) {
+        /* Chrome follows the drawing by one frame: the first composition of a card then only builds
+           the native view, which is what the popup must show; the audio and Anki controls arrive on
+           the next frame instead of delaying the first draw. */
+        var chrome by remember(model) { mutableStateOf(false) }
+        LaunchedEffect(model) { androidx.compose.runtime.withFrameNanos { }; chrome = true }
+        if (chrome) Row(Modifier.align(Alignment.TopEnd).offset(y = 10.dp + (headHeight - 28.dp) / 2)) {
             if (audioEnabled) WordAudioButton(model.card.expression, model.card.reading, accent, onBg, autoplay, Modifier.size(28.dp))
             if (onAnkiLookup != null) TermCardAnkiActions(index, model.card.expression,
                 model.card.dictGroups.firstOrNull()?.title, selected, profile.ankiDupAction, onAnkiLookup, onBg)
