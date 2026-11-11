@@ -11,6 +11,7 @@
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -387,6 +388,151 @@ struct RuleCandidate {
     lxb_css_rule_style_t* rule;
     std::vector<std::vector<std::string>> alternatives;
 };
+
+/* Fast matcher for the selector subset the dictionary sheets actually use: type, class, id and
+   attribute simple selectors joined by the four combinators.
+
+   lexbor's matcher is a general state machine that costs ~127 ns per (element, rule) even when the
+   rule cannot match, because each rule is a separate full-tree walk and each node runs the entry
+   stack. Here a rule is compiled once into integer keys, elements are indexed per document into
+   key bitsets, and a rule's rightmost compound yields its candidate elements by ANDing those
+   bitsets. Only candidates are verified, by walking parent and sibling indices. Anything outside
+   the subset (pseudo-classes, pseudo-elements, namespaces, attribute modifiers) marks the rule
+   unsupported and it keeps using lexbor, so output cannot drift. */
+namespace fastmatch {
+enum class Kind : uint8_t { Tag, Class, Id, Attr };
+enum class Comb : uint8_t { Descendant, Child, Sibling, Following };
+struct Key {
+    Kind kind = Kind::Tag;
+    lxb_css_selector_match_t match = LXB_CSS_SELECTOR_MATCH_EQUAL;
+    uint32_t slot = 0;
+    std::string_view value;
+    bool presence = false;  /* [attr] with no value, lexbor stores value.data == NULL */
+};
+struct Compound { std::vector<Key> keys; };
+struct Part {
+    std::vector<Compound> compounds;  /* leftmost first */
+    std::vector<Comb> links;          /* links[i] joins compounds[i] to compounds[i+1] */
+    lxb_css_selector_specificity_t specificity = 0;
+};
+struct Rule { bool supported = false; uint8_t reason = 0; std::vector<Part> parts; };
+struct Table {
+    std::vector<std::string> names;
+    std::vector<uint8_t> kinds;
+    std::unordered_map<std::string, uint32_t> index;
+    uint32_t slot(Kind kind, std::string_view name) {
+        std::string key(1, static_cast<char>('0' + static_cast<int>(kind)));
+        key.append(name);
+        auto found = index.find(key);
+        if (found != index.end()) return found->second;
+        const auto id = static_cast<uint32_t>(names.size());
+        names.emplace_back(name);
+        kinds.push_back(static_cast<uint8_t>(kind));
+        index.emplace(std::move(key), id);
+        return id;
+    }
+};
+/* lexbor compares these legacy HTML attribute values case-insensitively, so a rule using them
+   keeps the general matcher. */
+bool legacy_attribute(std::string_view name) {
+    static constexpr std::string_view names[] = {
+        "accept", "accept-charset", "align", "alink", "axis", "bgcolor", "charset", "checked",
+        "clear", "codetype", "color", "compact", "declare", "defer", "dir", "direction",
+        "disabled", "enctype", "face", "frame", "hreflang", "http-equiv", "lang", "language",
+        "link", "media", "method", "multiple", "nohref", "noresize", "noshade", "nowrap",
+        "readonly", "rel", "rev", "rules", "scope", "scrolling", "selected", "shape", "target",
+        "text", "type", "valign", "valuetype", "vlink"};
+    for (const auto candidate : names) if (candidate == name) return true;
+    return false;
+}
+void add_key(Rule& rule, Table& table, Compound& compound, Kind kind,
+             lxb_css_selector_match_t match, std::string_view name, std::string_view value,
+             bool presence = false) {
+    Key key{kind, match, table.slot(kind, name), value, presence};
+    compound.keys.push_back(key);
+}
+void compile(const lxb_css_rule_style_t* rule, Table& table, Rule& out) {
+    out = Rule{};
+    if (!rule || !rule->selector) { out.reason = 1; return; }
+    for (auto* list = rule->selector; list; list = list->next) {
+        if (!list->first || !list->last) { out.reason = 2; return; }
+        Part part;
+        std::vector<Compound> compounds;
+        std::vector<Comb> combs;
+        Compound current;
+        uint32_t ids = 0, classes = 0, types = 0;
+        for (auto* sel = list->last; sel; sel = sel->prev) {
+            if (sel->ns.length) { out.reason = 3; return; }
+            switch (sel->type) {
+                case LXB_CSS_SELECTOR_TYPE_ELEMENT: {
+                    std::string name(reinterpret_cast<const char*>(sel->name.data), sel->name.length);
+                    for (auto& c : name) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+                    add_key(out, table, current, Kind::Tag, LXB_CSS_SELECTOR_MATCH_EQUAL, name, {});
+                    ++types;
+                    break;
+                }
+                case LXB_CSS_SELECTOR_TYPE_CLASS: {
+                    const std::string_view name(reinterpret_cast<const char*>(sel->name.data), sel->name.length);
+                    add_key(out, table, current, Kind::Class, LXB_CSS_SELECTOR_MATCH_EQUAL, name, {});
+                    ++classes;
+                    break;
+                }
+                case LXB_CSS_SELECTOR_TYPE_ID: {
+                    const std::string_view name(reinterpret_cast<const char*>(sel->name.data), sel->name.length);
+                    add_key(out, table, current, Kind::Id, LXB_CSS_SELECTOR_MATCH_EQUAL, name, {});
+                    ++ids;
+                    break;
+                }
+                case LXB_CSS_SELECTOR_TYPE_ATTRIBUTE: {
+                    if (sel->u.attribute.modifier != LXB_CSS_SELECTOR_MODIFIER_UNSET) { out.reason = 4; return; }
+                    std::string name(reinterpret_cast<const char*>(sel->name.data), sel->name.length);
+                    for (auto& c : name) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+                    const bool presence = sel->u.attribute.value.data == NULL;
+                    const std::string_view value = presence ? std::string_view{}
+                        : std::string_view(reinterpret_cast<const char*>(sel->u.attribute.value.data), sel->u.attribute.value.length);
+                    if (!presence && value.empty() && sel->u.attribute.match != LXB_CSS_SELECTOR_MATCH_EQUAL) { out.reason = 5; return; }
+                    if (legacy_attribute(name)) { out.reason = 7; return; }
+                    add_key(out, table, current, Kind::Attr, sel->u.attribute.match, name, value, presence);
+                    ++classes;
+                    break;
+                }
+                default:
+                    out.reason = static_cast<uint8_t>(100 + static_cast<int>(sel->type));
+                    return;  /* pseudo-class, pseudo-element, :not(), universal, ... */
+            }
+            /* A selector's combinator relates it to the selector on its left; the first selector of
+               a list carries the default DESCENDANT, so only a selector with a predecessor can start
+               a new compound. CLOSE keeps simple selectors inside one compound. */
+            if (sel->prev && sel->combinator != LXB_CSS_SELECTOR_COMBINATOR_CLOSE) {
+                Comb comb;
+                switch (sel->combinator) {
+                    case LXB_CSS_SELECTOR_COMBINATOR_DESCENDANT: comb = Comb::Descendant; break;
+                    case LXB_CSS_SELECTOR_COMBINATOR_CHILD: comb = Comb::Child; break;
+                    case LXB_CSS_SELECTOR_COMBINATOR_SIBLING: comb = Comb::Sibling; break;
+                    case LXB_CSS_SELECTOR_COMBINATOR_FOLLOWING: comb = Comb::Following; break;
+                    default: out.reason = 6; return;
+                }
+                compounds.push_back(std::move(current));
+                current = Compound{};
+                combs.push_back(comb);
+            }
+        }
+        compounds.push_back(std::move(current));
+        if (compounds.size() != combs.size() + 1) { out.reason = 2; return; }
+        for (const auto& compound : compounds) if (compound.keys.empty()) { out.reason = 8; return; }
+        std::reverse(compounds.begin(), compounds.end());
+        std::reverse(combs.begin(), combs.end());
+        part.compounds = std::move(compounds);
+        part.links = std::move(combs);
+        lxb_css_selector_sp_set_a(part.specificity, ids);
+        lxb_css_selector_sp_set_b(part.specificity, classes);
+        lxb_css_selector_sp_set_c(part.specificity, types);
+        out.parts.push_back(std::move(part));
+    }
+    out.supported = !out.parts.empty();
+    if (!out.supported) out.reason = 9;
+}
+}
 struct GeneratedRule { size_t candidate; lxb_css_selector_list_t* list; };
 struct ParsedSheet {
     std::atomic<uint32_t> refs{1};
@@ -394,6 +540,8 @@ struct ParsedSheet {
     lxb_css_stylesheet_t* sheet = nullptr;
     uint64_t unsupported = 0;
     std::vector<RuleCandidate> candidates;
+    std::vector<fastmatch::Rule> programs;
+    fastmatch::Table matcher;
     std::vector<GeneratedRule> generated;
     DeclarationTexts declaration_texts;
     ~ParsedSheet() {
@@ -491,6 +639,19 @@ ParsedSheet* parse_sheet(const dc_css_source& source) {
             candidate.alternatives.push_back(std::move(required));
         }
         parsed->candidates.push_back(std::move(candidate));
+    }
+    parsed->programs.resize(parsed->candidates.size());
+    for (size_t i = 0; i < parsed->candidates.size(); ++i)
+        fastmatch::compile(parsed->candidates[i].rule, parsed->matcher, parsed->programs[i]);
+    if (std::getenv("DC_PROBE_PROGRAMS")) {
+        int supported = 0, reasons[256] = {0};
+        for (const auto& program : parsed->programs) {
+            if (program.supported) ++supported;
+            else ++reasons[program.reason];
+        }
+        std::fprintf(stderr, "PROGRAMS rules=%zu slots=%zu supported=%d\n",
+                     parsed->programs.size(), parsed->matcher.names.size(), supported);
+        for (int i = 0; i < 256; ++i) if (reasons[i]) std::fprintf(stderr, "  reason %d = %d\n", i, reasons[i]);
     }
     return parsed.release();
 }
@@ -611,6 +772,238 @@ struct SourceCompiler {
     };
     std::vector<FlatDeclaration> flat_declarations;
     std::vector<uint32_t> flat_ranges;
+
+    /* Per-document index for the fast matcher: dense tag/class/id ids per element, key bitsets,
+       and parent/previous-sibling links by element index. Classes are a 64-bit mask per element; a
+       document with more distinct classes falls back to lexbor wholesale. */
+    struct MatchIndex {
+        static constexpr uint32_t kNone = 0xFFFFFFFFu;
+        std::vector<uint32_t> tag, id, parent, prev;
+        std::vector<uint64_t> classes;
+        std::vector<uint64_t> tag_bits, class_bits, id_bits, attr_bits;
+        std::vector<uint32_t> resolved;
+        size_t words = 0;
+        uint32_t tag_count = 0, id_count = 0, class_count = 0, attr_count = 0;
+        bool overflow = false;
+        void set(std::vector<uint64_t>& bits, uint32_t which, uint32_t element) {
+            bits[static_cast<size_t>(which) * words + (element >> 6)] |= 1ull << (element & 63);
+        }
+    };
+    MatchIndex index;
+    const fastmatch::Table* matcher = nullptr;
+    std::vector<uint64_t> buckets;
+
+    void build_index(const fastmatch::Table& table) {
+        const size_t count = elements.size();
+        index = MatchIndex{};
+        index.words = (count + 63) / 64;
+        index.tag.assign(count, MatchIndex::kNone);
+        index.id.assign(count, MatchIndex::kNone);
+        index.parent.assign(count, MatchIndex::kNone);
+        index.prev.assign(count, MatchIndex::kNone);
+        index.classes.assign(count, 0);
+        std::unordered_map<std::string_view, uint32_t> tag_ids, class_ids, id_ids, attr_ids;
+        tag_ids.reserve(16); class_ids.reserve(64); id_ids.reserve(8); attr_ids.reserve(48);
+        std::deque<std::string> owned;  /* stable storage for the lowered key strings */
+        std::string scratch;
+        auto intern = [&](std::unordered_map<std::string_view, uint32_t>& map, uint32_t& counter,
+                          std::string_view raw, bool lower) -> uint32_t {
+            scratch.assign(raw);
+            if (lower) for (auto& c : scratch) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
+            const std::string_view key(scratch);
+            const auto found = map.find(key);
+            if (found != map.end()) return found->second;
+            owned.emplace_back(key);
+            const auto id = counter++;
+            map.emplace(std::string_view(owned.back()), id);
+            return id;
+        };
+        std::vector<uint32_t> last_child(count, MatchIndex::kNone);
+        std::vector<std::pair<uint32_t, uint32_t>> attr_links;  /* element, attribute id */
+        attr_links.reserve(count * 4);
+        for (uint32_t i = 0; i < count; ++i) {
+            auto& node = elements[i];
+            if (node.parent != none) {
+                index.parent[i] = node.parent;
+                index.prev[i] = last_child[node.parent];
+                last_child[node.parent] = i;
+            }
+            index.tag[i] = intern(tag_ids, index.tag_count, node.tag, true);
+            size_t size = 0;
+            const auto* classes = lxb_dom_element_get_attribute(node.dom, bytes("class"), 5, &size);
+            if (classes) {
+                const std::string_view list(reinterpret_cast<const char*>(classes), size);
+                size_t at = 0;
+                while (at < list.size()) {
+                    while (at < list.size() && space(list[at])) ++at;
+                    const auto first = at;
+                    while (at < list.size() && !space(list[at])) ++at;
+                    if (at == first) continue;
+                    const auto id = intern(class_ids, index.class_count, list.substr(first, at - first), false);
+                    if (id >= 64) { index.overflow = true; return; }
+                    index.classes[i] |= 1ull << id;
+                }
+            }
+            const auto* id = lxb_dom_element_get_attribute(node.dom, bytes("id"), 2, &size);
+            if (id) index.id[i] = intern(id_ids, index.id_count,
+                                         std::string_view(reinterpret_cast<const char*>(id), size), false);
+            for (auto* attr = lxb_dom_element_first_attribute(node.dom); attr; attr = lxb_dom_element_next_attribute(attr)) {
+                size_t length = 0;
+                const auto* name = lxb_dom_attr_local_name(attr, &length);
+                attr_links.emplace_back(i, intern(attr_ids, index.attr_count,
+                    std::string_view(reinterpret_cast<const char*>(name), length), true));
+            }
+        }
+        index.tag_bits.assign(static_cast<size_t>(index.tag_count) * index.words, 0);
+        index.class_bits.assign(static_cast<size_t>(index.class_count) * index.words, 0);
+        index.id_bits.assign(static_cast<size_t>(index.id_count) * index.words, 0);
+        index.attr_bits.assign(static_cast<size_t>(index.attr_count) * index.words, 0);
+        for (uint32_t i = 0; i < count; ++i) {
+            if (index.tag[i] != MatchIndex::kNone) index.set(index.tag_bits, index.tag[i], i);
+            if (index.id[i] != MatchIndex::kNone) index.set(index.id_bits, index.id[i], i);
+            for (uint64_t mask = index.classes[i]; mask; mask &= mask - 1)
+                index.set(index.class_bits, static_cast<uint32_t>(__builtin_ctzll(mask)), i);
+        }
+        for (const auto& [element, attr] : attr_links)
+            if (attr != MatchIndex::kNone) index.set(index.attr_bits, attr, element);
+        index.resolved.assign(table.names.size(), MatchIndex::kNone);
+        for (size_t slot = 0; slot < table.names.size(); ++slot) {
+            const auto& name = table.names[slot];
+            const std::unordered_map<std::string_view, uint32_t>* source = nullptr;
+            switch (static_cast<fastmatch::Kind>(table.kinds[slot])) {
+                case fastmatch::Kind::Tag: source = &tag_ids; break;
+                case fastmatch::Kind::Class: source = &class_ids; break;
+                case fastmatch::Kind::Id: source = &id_ids; break;
+                case fastmatch::Kind::Attr: source = &attr_ids; break;
+            }
+            const auto found = source->find(name);
+            if (found != source->end()) index.resolved[slot] = found->second;
+        }
+    }
+
+    bool attribute_matches(uint32_t element, const fastmatch::Key& key) const {
+        const auto& name = matcher->names[key.slot];
+        size_t size = 0;
+        const auto* value = lxb_dom_element_get_attribute(elements[element].dom, bytes(name), name.size(), &size);
+        if (!value) return false;
+        if (key.presence) return true;
+        const std::string_view actual(reinterpret_cast<const char*>(value), size);
+        const auto wanted = key.value;
+        switch (key.match) {
+            case LXB_CSS_SELECTOR_MATCH_EQUAL: return actual == wanted;
+            case LXB_CSS_SELECTOR_MATCH_PREFIX:
+                return actual.size() >= wanted.size() && actual.compare(0, wanted.size(), wanted) == 0;
+            case LXB_CSS_SELECTOR_MATCH_SUFFIX:
+                return actual.size() >= wanted.size() &&
+                       actual.compare(actual.size() - wanted.size(), wanted.size(), wanted) == 0;
+            case LXB_CSS_SELECTOR_MATCH_SUBSTRING: return actual.find(wanted) != std::string_view::npos;
+            case LXB_CSS_SELECTOR_MATCH_DASH:
+                return actual == wanted || (actual.size() > wanted.size() &&
+                    actual.compare(0, wanted.size(), wanted) == 0 && actual[wanted.size()] == '-');
+            case LXB_CSS_SELECTOR_MATCH_INCLUDE: {
+                size_t at = 0;
+                while (at < actual.size()) {
+                    while (at < actual.size() && space(actual[at])) ++at;
+                    const auto first = at;
+                    while (at < actual.size() && !space(actual[at])) ++at;
+                    if (at > first && actual.substr(first, at - first) == wanted) return true;
+                }
+                return false;
+            }
+            default: return false;
+        }
+    }
+    bool compound_matches(const fastmatch::Compound& compound, uint32_t element) const {
+        for (const auto& key : compound.keys) {
+            switch (key.kind) {
+                case fastmatch::Kind::Tag:
+                    if (index.resolved[key.slot] != index.tag[element]) return false;
+                    break;
+                case fastmatch::Kind::Class: {
+                    const auto id = index.resolved[key.slot];
+                    if (id == MatchIndex::kNone || !(index.classes[element] & (1ull << id))) return false;
+                    break;
+                }
+                case fastmatch::Kind::Id:
+                    if (index.resolved[key.slot] != index.id[element]) return false;
+                    break;
+                case fastmatch::Kind::Attr:
+                    if (!attribute_matches(element, key)) return false;
+                    break;
+            }
+        }
+        return true;
+    }
+    bool match_part(const fastmatch::Part& part, uint32_t element) const {
+        const auto last = static_cast<int>(part.compounds.size()) - 1;
+        uint32_t current = element;
+        if (!compound_matches(part.compounds[last], current)) return false;
+        for (int i = last - 1; i >= 0; --i) {
+            const auto comb = part.links[i];
+            if (comb == fastmatch::Comb::Child) {
+                current = index.parent[current];
+                if (current == MatchIndex::kNone || !compound_matches(part.compounds[i], current)) return false;
+            } else if (comb == fastmatch::Comb::Descendant) {
+                bool found = false;
+                for (current = index.parent[current]; current != MatchIndex::kNone; current = index.parent[current])
+                    if (compound_matches(part.compounds[i], current)) { found = true; break; }
+                if (!found) return false;
+            } else if (comb == fastmatch::Comb::Sibling) {
+                current = index.prev[current];
+                if (current == MatchIndex::kNone || !compound_matches(part.compounds[i], current)) return false;
+            } else {
+                bool found = false;
+                for (current = index.prev[current]; current != MatchIndex::kNone; current = index.prev[current])
+                    if (compound_matches(part.compounds[i], current)) { found = true; break; }
+                if (!found) return false;
+            }
+        }
+        return true;
+    }
+    void attach_fast(const fastmatch::Rule& program, const lxb_css_rule_style_t* rule,
+                     lxb_dom_document_t* document) {
+        int64_t pairs = 0;
+        for (const auto& part : program.parts) {
+            bool impossible = false;
+            buckets.assign(index.words, ~0ull);
+            for (const auto& key : part.compounds.back().keys) {
+                const auto id = index.resolved[key.slot];
+                if (id == MatchIndex::kNone) { impossible = true; break; }
+                const auto* bits = key.kind == fastmatch::Kind::Tag ? &index.tag_bits
+                                 : key.kind == fastmatch::Kind::Class ? &index.class_bits
+                                 : key.kind == fastmatch::Kind::Id ? &index.id_bits : &index.attr_bits;
+                const auto* at = bits->data() + static_cast<size_t>(id) * index.words;
+                for (size_t w = 0; w < index.words; ++w) buckets[w] &= at[w];
+            }
+            if (impossible) continue;
+            for (size_t w = 0; w < index.words; ++w) {
+                for (uint64_t bits = buckets[w]; bits; bits &= bits - 1) {
+                    const auto element = static_cast<uint32_t>(w * 64 + __builtin_ctzll(bits));
+                    if (element >= elements.size()) continue;
+                    ++pairs;
+                    if (match_part(part, element))
+                        append_declarations(element, part.specificity, rule, document);
+                }
+            }
+        }
+        dc_profile::count("attach.fast.pairs", pairs);
+    }
+    void append_declarations(uint32_t element, lxb_css_selector_specificity_t specificity,
+                             const lxb_css_rule_style_t* rule, lxb_dom_document_t* document) {
+        if (!rule->declarations) return;
+        for (auto* item = rule->declarations->first; item; item = item->next) {
+            if (item->type != LXB_CSS_RULE_DECLARATION) continue;
+            auto* value = lxb_css_rule_declaration(item);
+            auto score = specificity;
+            // Same folds lexbor's own attach callback performs.
+            lxb_css_selector_sp_set_i(score, value->important);
+            if (static_cast<unsigned>(value->type) == LXB_CSS_PROPERTY__CUSTOM) {
+                auto* name = &value->u.custom->name;
+                if (lxb_dom_document_css_customs_id(document, name->data, name->length) == 0) continue;
+            }
+            flat_declarations.push_back({element, value, score});
+        }
+    }
     static lxb_status_t collect_declaration(lxb_dom_node_t* node,
         lxb_css_selector_specificity_t specificity, void* raw) {
         try {
@@ -618,18 +1011,7 @@ struct SourceCompiler {
             if (!context.rule->declarations) return LXB_STATUS_OK;
             const auto found = context.index->find(lxb_dom_interface_element(node));
             if (found == context.index->end()) return LXB_STATUS_OK;
-            for (auto* item = context.rule->declarations->first; item; item = item->next) {
-                if (item->type != LXB_CSS_RULE_DECLARATION) continue;
-                auto* value = lxb_css_rule_declaration(item);
-                auto score = specificity;
-                // Same folds lexbor's own attach callback performs.
-                lxb_css_selector_sp_set_i(score, value->important);
-                if (static_cast<unsigned>(value->type) == LXB_CSS_PROPERTY__CUSTOM) {
-                    auto* name = &value->u.custom->name;
-                    if (lxb_dom_document_css_customs_id(context.document, name->data, name->length) == 0) continue;
-                }
-                context.self->flat_declarations.push_back({found->second, value, score});
-            }
+            context.self->append_declarations(found->second, specificity, context.rule, context.document);
             return LXB_STATUS_OK;
         } catch (...) { return LXB_STATUS_ERROR_MEMORY_ALLOCATION; }
     }
@@ -841,9 +1223,11 @@ struct SourceCompiler {
         dc_profile::count("resolve.hits", static_cast<int64_t>(resolved_hits));
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
+        const std::vector<fastmatch::Rule>& programs, const fastmatch::Table& match_table,
         const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
         dc_profile::Span styled_dom, styled_attach, styled_resolve, styled_hidden, styled_flow;
         sheet_declarations = &declarations;
+        matcher = &match_table;
         structured_line_breaks=range.json;
         dc_profile::Span doc_create;
         dc_profile::open(doc_create);
@@ -984,10 +1368,17 @@ struct SourceCompiler {
         dc_profile::count("sheet.generated", static_cast<int64_t>(generated_rules.size()));
         auto* css_document = lxb_dom_interface_document(doc.value);
         require_status(lxb_dom_document_css_init(css_document, false), "CSS init failed");
+        dc_profile::Span index_span;
+        dc_profile::open(index_span);
+        build_index(match_table);
+        dc_profile::close(index_span);
+        dc_profile::add("attach.index", index_span.total);
+        if (index.overflow) dc_profile::count("attach.class_overflow");
         std::unordered_map<lxb_dom_element_t*,uint32_t> element_index;
         element_index.reserve(elements.size() * 2);
         for(uint32_t i=0;i<elements.size();++i)element_index.emplace(elements[i].dom,i);
-        for(const auto& candidate:candidates) {
+        for(size_t candidate_at=0;candidate_at<candidates.size();++candidate_at) {
+            const auto& candidate=candidates[candidate_at];
             bool possible=false;
             for(const auto& required:candidate.alternatives) {
                 if(std::all_of(required.begin(),required.end(),[&](const auto& key){return present.contains(std::string_view(key).substr(2));})) {possible=true;break;}
@@ -996,7 +1387,61 @@ struct SourceCompiler {
                 dc_profile::count("attach.rules");
                 if(verify_candidates) {
                     require_status(lxb_dom_document_style_attach(css_document,candidate.rule),"CSS matching failed");
+                } else if(candidate_at<programs.size() && programs[candidate_at].supported && !index.overflow) {
+                    dc_profile::count("attach.fast");
+                    static const bool verify_fast = std::getenv("DC_VERIFY_FAST") != nullptr;
+                    if(!verify_fast) {
+                        attach_fast(programs[candidate_at],candidate.rule,css_document);
+                    } else {
+                        const auto first=flat_declarations.size();
+                        attach_fast(programs[candidate_at],candidate.rule,css_document);
+                        const auto middle=flat_declarations.size();
+                        FlatContext context{this,css_document,candidate.rule,&element_index};
+                        require_status(lxb_selectors_find(css_document->css->selectors,
+                            lxb_dom_interface_node(doc.value),candidate.rule->selector,collect_declaration,&context),
+                            "CSS matching failed");
+                        const auto end=flat_declarations.size();
+                        using Entry=std::tuple<uint32_t,uint32_t,const void*>;
+                        std::vector<Entry> fast, slow;
+                        for(auto at=first;at<middle;++at)
+                            fast.emplace_back(flat_declarations[at].element,flat_declarations[at].specificity,flat_declarations[at].value);
+                        for(auto at=middle;at<end;++at)
+                            slow.emplace_back(flat_declarations[at].element,flat_declarations[at].specificity,flat_declarations[at].value);
+                        std::sort(fast.begin(),fast.end());
+                        std::sort(slow.begin(),slow.end());
+                        if(fast!=slow) {
+                            std::fprintf(stderr,"FAST MISMATCH rule=%zu fast=%zu slow=%zu\n",candidate_at,fast.size(),slow.size());
+                            std::fprintf(stderr,"  selectors:");
+                            for(auto* list=candidate.rule->selector;list;list=list->next) {
+                                std::fprintf(stderr," [");
+                                for(auto* sel=list->first;sel;sel=sel->next)
+                                    std::fprintf(stderr," type=%d comb=%d name=%.*s",static_cast<int>(sel->type),
+                                        static_cast<int>(sel->combinator),static_cast<int>(sel->name.length),
+                                        sel->name.data?reinterpret_cast<const char*>(sel->name.data):"");
+                                std::fprintf(stderr," ]");
+                            }
+                            std::fprintf(stderr,"\n  slow elements:");
+                            for(const auto& e:slow)std::fprintf(stderr," %u",std::get<0>(e));
+                            for(const auto& e:slow) {
+                                const auto at=std::get<0>(e);
+                                std::fprintf(stderr,"\n  element %u tag=%s",at,elements[at].tag.c_str());
+                                size_t size=0;
+                                const auto* cls=lxb_dom_element_get_attribute(elements[at].dom,bytes("class"),5,&size);
+                                if(cls)std::fprintf(stderr," class=%.*s",static_cast<int>(size),reinterpret_cast<const char*>(cls));
+                            }
+                            std::fprintf(stderr,"\n");
+                            for(size_t i=0;i<std::max(fast.size(),slow.size())&&i<4;++i) {
+                                const auto show=[&](const std::vector<Entry>& v){
+                                    if(i<v.size())std::fprintf(stderr,"  [e=%u sp=%u]",std::get<0>(v[i]),std::get<1>(v[i]));
+                                    else std::fprintf(stderr,"  [none]");};
+                                std::fprintf(stderr,"  %zu fast",i); show(fast); std::fprintf(stderr," slow"); show(slow); std::fprintf(stderr,"\n");
+                            }
+                            throw std::runtime_error("fast matcher mismatch");
+                        }
+                        flat_declarations.resize(middle);
+                    }
                 } else {
+                    dc_profile::count("attach.fallback");
                     const auto before=flat_declarations.size();
                     FlatContext context{this,css_document,candidate.rule,&element_index};
                     require_status(lxb_selectors_find(css_document->css->selectors,
@@ -1295,7 +1740,8 @@ int dc_compile_styled_configured(const dc_document* input,dc_stylesheets* sheets
             const auto* sheet=sheets->sheets[indices[i]];
             result->unsupported += sheet->unsupported;
             SourceCompiler compiler{input->storage,*result,static_cast<uint32_t>(i),*options};
-            compiler.compile(input->storage.sources[i],sheet->candidates,sheet->generated,sheet->declaration_texts,sheets->verify_candidates);
+            compiler.compile(input->storage.sources[i],sheet->candidates,sheet->programs,sheet->matcher,
+        sheet->generated,sheet->declaration_texts,sheets->verify_candidates);
         }
         result->resolved=std::make_unique<dictionary_core::ResolvedStyles>(dc_prepared_document_view(result.get()));
         *output=result.release();return 0;
