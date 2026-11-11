@@ -608,6 +608,45 @@ struct SourceCompiler {
     dc_compile_options options;
     std::vector<Element> elements;
     DeclarationTexts declaration_cache;
+    /* Sheet declarations are appended to a flat per-element list instead of lexbor's per-element
+       style AVL. The AVL is only ever read to take a max by (specificity, offset), so its ordering
+       is dead weight: one insert per declaration plus an O(n log n) re-walk per element. Inline and
+       generated declarations stay on the AVL. */
+    struct FlatDeclaration {
+        uint32_t element;
+        const lxb_css_rule_declaration_t* value;
+        lxb_css_selector_specificity_t specificity;
+    };
+    struct FlatContext {
+        SourceCompiler* self;
+        lxb_dom_document_t* document;
+        const lxb_css_rule_style_t* rule;
+        const std::unordered_map<lxb_dom_element_t*, uint32_t>* index;
+    };
+    std::vector<FlatDeclaration> flat_declarations;
+    std::vector<uint32_t> flat_ranges;
+    static lxb_status_t collect_declaration(lxb_dom_node_t* node,
+        lxb_css_selector_specificity_t specificity, void* raw) {
+        try {
+            auto& context = *static_cast<FlatContext*>(raw);
+            if (!context.rule->declarations) return LXB_STATUS_OK;
+            const auto found = context.index->find(lxb_dom_interface_element(node));
+            if (found == context.index->end()) return LXB_STATUS_OK;
+            for (auto* item = context.rule->declarations->first; item; item = item->next) {
+                if (item->type != LXB_CSS_RULE_DECLARATION) continue;
+                auto* value = lxb_css_rule_declaration(item);
+                auto score = specificity;
+                // Same folds lexbor's own attach callback performs.
+                lxb_css_selector_sp_set_i(score, value->important);
+                if (static_cast<unsigned>(value->type) == LXB_CSS_PROPERTY__CUSTOM) {
+                    auto* name = &value->u.custom->name;
+                    if (lxb_dom_document_css_customs_id(context.document, name->data, name->length) == 0) continue;
+                }
+                context.self->flat_declarations.push_back({found->second, value, score});
+            }
+            return LXB_STATUS_OK;
+        } catch (...) { return LXB_STATUS_ERROR_MEMORY_ALLOCATION; }
+    }
     const DeclarationTexts* sheet_declarations = nullptr;
     std::vector<uint32_t> operation_elements;
     uint32_t paragraph = none, cell = none, row = none, table = none, ruby = none;
@@ -682,7 +721,8 @@ struct SourceCompiler {
         char digits[24];
         DeclarationCollector collector{{},declaration_cache,*sheet_declarations};
         collector.declarations.reserve(24);
-        for (auto& node : elements) {
+        for (size_t element = 0; element < elements.size(); ++element) {
+            auto& node = elements[element];
             dc_profile::open(reset);
             collector.reset();
             dc_profile::close(reset);
@@ -690,6 +730,11 @@ struct SourceCompiler {
                 dc_profile::open(walk);
                 if (node.dom->style)
                     require_status(lxb_dom_element_style_walk(node.dom, declaration, &collector, false), "CSS cascade extraction failed");
+                for (uint32_t at = flat_ranges[element]; at < flat_ranges[element + 1]; ++at) {
+                    const auto& flat = flat_declarations[at];
+                    require_status(declaration(node.dom, flat.value, &collector, flat.specificity, false),
+                        "CSS cascade extraction failed");
+                }
                 dc_profile::close(walk);
             }
             dc_profile::open(key);
@@ -933,6 +978,11 @@ struct SourceCompiler {
         dc_profile::count("dom.keys", static_cast<int64_t>(present.size()));
         dc_profile::count("sheet.candidates", static_cast<int64_t>(candidates.size()));
         dc_profile::count("sheet.generated", static_cast<int64_t>(generated_rules.size()));
+        auto* css_document = lxb_dom_interface_document(doc.value);
+        require_status(lxb_dom_document_css_init(css_document, false), "CSS init failed");
+        std::unordered_map<lxb_dom_element_t*,uint32_t> element_index;
+        element_index.reserve(elements.size() * 2);
+        for(uint32_t i=0;i<elements.size();++i)element_index.emplace(elements[i].dom,i);
         for(const auto& candidate:candidates) {
             bool possible=false;
             for(const auto& required:candidate.alternatives) {
@@ -940,19 +990,24 @@ struct SourceCompiler {
             }
             if(possible) {
                 dc_profile::count("attach.rules");
-                require_status(lxb_dom_document_style_attach(lxb_dom_interface_document(doc.value),candidate.rule),"CSS matching failed");
+                if(verify_candidates) {
+                    require_status(lxb_dom_document_style_attach(css_document,candidate.rule),"CSS matching failed");
+                } else {
+                    FlatContext context{this,css_document,candidate.rule,&element_index};
+                    require_status(lxb_selectors_find(css_document->css->selectors,
+                        lxb_dom_interface_node(doc.value),candidate.rule->selector,collect_declaration,&context),
+                        "CSS matching failed");
+                }
             } else if(verify_candidates) {
                 dc_profile::count("attach.verify");
                 bool matched=false;
                 auto callback=[](lxb_dom_node_t*,lxb_css_selector_specificity_t,void* value)->lxb_status_t{*static_cast<bool*>(value)=true;return LXB_STATUS_OK;};
-                require_status(lxb_selectors_find(lxb_dom_interface_document(doc.value)->css->selectors,lxb_dom_interface_node(doc.value),candidate.rule->selector,callback,&matched),"CSS candidate verification failed");
+                require_status(lxb_selectors_find(css_document->css->selectors,lxb_dom_interface_node(doc.value),candidate.rule->selector,callback,&matched),"CSS candidate verification failed");
                 if(matched)throw std::runtime_error("CSS candidate filter rejected a matching rule");
             }
         }
         // Match pseudo-elements against their originating elements without adding
         // DOM children (which would change :empty and structural selectors).
-        std::unordered_map<lxb_dom_element_t*,uint32_t> element_ids;
-        if(!generated_rules.empty())for(uint32_t i=0;i<elements.size();++i)element_ids.emplace(elements[i].dom,i);
         for(const auto& entry:generated_rules) {
             const auto& candidate=candidates[entry.candidate];
             auto* list=entry.list;
@@ -978,7 +1033,7 @@ struct SourceCompiler {
             require_status(lxb_selectors_find(lxb_dom_interface_document(doc.value)->css->selectors,
                 lxb_dom_interface_node(doc.value),&owner_list,callback,&matched),"Generated content matching failed");
             for(auto* dom:matched) {
-                const auto owner=element_ids.at(dom);
+                const auto owner=element_index.at(dom);
                 const bool before=pseudo_name=="data-dc-generated-before";
                 auto id=before?elements[owner].before:elements[owner].after;
                 if(id==none) {
@@ -993,6 +1048,12 @@ struct SourceCompiler {
                     "Generated content cascade failed");
             }
         }
+        /* Bucket the flat sheet declarations by element: counting sort keeps this O(n). */
+        std::sort(flat_declarations.begin(), flat_declarations.end(),
+                  [](const FlatDeclaration& a, const FlatDeclaration& b) { return a.element < b.element; });
+        flat_ranges.assign(elements.size() + 1, 0);
+        for (const auto& declaration : flat_declarations) ++flat_ranges[declaration.element + 1];
+        for (size_t i = 0; i < elements.size(); ++i) flat_ranges[i + 1] += flat_ranges[i];
         dc_profile::close(styled_attach);
         dc_profile::add("styled.attach", styled_attach.total);
         dc_profile::open(styled_resolve);
