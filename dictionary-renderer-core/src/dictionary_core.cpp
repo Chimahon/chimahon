@@ -243,3 +243,5 @@ int dc_prepare_mixed(const dc_source* sources, const dc_typed_source *typed, siz
 dc_counts dc_document_counts(const dc_document* document) { return document ? document->storage.counts : dc_counts{}; }
 uint64_t dc_document_digest(const dc_document* document) { return document ? document->storage.digest() : 0; }
 void dc_document_destroy(dc_document* document) { delete document; }
+void dc_profile_begin(int64_t id) { dc_profile::begin(id); }
+void dc_profile_end(void) { dc_profile::end(); }

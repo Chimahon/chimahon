@@ -41,6 +41,11 @@ DC_API dc_counts dc_document_counts(const dc_document* document);
 DC_API uint64_t dc_document_digest(const dc_document* document);
 DC_API void dc_document_destroy(dc_document* document);
 
+/* Debug only: request-scoped native profiler. Every native phase between
+ * begin() and end() on the calling thread is reported when end() runs. */
+DC_API void dc_profile_begin(int64_t id);
+DC_API void dc_profile_end(void);
+
 /* Host text helpers. All offsets are UTF-16 code units, matching Java/Kotlin
  * strings and the drawing plan's text buffer. Natives own the algorithms so the
  * host keeps no word-breaking, furigana or character-class logic. */

@@ -667,7 +667,10 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_d
 }
 
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_profileBegin(JNIEnv *, jobject, jlong id) {
-    dc_profile::begin(id);
+    // The host asks for native scopes whenever its own profiler runs, but the
+    // native clock is far more expensive than the host's on some devices, so the
+    // native side keeps its own switch.
+    if (profiling_enabled()) dc_profile::begin(id);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_profileEnd(JNIEnv *, jobject) {

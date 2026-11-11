@@ -1,4 +1,4 @@
-﻿#include "styled_document.h"
+#include "styled_document.h"
 #include "profile.hpp"
 #include "resolved_style.hpp"
 #include "document_storage.hpp"
@@ -214,7 +214,7 @@ struct DeclarationCollector {
     // Keep name slots across elements instead of allocating a map node per property.
     struct Slot { size_t generation, index; };
     std::unordered_map<std::string_view, Slot> slots;
-    int64_t callback_ns = 0, slots_ns = 0;
+    dc_profile::Span callback_span, slots_span;
     size_t generation = 0;
     void reset() { declarations.clear(); ++generation; }
     bool contains(std::string_view name) const {
@@ -227,7 +227,7 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
                          lxb_css_selector_specificity_t specificity, bool) {
     try {
         auto& collector = *static_cast<DeclarationCollector*>(context);
-        const auto callback_start = dc_profile::now();
+        dc_profile::open(collector.callback_span);
         const DeclarationText* text;
         if (auto it = collector.sheet_text.find(value); it != collector.sheet_text.end()) text = &it->second;
         else {
@@ -241,9 +241,9 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
         // chain. Rank every callback, including weak ones, to recover the real winner per name.
         const std::pair<uint32_t,size_t> rank{specificity,value->offset.name_begin};
         const Declaration result{text->second, rank.first, rank.second};
-        const auto slots_start = dc_profile::now();
+        dc_profile::open(collector.slots_span);
         auto [it, inserted] = collector.slots.try_emplace(text->first, DeclarationCollector::Slot{collector.generation, collector.declarations.size()});
-        collector.slots_ns += dc_profile::now() - slots_start;
+        dc_profile::close(collector.slots_span);
         auto& slot = it->second;
         if (inserted || slot.generation != collector.generation) {
             slot = {collector.generation, collector.declarations.size()};
@@ -252,7 +252,7 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
             auto& found = collector.declarations[slot.index].second;
             if (std::pair{found.specificity, found.offset} < rank) found = result;
         }
-        collector.callback_ns += dc_profile::now() - callback_start;
+        dc_profile::close(collector.callback_span);
         return LXB_STATUS_OK;
     } catch (...) { return LXB_STATUS_ERROR; }
 }
@@ -672,22 +672,22 @@ struct SourceCompiler {
         ++p.run_count;
     }
     void resolve_styles() {
-        int64_t walk_ns = 0, key_ns = 0, computed_ns = 0, intern_ns = 0, find_ns = 0, reset_ns = 0, store_ns = 0, hit_ns = 0;
+        dc_profile::Span walk, key, computed_span, intern, find, reset, store, hit;
         std::string signature;
         char digits[24];
         DeclarationCollector collector{{},declaration_cache,*sheet_declarations};
         collector.declarations.reserve(24);
         for (auto& node : elements) {
-            const auto reset_start = dc_profile::now();
+            dc_profile::open(reset);
             collector.reset();
-            reset_ns += dc_profile::now() - reset_start;
+            dc_profile::close(reset);
             {
-                const auto walk_start = dc_profile::now();
+                dc_profile::open(walk);
                 if (node.dom->style)
                     require_status(lxb_dom_element_style_walk(node.dom, declaration, &collector, false), "CSS cascade extraction failed");
-                walk_ns += dc_profile::now() - walk_start;
+                dc_profile::close(walk);
             }
-            const auto key_start = dc_profile::now();
+            dc_profile::open(key);
             std::sort(collector.declarations.begin(), collector.declarations.end(),
                       [](const auto& a, const auto& b) { return a.first < b.first; });
             const auto parent_style = node.parent == none ? none : elements[node.parent].style;
@@ -704,21 +704,21 @@ struct SourceCompiler {
                     signature.push_back('@'); put(decl.specificity); signature.push_back(':'); put(decl.offset);
                 }
             }
-            key_ns += dc_profile::now() - key_start;
-            const auto find_start = dc_profile::now();
+            dc_profile::close(key);
+            dc_profile::open(find);
             auto found = output.resolved_styles.find(signature);
-            find_ns += dc_profile::now() - find_start;
+            dc_profile::close(find);
             if (found != output.resolved_styles.end()) {
-                const auto hit_start = dc_profile::now();
+                dc_profile::open(hit);
                 node.style = found->second;
                 node.computed_font_size = output.font_sizes[node.style];
                 if(node.parent==none)output.base_font_size_px=node.computed_font_size;
                 node.hidden = node.disclosure_hidden || (node.parent != none && elements[node.parent].hidden) || output.info[node.style].display == "none";
-                hit_ns += dc_profile::now() - hit_start;
+                dc_profile::close(hit);
                 ++output.elements;
                 continue;
             }
-            const auto computed_start = dc_profile::now();
+            dc_profile::open(computed_span);
             Properties computed;
             computed.reserve(collector.declarations.size()+16+(node.parent==none?0:output.computed[parent_style].size()));
             float parent_size = 16.f;
@@ -764,28 +764,29 @@ struct SourceCompiler {
             if(node.tag=="rt" && !collector.contains("line-height"))computed["line-height"]="normal";
             computed["font-size"] = std::to_string(size) + "px";
             node.hidden = node.hidden || property(computed,"display") == "none";
-            computed_ns += dc_profile::now() - computed_start;
-            const auto intern_start = dc_profile::now();
+            dc_profile::close(computed_span);
+            dc_profile::open(intern);
             node.style = output.intern(std::move(computed), used_size, size);
-            intern_ns += dc_profile::now() - intern_start;
-            const auto store_start = dc_profile::now();
+            dc_profile::close(intern);
+            dc_profile::open(store);
             output.resolved_styles.emplace(std::move(signature), node.style);
-            store_ns += dc_profile::now() - store_start;
+            dc_profile::close(store);
             ++output.elements;
         }
-        dc_profile::add("resolve.walk", walk_ns);
-        dc_profile::add("resolve.key", key_ns);
-        dc_profile::add("resolve.find", find_ns);
-        dc_profile::add("resolve.computed", computed_ns);
-        dc_profile::add("resolve.intern", intern_ns);
-        dc_profile::add("resolve.reset", reset_ns);
-        dc_profile::add("resolve.store", store_ns);
-        dc_profile::add("resolve.hit", hit_ns);
-        dc_profile::add("resolve.callback", collector.callback_ns);
-        dc_profile::add("resolve.slots", collector.slots_ns);
+        dc_profile::add("resolve.walk", walk.total);
+        dc_profile::add("resolve.key", key.total);
+        dc_profile::add("resolve.find", find.total);
+        dc_profile::add("resolve.computed", computed_span.total);
+        dc_profile::add("resolve.intern", intern.total);
+        dc_profile::add("resolve.reset", reset.total);
+        dc_profile::add("resolve.store", store.total);
+        dc_profile::add("resolve.hit", hit.total);
+        dc_profile::add("resolve.callback", collector.callback_span.total);
+        dc_profile::add("resolve.slots", collector.slots_span.total);
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
         const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
+        dc_profile::Span styled_dom, styled_attach, styled_resolve, styled_hidden, styled_flow;
         sheet_declarations = &declarations;
         structured_line_breaks=range.json;
         Dom doc;
@@ -805,7 +806,7 @@ struct SourceCompiler {
         const size_t first = range.first_operation, last = range.end_operation;
         operation_elements.reserve(last - first);
         elements.reserve(last - first + 8);
-        const auto dom_start = dc_profile::now();
+        dc_profile::open(styled_dom);
         for (size_t at = first; at < last; ++at) {
             const auto& op = input.operations[at];
             if (op.kind == OpKind::close || op.kind == OpKind::reading_close) {
@@ -892,8 +893,9 @@ struct SourceCompiler {
             const bool disclosure_hidden = parent.disclosure_hidden || (closed && tag != "summary");
             elements.push_back({node,stack.back(),op.token,0,tag,false,disclosure_hidden}); stack.push_back(id); operation_elements.push_back(id);
         }
-        dc_profile::add("styled.dom", dc_profile::now() - dom_start);
-        const auto attach_start = dc_profile::now();
+        dc_profile::close(styled_dom);
+        dc_profile::add("styled.dom", styled_dom.total);
+        dc_profile::open(styled_attach);
         std::unordered_set<std::string_view> present;
         present.reserve(elements.size() * 3);
         for(const auto& node:elements) {
@@ -974,10 +976,12 @@ struct SourceCompiler {
                     "Generated content cascade failed");
             }
         }
-        dc_profile::add("styled.attach", dc_profile::now() - attach_start);
-        const auto resolve_start = dc_profile::now();
+        dc_profile::close(styled_attach);
+        dc_profile::add("styled.attach", styled_attach.total);
+        dc_profile::open(styled_resolve);
         resolve_styles();
-        dc_profile::add("styled.resolve", dc_profile::now() - resolve_start);
+        dc_profile::close(styled_resolve);
+        dc_profile::add("styled.resolve", styled_resolve.total);
         auto generated=[&](uint32_t id) {
             if(id==none || elements[id].hidden)return;
             const auto& node=elements[id];const auto content=property(output.computed[node.style],"content");
@@ -996,7 +1000,7 @@ struct SourceCompiler {
             }
             add_text(text,node.style,ruby!=none?1:0);
         };
-        const auto hidden_start = dc_profile::now();
+        dc_profile::open(styled_hidden);
         std::vector<bool> block_descendants(elements.size(),false);
         for(size_t i=elements.size();i-->0;) {
             if(elements[i].hidden || elements[i].parent==none)continue;
@@ -1005,10 +1009,11 @@ struct SourceCompiler {
                 display!="flex" && display!="ruby" && display!="ruby-text" && display!="contents";
             if(block || block_descendants[i])block_descendants[elements[i].parent]=true;
         }
-        dc_profile::add("styled.hidden", dc_profile::now() - hidden_start);
+        dc_profile::close(styled_hidden);
+        dc_profile::add("styled.hidden", styled_hidden.total);
         block_style = elements[2].style;
         output.flow.push_back({2,block_style,source,none});
-        const auto flow_start = dc_profile::now();
+        dc_profile::open(styled_flow);
         struct Owners { uint32_t cell,row,table,ruby,block_style,marker_owner,first_run; bool block,inline_box; };
         std::vector<Owners> owners;
         std::unordered_map<uint32_t,uint32_t> list_counters;
@@ -1132,7 +1137,8 @@ struct SourceCompiler {
         }
         flush();
         output.flow.push_back({3,elements[2].style,source,none});
-        dc_profile::add("styled.flow", dc_profile::now() - flow_start);
+        dc_profile::close(styled_flow);
+        dc_profile::add("styled.flow", styled_flow.total);
     }
 };
 void failure(dc_error* error,const std::exception& e) {
