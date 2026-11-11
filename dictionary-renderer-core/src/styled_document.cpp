@@ -895,6 +895,7 @@ struct SourceCompiler {
         }
         dc_profile::close(styled_dom);
         dc_profile::add("styled.dom", styled_dom.total);
+        dc_profile::count("dom.elements", static_cast<int64_t>(elements.size()));
         dc_profile::open(styled_attach);
         std::unordered_set<std::string_view> present;
         present.reserve(elements.size() * 3);
@@ -924,8 +925,10 @@ struct SourceCompiler {
                 if(std::all_of(required.begin(),required.end(),[&](const auto& key){return present.contains(std::string_view(key).substr(2));})) {possible=true;break;}
             }
             if(possible) {
+                dc_profile::count("attach.rules");
                 require_status(lxb_dom_document_style_attach(lxb_dom_interface_document(doc.value),candidate.rule),"CSS matching failed");
             } else if(verify_candidates) {
+                dc_profile::count("attach.verify");
                 bool matched=false;
                 auto callback=[](lxb_dom_node_t*,lxb_css_selector_specificity_t,void* value)->lxb_status_t{*static_cast<bool*>(value)=true;return LXB_STATUS_OK;};
                 require_status(lxb_selectors_find(lxb_dom_interface_document(doc.value)->css->selectors,lxb_dom_interface_node(doc.value),candidate.rule->selector,callback,&matched),"CSS candidate verification failed");

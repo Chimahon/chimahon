@@ -62,6 +62,16 @@ inline void add(const char *name, int64_t wall) {
     cost.wall += wall;
 }
 
+/* Counters share the report with timings: wall stays 0, calls is the count. */
+inline void count(const char *name, int64_t value = 1) {
+    if (!active())
+        return;
+    auto &cost = costs()[name];
+    if (!cost.calls)
+        order().emplace_back(name);
+    cost.calls += value;
+}
+
 /* An explicit span: open()/close() are no-ops unless profiling is running. */
 struct Span {
     int64_t start = 0;
