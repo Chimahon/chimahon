@@ -166,7 +166,7 @@ class AnkiCardCreatorGlossaryPlainTest {
             "effectively",
             "practically",
             "parenchyma",
-        ).joinToString("<br>")
+        ).joinToString("<br>\n")
 
         assertEquals(AnkiResult.Success(100), result)
         assertEquals(expectedOutput, bridge.lastAddedFields["Glossary"])
@@ -204,9 +204,9 @@ class AnkiCardCreatorGlossaryPlainTest {
             "effectively",
             "practically",
             "parenchyma",
-        ).joinToString("<br>")
+        ).joinToString("<br>\n")
 
-        val expectedOutput = "(Jitendex)<br>$expectedDefs"
+        val expectedOutput = "(Jitendex)<br>\n$expectedDefs"
         assertEquals(expectedOutput, bridge.lastAddedFields["Glossary"])
     }
 
@@ -241,7 +241,7 @@ class AnkiCardCreatorGlossaryPlainTest {
         """.trimIndent()
 
         val defs = AnkiCardCreator.extractGlossaryPlainDefinitions(json)
-        assertEquals(listOf("Primary definition &lt;test&gt;<br>Secondary definition"), defs)
+        assertEquals(listOf("Primary definition &lt;test&gt;", "Secondary definition"), defs)
     }
 
     @Test
@@ -295,8 +295,8 @@ class AnkiCardCreatorGlossaryPlainTest {
 
         addCard(lookup)
 
-        assertEquals("(Dict A)<br>def 1<br>def 2<br><br>(Dict B)<br>def 3", bridge.lastAddedFields["WithDict"])
-        assertEquals("def 1<br>def 2<br><br>def 3", bridge.lastAddedFields["NoDict"])
+        assertEquals("(Dict A)<br>\ndef 1<br>\ndef 2<br>\n<br>\n(Dict B)<br>\ndef 3", bridge.lastAddedFields["WithDict"])
+        assertEquals("def 1<br>\ndef 2<br>\n<br>\ndef 3", bridge.lastAddedFields["NoDict"])
     }
 
     @Test

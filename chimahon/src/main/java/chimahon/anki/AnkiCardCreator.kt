@@ -1601,13 +1601,13 @@ object AnkiCardCreator {
             else {
                 buildString {
                     if (!noDictTag && entry.dictName.isNotBlank()) {
-                        append("(${escapeHtml(entry.dictName)})<br>")
+                        append("(${escapeHtml(entry.dictName)})<br>\n")
                     }
-                    append(defs.joinToString("<br>"))
+                    append(defs.joinToString("<br>\n"))
                 }
             }
         }
-        return dictionaryBlocks.joinToString("<br><br>")
+        return dictionaryBlocks.joinToString("<br>\n<br>\n")
     }
 
     private val PLAIN_TEXT_BLOCK_TAGS = setOf(
@@ -1737,7 +1737,7 @@ object AnkiCardCreator {
         return textToDefs(inlineNodeToPlainText(content))
     }
 
-    private fun structuredContentToPlainTextFallback(node: Any?): String {
+    private fun structuredContentToPlainTextFallback(node: Any?): List<String> {
         val sb = StringBuilder()
         fun recurse(item: Any?) {
             when (item) {
@@ -1791,11 +1791,10 @@ object AnkiCardCreator {
         }
         recurse(node)
         val text = sb.toString()
-        val lines = text.split('\n')
+        return text.split('\n')
             .map { it.replace(Regex("[ \\t\\u000B\\u000C]+"), " ").trim() }
             .filter { it.isNotEmpty() }
             .map { escapeHtml(it) }
-        return lines.joinToString("<br>")
     }
 
     internal fun extractGlossaryPlainDefinitions(raw: String): List<String> {
@@ -1824,8 +1823,7 @@ object AnkiCardCreator {
                         if (glossaryNodes.isNotEmpty()) {
                             glossaryNodes.flatMap { extractDefinitionsFromGlossaryNode(it) }
                         } else {
-                            val fallback = structuredContentToPlainTextFallback(array)
-                            if (fallback.isNotEmpty()) listOf(fallback) else emptyList()
+                            structuredContentToPlainTextFallback(array)
                         }
                     }
                 }
@@ -1833,14 +1831,13 @@ object AnkiCardCreator {
                     val obj = JSONObject(trimmed)
                     val type = obj.optString("type", "")
                     if (type == "image") {
-                        emptyList()
+                        emptyList<String>()
                     } else {
                         val glossaryNodes = extractGlossaryNodes(obj)
                         if (glossaryNodes.isNotEmpty()) {
                             glossaryNodes.flatMap { extractDefinitionsFromGlossaryNode(it) }
                         } else {
-                            val fallback = structuredContentToPlainTextFallback(obj)
-                            if (fallback.isNotEmpty()) listOf(fallback) else emptyList()
+                            structuredContentToPlainTextFallback(obj)
                         }
                     }
                 }
