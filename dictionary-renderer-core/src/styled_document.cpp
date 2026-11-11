@@ -199,13 +199,26 @@ lxb_status_t serialize(const lxb_char_t* data, size_t length, void* context) {
     catch (...) { return LXB_STATUS_ERROR_MEMORY_ALLOCATION; }
     return LXB_STATUS_OK;
 }
-struct Declaration { std::string_view value; uint32_t specificity; size_t offset; };
-using DeclarationText = std::pair<std::string, std::string>;
+struct Declaration { std::string_view value; uint32_t specificity; size_t offset; std::string_view text; };
+/* `text` is the exact signature contribution of this declaration, "<len>:<name><len>:<value>",
+   built once per sheet so resolving an element appends one fragment per declaration instead of
+   formatting two lengths and four fragments. */
+struct DeclarationText { std::string name, value, text; };
 using DeclarationTexts = std::unordered_map<const lxb_css_rule_declaration_t*, DeclarationText>;
+void append_length_prefixed(std::string& out, std::string_view part) {
+    char digits[24];
+    const auto written = std::to_chars(digits, digits + sizeof digits, part.size());
+    out.append(digits, written.ptr);
+    out.push_back(':');
+    out.append(part);
+}
 DeclarationText declaration_text(const lxb_css_rule_declaration_t* value) {
     DeclarationText result;
-    require_status(lxb_css_property_serialize_name(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &result.first), "Property name serialization failed");
-    require_status(lxb_css_property_serialize(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &result.second), "Property serialization failed");
+    require_status(lxb_css_property_serialize_name(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &result.name), "Property name serialization failed");
+    require_status(lxb_css_property_serialize(value->u.user, static_cast<lxb_css_property_type_t>(value->type), serialize, &result.value), "Property serialization failed");
+    result.text.reserve(result.name.size() + result.value.size() + 16);
+    append_length_prefixed(result.text, result.name);
+    append_length_prefixed(result.text, result.value);
     return result;
 }
 struct DeclarationCollector {
@@ -241,7 +254,7 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
         // chain. Rank every callback, including weak ones, to recover the real winner per name.
         // Collecting every callback and resolving the winner after the sort avoids a per-declaration
         // name lookup; the sort below already orders by name, then by rank.
-        collector.declarations.emplace_back(text->first, Declaration{text->second,specificity,value->offset.name_begin});
+        collector.declarations.emplace_back(text->name, Declaration{text->value,specificity,value->offset.name_begin,text->text});
         dc_profile::close(collector.callback_span);
         return LXB_STATUS_OK;
     } catch (...) { return LXB_STATUS_ERROR; }
@@ -1162,8 +1175,7 @@ struct SourceCompiler {
             signature += node.sizing_only ? ":sizing;" : ";";
             for (const auto& [name,decl] : collector.declarations)
             {
-                put(name.size()); signature.push_back(':'); signature.append(name);
-                put(decl.value.size()); signature.push_back(':'); signature.append(decl.value);
+                signature.append(decl.text);
                 if(name.starts_with("margin") || name.starts_with("padding")) {
                     signature.push_back('@'); put(decl.specificity); signature.push_back(':'); put(decl.offset);
                 }
