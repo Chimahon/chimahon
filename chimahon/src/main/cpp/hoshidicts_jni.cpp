@@ -579,6 +579,8 @@ Java_chimahon_HoshiDicts_probeEntryTypes(JNIEnv *env, jobject, jstring dict_path
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_chimahon_HoshiDicts_cards(JNIEnv *env, jobject, jlong session, jboolean group_terms) {
     try {
+        dict_profile::Context cards_context(9);
+        dict_profile::Scope cards_scope("cards.total");
         LookupObject *obj = as_object(session);
         std::lock_guard<std::mutex> lock(obj->last_mutex);
         const auto &results = obj->last_results;

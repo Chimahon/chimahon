@@ -46,8 +46,13 @@ uint32_t codepoint(const uint16_t *text, size_t count, size_t at) {
 struct FontData {
     hb_blob_t *blob = nullptr;
     hb_face_t *face = nullptr;
+    /* Immutable probe font: coverage and color questions are answered without
+     * parsing a FreeType face, which is what made font selection the largest
+     * native phase (a Japanese lookup opened every font in the catalog). */
+    hb_font_t *probe = nullptr;
+    bool color = false;
     std::once_flag ready;
-    ~FontData() { if (face) hb_face_destroy(face); if (blob) hb_blob_destroy(blob); }
+    ~FontData() { if (probe) hb_font_destroy(probe); if (face) hb_face_destroy(face); if (blob) hb_blob_destroy(blob); }
     void load(const std::string &path, uint32_t collection) {
         std::call_once(ready, [&] {
             auto *mapped = hb_blob_create_from_file_or_fail(path.c_str());
@@ -56,6 +61,14 @@ struct FontData {
             hb_face_make_immutable(created);
             blob = mapped;
             face = created;
+            probe = hb_font_create(face);
+            hb_ot_font_set_funcs(probe);
+            hb_tag_t tags[64];
+            unsigned count = 64;
+            hb_face_get_table_tags(face, 0, &count, tags);
+            for (unsigned i = 0; i < count; ++i)
+                color |= tags[i] == HB_TAG('C', 'O', 'L', 'R') || tags[i] == HB_TAG('C', 'B', 'D', 'T') ||
+                         tags[i] == HB_TAG('s', 'b', 'i', 'x') || tags[i] == HB_TAG('S', 'V', 'G', ' ');
         });
     }
 };
@@ -82,6 +95,17 @@ struct Face {
     std::shared_ptr<FontData> data;
     std::shared_ptr<struct CachedFace> cached;
     Face(FT_Library library, const dc_font_file &file) : library(library), path(file.path ? file.path : ""), collection(file.collection_index) {}
+    /* Coverage and color come from the shared immutable HarfBuzz face, so
+     * selecting a font never parses a FreeType face. */
+    FontData &font() {
+        if (!data) data = font_data(path, collection);
+        return *data;
+    }
+    bool covers(uint32_t cp) {
+        unsigned glyph = 0;
+        return hb_font_get_nominal_glyph(font().probe, cp, &glyph) && glyph;
+    }
+    bool color() { return font().color; }
     void load();
     ~Face() = default;
 };
@@ -114,8 +138,12 @@ struct FontCache {
         const auto data = font_data(path, collection);
         unsigned bytes = 0;
         const auto *memory = reinterpret_cast<const FT_Byte *>(hb_blob_get_data(data->blob, &bytes));
-        require(bytes <= LONG_MAX && FT_New_Memory_Face(library, memory, bytes, collection, &loaded->ft) == 0,
-            "Cannot open portable font");
+        {
+            DC_PROFILE("fonts.open");
+            dc_profile::count("fonts.faces");
+            require(bytes <= LONG_MAX && FT_New_Memory_Face(library, memory, bytes, collection, &loaded->ft) == 0,
+                "Cannot open portable font");
+        }
         loaded->hb = hb_font_create(data->face);
         hb_ot_font_set_funcs(loaded->hb);
         entry = std::move(loaded);
@@ -132,7 +160,6 @@ void Face::load() {
     cached = font_cache().face(path, collection);
     ft = cached->ft;
     hb = cached->hb;
-    data = nullptr;
 }
 struct Glyph { uint32_t id, cluster, face; float advance, dx, dy; };
 struct GlyphVariant { uint32_t id; float dx, dy; };
@@ -199,8 +226,7 @@ struct dc_portable_document {
         }
         uint32_t selected = 0;
         for (uint32_t i = 0; i < faces.size(); ++i) {
-            faces[i]->load();
-            if (FT_Get_Char_Index(faces[i]->ft, cp)) { selected = i; break; }
+            if (faces[i]->covers(cp)) { selected = i; break; }
         }
         coverage.emplace(cp, selected);
         face_keys[slot] = cp + 1;
@@ -213,8 +239,7 @@ struct dc_portable_document {
         bool emoji = false, monochrome = false;
         for (auto at = start; at < end; ++at) { emoji |= text[at] == 0xfe0f; monochrome |= text[at] == 0xfe0e; }
         for (unsigned pass = 0; pass < 2; ++pass) for (uint32_t i = 0; i < faces.size(); ++i) {
-            faces[i]->load();
-            const bool color = FT_HAS_COLOR(faces[i]->ft);
+            const bool color = faces[i]->color();
             if (!pass && ((emoji && !color) || (monochrome && color))) continue;
             bool covered = true;
             for (auto at = start; at < end;) {
@@ -222,7 +247,7 @@ struct dc_portable_document {
                 at += cp > 0xffff ? 2 : 1;
                 if (cp == 0xfe0e || cp == 0xfe0f || (cp >= 0xe0100 && cp <= 0xe01ef) ||
                     hb_unicode_general_category(hb_unicode_funcs_get_default(), cp) == HB_UNICODE_GENERAL_CATEGORY_FORMAT) continue;
-                if (!FT_Get_Char_Index(faces[i]->ft, cp)) { covered = false; break; }
+                if (!faces[i]->covers(cp)) { covered = false; break; }
             }
             if (covered) return i;
         }
@@ -275,6 +300,8 @@ struct dc_portable_document {
     }
     bool blit(uint32_t face_index, uint32_t glyph, const dc_drawing_font &font, float x, float y,
               float scale, float sx, float sy, uint32_t width, uint32_t height, uint8_t *pixels, size_t stride) {
+        faces[face_index]->load();
+        faces[face_index]->load();
         auto face = faces[face_index]->ft;
         if (!FT_HAS_COLOR(face)) return false;
         auto *hb = faces[face_index]->hb;
@@ -472,6 +499,7 @@ struct dc_portable_document {
         for (size_t i = 0; i < facts.font_count; ++i) {
             const auto &font = v.fonts[facts.styles[i]];
             const auto face = faces.front()->ft;
+            faces[face_for(0x6f22)]->load();
             const auto em_face = faces[face_for(0x6f22)]->ft;
             const auto units = static_cast<float>(face->units_per_EM);
             const float ascent = -face->ascender * font.size / units, descent = -face->descender * font.size / units;
@@ -485,6 +513,7 @@ struct dc_portable_document {
         for (size_t i = 0; i < facts.punctuation_count; ++i) {
             const auto cp = facts.punctuation[i * 2 + 1];
             const auto &font = v.fonts[facts.styles[facts.punctuation[i * 2]]];
+            faces[face_for(cp)]->load();
             const auto face = faces[face_for(cp)]->ft;
             FT_Load_Char(face, cp, FT_LOAD_NO_SCALE | FT_LOAD_NO_HINTING);
             const auto &m = face->glyph->metrics;
@@ -517,6 +546,7 @@ struct dc_portable_document {
         const PathKey key{face_index, glyph, static_cast<uint32_t>(std::lround(font.size * 64)), (font.flags & 1) | (font.weight >= 600 ? 2 : 0)};
         auto found = paths.find(key);
         if (found != paths.end()) return found->second;
+        faces[face_index]->load();
         auto face = faces[face_index]->ft;
         require(FT_Set_Char_Size(face, 0, std::lround(font.size * 64), 72, 72) == 0, "Cannot size font");
         require(FT_Load_Glyph(face, glyph, FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP) == 0, "Cannot load glyph outline");

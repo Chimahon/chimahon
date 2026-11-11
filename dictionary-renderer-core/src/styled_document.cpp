@@ -924,6 +924,9 @@ struct SourceCompiler {
             const auto* id=lxb_dom_element_get_attribute(node.dom,bytes("id"),2,&size);
             if(id)present.emplace(reinterpret_cast<const char*>(id),size);
         }
+        dc_profile::count("dom.keys", static_cast<int64_t>(present.size()));
+        dc_profile::count("sheet.candidates", static_cast<int64_t>(candidates.size()));
+        dc_profile::count("sheet.generated", static_cast<int64_t>(generated_rules.size()));
         for(const auto& candidate:candidates) {
             bool possible=false;
             for(const auto& required:candidate.alternatives) {
