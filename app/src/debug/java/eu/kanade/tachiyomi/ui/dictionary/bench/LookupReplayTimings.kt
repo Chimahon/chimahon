@@ -102,21 +102,26 @@ internal class LookupReplayTimings(
         val firstDraw = firstDrawNs
         val commit = frameCommitNs.takeIf { it > 0 } ?: framePresentedNs.takeIf { it > 0 }
         val queued = snapshot.firstOrNull { it.phase == "plan.queued" }
+        /* With progressive publish the first card can draw before the plan finishes preparing, so
+           neither mark is guaranteed at sample time; report what exists and leave the rest null. */
         val prepare = snapshot.firstOrNull { it.phase == "plan.prepare" }
-            ?: error("Plan preparation mark missing (queued=${queued != null} firstDraw=$firstDraw)")
         val ready = snapshot.firstOrNull { it.phase == "plan.ready" }?.start
-            ?: error("Plan ready mark missing (prepare was recorded)")
         check(firstDraw > 0L) { "No prepared glossary document drew" }
-        check(firstDraw >= ready) { "Document drew before the plan became ready" }
+        /* Progressive publish draws the first card before the plan is complete, so the draw may
+           legitimately precede plan.ready; measure from the partial publish in that case. */
+        val partial = snapshot.firstOrNull { it.phase == "plan.ui.partial" }?.start
+        val drawFrom = if (ready != null && firstDraw >= ready) ready else partial ?: queued?.start ?: started
+        val drewBeforeReady = ready != null && firstDraw < ready
 
         fun ms(from: Long, to: Long) = (to - from) / 1e6
         // Fall back to the preparation start when a caller supplies a pre-started plan (there is then
         // no enqueue of our own to observe).
-        val mountEnd = queued?.start ?: prepare.start
+        val mountEnd = queued?.start ?: prepare?.start ?: started
         return JSONObject()
             .put("mountQueueMs", ms(started, mountEnd))
-            .put("prepareMs", ms(prepare.start, ready))
-            .put("readyToDrawMs", ms(ready, firstDraw))
+            .put("prepareMs", if (prepare != null && ready != null) ms(prepare.start, ready) else JSONObject.NULL)
+            .put("readyToDrawMs", ms(drawFrom, firstDraw))
+            .put("drewBeforePlanReady", drewBeforeReady)
             .put("drawToCommitMs", commit?.let { ms(firstDraw, it) } ?: JSONObject.NULL)
             .put("firstDrawTotalMs", ms(started, firstDraw))
             .put("frameCommitTotalMs", commit?.let { ms(started, it) } ?: JSONObject.NULL)
@@ -125,7 +130,7 @@ internal class LookupReplayTimings(
                 framePresentedNs > 0L -> "document.frame_presented"
                 else -> "unavailable"
             })
-            .put("queueWaitMs", if (queued != null) ms(queued.start, prepare.start) else 0.0)
+            .put("queueWaitMs", if (queued != null && prepare != null) ms(queued.start, prepare.start) else 0.0)
             .put("marks", JSONArray(snapshot.map {
                 JSONObject().put("phase", it.phase).put("startNs", it.start).put("endNs", it.end)
                     .put("detail", it.detail)
@@ -136,7 +141,7 @@ internal class LookupReplayTimings(
         /** Bounded allowlist: the marks that explain a replay sample, not the whole profile stream. */
         val RETAINED_PHASES = setOf(
             "plan.queued", "plan.config", "plan.prepare", "plan.ready",
-            "plan.ui.await", "plan.ui.resume", "plan.ui.publish",
+            "plan.ui.await", "plan.ui.resume", "plan.ui.publish", "plan.ui.partial",
             "document.attached", "document.bind", "document.first_measure", "document.first_layout",
             "document.first_draw.begin", "document.first_draw", "document.first_paint",
             "document.frame_commit", "document.frame_presented",

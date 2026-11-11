@@ -1,4 +1,4 @@
-﻿#include "portable_renderer.h"
+#include "portable_renderer.h"
 #include "profile.hpp"
 #include "portable_color_glyph.hpp"
 #include <hb.h>
@@ -32,6 +32,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <vector>
@@ -94,6 +95,10 @@ struct Face {
     hb_font_t *hb = nullptr;
     std::shared_ptr<FontData> data;
     std::shared_ptr<struct CachedFace> cached;
+    /* A document is shaped on a preparation worker and later rasterised on the view thread. The
+       FreeType face cache is thread-local, so a face resolved on one thread must not be used on
+       another; remember the owner and resolve again when the thread changes. */
+    std::thread::id owner;
     Face(FT_Library library, const dc_font_file &file) : library(library), path(file.path ? file.path : ""), collection(file.collection_index) {}
     /* Coverage and color come from the shared immutable HarfBuzz face, so
      * selecting a font never parses a FreeType face. */
@@ -155,11 +160,13 @@ FontCache &font_cache() {
     return cache;
 }
 void Face::load() {
-    if (cached) return;
+    const auto current = std::this_thread::get_id();
+    if (cached && owner == current) return;
     require(!path.empty(), "Missing portable font path");
     cached = font_cache().face(path, collection);
     ft = cached->ft;
     hb = cached->hb;
+    owner = current;
 }
 struct Glyph { uint32_t id, cluster, face; float advance, dx, dy; };
 struct GlyphVariant { uint32_t id; float dx, dy; };

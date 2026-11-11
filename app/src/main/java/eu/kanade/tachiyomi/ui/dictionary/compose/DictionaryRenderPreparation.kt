@@ -117,10 +117,11 @@ class DictionaryPlanSlot internal constructor(private val scope: CoroutineScope,
         preparation?.takeIf { it.matches(builder, results, styles, entryJsons) }
 
     internal fun start(builder: DictionaryPlanBuilder, results: List<LookupResult>, styles: List<DictionaryStyle>,
-        id: Long, cards: DictionaryCardPreparation?, entryJsons: List<String>?): DictionaryPlanPreparation {
+        id: Long, cards: DictionaryCardPreparation?, entryJsons: List<String>?,
+        onPartial: (RenderPlan) -> Unit = {}): DictionaryPlanPreparation {
         matching(builder, results, styles, entryJsons)?.let { return it }
         preparation?.cancel()
-        return builder.start(scope, results, styles, id, cards, entryJsons).also { preparation = it }
+        return builder.start(scope, results, styles, id, cards, entryJsons, onPartial).also { preparation = it }
     }
 
     internal fun cancel() { preparation?.cancel() }
@@ -156,12 +157,13 @@ internal class DictionaryPlanBuilder(
         layout.secondary == other.layout.secondary && layout.border == other.layout.border
 
     fun start(scope: CoroutineScope, results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
-        cards: DictionaryCardPreparation?, entryJsons: List<String>?): DictionaryPlanPreparation {
+        cards: DictionaryCardPreparation?, entryJsons: List<String>?,
+        onPartial: (RenderPlan) -> Unit = {}): DictionaryPlanPreparation {
         val planId = NativeRenderDiagnostics.nextPlanId()
         NativeRenderDiagnostics.mark(id, planId, "plan.queued", "origin=popup-result")
         return DictionaryPlanPreparation(this, results, styles, entryJsons, scope.async(Dispatchers.Default) {
             try {
-                Result.success(prepare(results, styles, id, cards, entryJsons, planId))
+                Result.success(prepare(results, styles, id, cards, entryJsons, planId, onPartial))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -171,7 +173,8 @@ internal class DictionaryPlanBuilder(
     }
 
     suspend fun prepare(results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
-        cards: DictionaryCardPreparation?, entryJsons: List<String>?, planId: Long = NativeRenderDiagnostics.nextPlanId()): RenderPlan {
+        cards: DictionaryCardPreparation?, entryJsons: List<String>?, planId: Long = NativeRenderDiagnostics.nextPlanId(),
+        onPartial: (RenderPlan) -> Unit = {}): RenderPlan {
         NativeRenderDiagnostics.mark(id, planId, "plan.config", "schema=native-cpp-draw-v1 widthPolicy=assigned tablePolicy=allocated-grid rubyLookup=base-only workerLimit=$glossaryWorkerCount popupWidth=${layout.viewportWidth} fontSize=${layout.style.fontSize.value} density=${layout.density.density} fontScale=${layout.density.fontScale} direction=${layout.direction} results=${results.size}")
         val plan = NativeRenderDiagnostics.elapsed(id, planId, "plan.prepare") {
             val (cssMap, planCards) = NativeRenderDiagnostics.elapsed(id, planId, "plan.inputs.await") {
@@ -188,64 +191,90 @@ internal class DictionaryPlanBuilder(
             val documents = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
             val presentation = ArrayList<TermCardPresentation>(planCards.size)
             val cardPieces = ArrayList<List<NativeCardPiece>>(planCards.size)
-            val work = ArrayList<GlossaryLayoutWork>()
+            /* Work is kept per card in display order. The first card is compiled and published on its
+               own before the rest are balanced across workers, so content appears instead of waiting
+               for every document of a 20-card lookup. */
+            val workByCard = ArrayList<ArrayList<GlossaryLayoutWork>>(planCards.size)
             val seen = IdentityHashMap<List<StructuredNode>, Boolean>()
+            var glossCount = 0
             NativeRenderDiagnostics.elapsed(id, planId, "plan.work.build") {
                 val cardTheme = NativeCardTheme(appearance)
                 for (card in planCards) {
                     val built = buildCard(card, cssMap, layout, profile, cardTheme, cardOptions)
                     presentation.add(built.shown)
                     cardPieces.add(built.pieces)
+                    val items = ArrayList<GlossaryLayoutWork>()
                     for (piece in built.pieces) {
                         if (piece.action == "process-details") continue
                         if (piece.action == "process" && piece.expanded == true) continue
                         if (piece.group >= 0 && piece.expanded != null && piece.expanded != built.groups[piece.group].initiallyExpanded) continue
                         if (seen.put(piece.nodes, true) != null) continue
-                        work.add(GlossaryLayoutWork(piece.nodes, piece.dictionary, nativeCoreSourceSize(piece.nodes),
-                            piece.css, piece.width, work.size))
+                        items.add(GlossaryLayoutWork(piece.nodes, piece.dictionary, nativeCoreSourceSize(piece.nodes),
+                            piece.css, piece.width, glossCount++))
                     }
+                    workByCard.add(items)
                 }
-                work.sortByDescending { it.sourceLength }
             }
+            fun nativeCardsFor(range: IntRange): List<NativeTermCard> = range.map { i ->
+                val own = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+                cardPieces[i].forEach { piece -> documents[piece.nodes]?.let { own[piece.nodes] = it } }
+                NativeTermCard(planCards[i], cardPieces[i], presentation[i], layout, own, id, appearance, i)
+            }
+            fun planFor(count: Int, cards: List<NativeTermCard>): RenderPlan {
+                /* A published plan must own an immutable snapshot: the worker keeps filling
+                   `documents` for the final plan. */
+                val snapshot = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
+                snapshot.putAll(documents)
+                return RenderPlan(entryJsons?.mapNotNull { parseKanjiEntryJson(it) } ?: emptyList(), cssMap,
+                    planCards.take(count), snapshot, presentation.take(count), layout,
+                    nativeCards = cards, profilingPlanId = planId)
+            }
+            val firstWork = workByCard.firstOrNull().orEmpty()
+            if (planCards.isNotEmpty() && firstWork.isNotEmpty()) {
+                val firstIndex = java.util.concurrent.atomic.AtomicInteger()
+                val firstDocuments = NativeRenderDiagnostics.elapsed(id, planId, "plan.first.batch") {
+                    prepareGlossaryBatch(id, { firstWork.getOrNull(firstIndex.getAndIncrement()) }, layout, planId)
+                }
+                documents.putAll(firstDocuments)
+                NativeRenderDiagnostics.mark(id, planId, "plan.first.ready", "documents=${firstDocuments.size}")
+                onPartial(planFor(1, nativeCardsFor(0..0)))
+            }
+            val remaining = workByCard.drop(1).flatten().sortedByDescending { it.sourceLength }
             val next = java.util.concurrent.atomic.AtomicInteger()
-            val nextWork = { work.getOrNull(next.getAndIncrement()) }
-            val batches = NativeRenderDiagnostics.elapsed(id, planId, "plan.batches.await") {
-                if (work.size > 1) coroutineScope {
-                    val count = minOf(glossaryWorkerCount, work.size).coerceAtLeast(1)
-                    // Balance text, not DOM size. A markup-heavy gloss has a large sourceWeight
-                    // with almost no text (124 utf16), while a bucket of small glosses costs far
-                    // more; text plus a per-document constant tracks the measured cost.
-                    val buckets = List(count) { ArrayList<GlossaryLayoutWork>(work.size / count + 1) }
-                    val weights = LongArray(count)
-                    for (item in work) {
-                        val worker = weights.indices.minBy { weights[it] }
-                        buckets[worker].add(item)
-                        weights[worker] += nativeCoreTextSize(item.nodes) + 1024
-                    }
-                    buckets.mapIndexed { worker, bucket ->
-                        val queued = NativeRenderDiagnostics.now()
-                        async(glossaryPreparationDispatcher) {
-                            NativeRenderDiagnostics.queueStarted(id, planId, worker, queued)
-                            val iterator = bucket.iterator()
-                            prepareGlossaryBatch(id, { if (iterator.hasNext()) iterator.next() else null }, layout, planId, worker)
+            val nextWork = { remaining.getOrNull(next.getAndIncrement()) }
+            val batches = if (remaining.isEmpty()) emptyList() else
+                NativeRenderDiagnostics.elapsed(id, planId, "plan.batches.await") {
+                    if (remaining.size > 1) coroutineScope {
+                        val count = minOf(glossaryWorkerCount, remaining.size).coerceAtLeast(1)
+                        // Balance text, not DOM size. A markup-heavy gloss has a large sourceWeight
+                        // with almost no text (124 utf16), while a bucket of small glosses costs far
+                        // more; text plus a per-document constant tracks the measured cost.
+                        val buckets = List(count) { ArrayList<GlossaryLayoutWork>(remaining.size / count + 1) }
+                        val weights = LongArray(count)
+                        for (item in remaining) {
+                            val worker = weights.indices.minBy { weights[it] }
+                            buckets[worker].add(item)
+                            weights[worker] += nativeCoreTextSize(item.nodes) + 1024
                         }
-                    }.awaitAll()
-                } else listOf(prepareGlossaryBatch(id, nextWork, layout, planId))
-            }
+                        buckets.mapIndexed { worker, bucket ->
+                            val queued = NativeRenderDiagnostics.now()
+                            async(glossaryPreparationDispatcher) {
+                                NativeRenderDiagnostics.queueStarted(id, planId, worker, queued)
+                                val iterator = bucket.iterator()
+                                prepareGlossaryBatch(id, { if (iterator.hasNext()) iterator.next() else null }, layout, planId, worker)
+                            }
+                        }.awaitAll()
+                    } else listOf(prepareGlossaryBatch(id, nextWork, layout, planId))
+                }
             NativeRenderDiagnostics.section(id, planId, "plan.documents.merge") {
                 for (batch in batches) documents.putAll(batch)
             }
-            NativeRenderDiagnostics.mark(id, planId, "plan.work", "documents=${documents.size} glosses=${work.size} batches=${batches.size} scheduling=text-weight")
+            NativeRenderDiagnostics.mark(id, planId, "plan.work", "documents=${documents.size} glosses=$glossCount batches=${batches.size} scheduling=text-weight")
             val nativeCards = NativeRenderDiagnostics.section(id, planId, "plan.native.cards") {
-                planCards.mapIndexed { i, card ->
-                    val own = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
-                    cardPieces[i].forEach { piece -> documents[piece.nodes]?.let { own[piece.nodes] = it } }
-                    NativeTermCard(card, cardPieces[i], presentation[i], layout, own, id, appearance, i)
-                }
+                nativeCardsFor(planCards.indices)
             }
             NativeRenderDiagnostics.section(id, planId, "plan.assemble") {
-                RenderPlan(entryJsons?.mapNotNull { parseKanjiEntryJson(it) } ?: emptyList(), cssMap, planCards,
-                    documents, presentation, layout, nativeCards = nativeCards, profilingPlanId = planId)
+                planFor(planCards.size, nativeCards)
             }
         }
         NativeRenderDiagnostics.section(id, planId, "plan.diagnostics.flush") { LookupProfiler.flush() }

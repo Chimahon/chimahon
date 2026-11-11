@@ -318,24 +318,38 @@ fun DictionaryEntryCompose(
     }
     val plan by planState
     val planReadyCallback = rememberUpdatedState(onPlanReady)
-    LaunchedEffect(planState) {
+    /* Keyed on the inputs rather than on the plan state: publishing a partial plan must not cancel
+       the coroutine that is still waiting for the finished one. */
+    val preparationFinished = remember(builder, results, styles, entryJsons, resultsAreOrdered, isLoading,
+        profilingId, planSlot) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    LaunchedEffect(builder, results, styles, entryJsons, resultsAreOrdered, isLoading, profilingId, planSlot) {
         if (isLoading) {
             return@LaunchedEffect
         }
-        if (planState.value != null) return@LaunchedEffect
+        if (preparationFinished.get()) return@LaunchedEffect
         val snapshotCardPreparation = cardPreparation?.takeIf {
             resultsAreOrdered && it.matches(results, groupTerms, activeProfile.dictionaryOrder)
         }
         chimahon.diagnostics.LookupProfiler.mark(profilingId, "plan.ui.await", "supplied=${suppliedPlan != null}")
+        val publishPartial: (RenderPlan) -> Unit = { partial ->
+            if (!preparationFinished.get()) {
+                NativeRenderDiagnostics.mark(profilingId, partial.profilingPlanId, "plan.ui.partial",
+                    "cards=${partial.nativeCards.size}")
+                planState.value = partial
+            }
+        }
         val preparedPlan = suppliedPlan?.await() ?: if (planSlot != null && resultsAreOrdered) {
-            planSlot.start(builder, results, styles, profilingId, snapshotCardPreparation, entryJsons).await()
+            planSlot.start(builder, results, styles, profilingId, snapshotCardPreparation, entryJsons,
+                onPartial = publishPartial).await()
         } else withContext(Dispatchers.Default) {
             val planId = NativeRenderDiagnostics.nextPlanId()
             NativeRenderDiagnostics.mark(profilingId, planId, "plan.queued", "origin=renderer")
             val shown = if (resultsAreOrdered) results else orderLookupResultsForDisplay(results, activeProfile, context)
-            builder.prepare(shown, styles, profilingId, snapshotCardPreparation, entryJsons, planId)
+            builder.prepare(shown, styles, profilingId, snapshotCardPreparation, entryJsons, planId,
+                onPartial = publishPartial)
         }
         NativeRenderDiagnostics.mark(profilingId, preparedPlan.profilingPlanId, "plan.ui.resume")
+        preparationFinished.set(true)
         planState.value = preparedPlan
         NativeRenderDiagnostics.mark(profilingId, preparedPlan.profilingPlanId, "plan.ui.publish")
     }
