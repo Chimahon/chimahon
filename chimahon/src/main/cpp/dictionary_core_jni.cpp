@@ -114,7 +114,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
         auto &c = object<Context>(context);
         static std::atomic<int64_t> next_profile{1};
         profiling = profiling_enabled();
-        if (profiling) dc_profile::begin(next_profile.fetch_add(1));
+        if (profiling) dc_profile::begin(next_profile.fetch_add(1), profile_mode() == 2);
         const auto count = env->GetArrayLength(input);
         if (env->GetArrayLength(typed) != count || env->GetArrayLength(indices) != count || env->GetArrayLength(widths) != count)
             throw std::invalid_argument("Drawing batch lengths differ");

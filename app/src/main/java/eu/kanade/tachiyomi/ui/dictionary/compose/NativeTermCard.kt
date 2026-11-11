@@ -41,7 +41,9 @@ internal class NativeTermCard(val card: TermCard, val pieces: List<NativeCardPie
     val documents: Map<List<StructuredNode>, NativeGlossaryDocument>, val profilingId: Long,
     val appearance: DictionaryRenderAppearance, val index: Int) {
     val initiallyOpen = card.dictGroups.indices.filter { presentation.groups[it].initiallyExpanded }.toSet()
-    val initial = assemble(documents, initiallyOpen, false)
+    /* Only the visible card is ever shown, so flattening every card's pieces during plan assembly
+       is wasted work; build it on first use instead. */
+    val initial: NativeGlossaryDocument by lazy { assemble(documents, initiallyOpen, false) }
 
     fun visible(piece: NativeCardPiece, open: Set<Int>, details: Boolean): Boolean = when {
         piece.action == "process-details" -> details

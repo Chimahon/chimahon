@@ -283,6 +283,10 @@ public class NativeGlossaryView(context: Context) : View(context) {
             if (value.profilingId != 0L && android.os.Build.VERSION.SDK_INT >= 29 && isHardwareAccelerated && viewTreeObserver.isAlive) {
                 viewTreeObserver.registerFrameCommitCallback {
                     mark(value, "document.frame_commit", "render-thread commit;not display presentation")
+                    // First vsync after the commit is the closest app-side estimate of presentation.
+                    android.view.Choreographer.getInstance().postFrameCallback {
+                        mark(value, "document.frame_presented", "next vsync after commit")
+                    }
                 }
             }
         }

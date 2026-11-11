@@ -484,6 +484,8 @@ ParsedSheet* parse_sheet(const dc_css_source& source) {
             const std::string_view name(reinterpret_cast<const char*>(pseudo->name.data),pseudo->name.length);
             if(name=="data-dc-generated-before" || name=="data-dc-generated-after")parsed->generated.push_back({parsed->candidates.size(),list});
         }
+        std::vector<std::string> keys;
+        bool general = false;
         for(auto* list=candidate.rule->selector;list;list=list->next) {
             std::vector<std::string> required;
             for(auto* selector=list->first;selector;selector=selector->next) {
@@ -794,7 +796,11 @@ struct SourceCompiler {
         dc_profile::Span styled_dom, styled_attach, styled_resolve, styled_hidden, styled_flow;
         sheet_declarations = &declarations;
         structured_line_breaks=range.json;
+        dc_profile::Span doc_create;
+        dc_profile::open(doc_create);
         Dom doc;
+        dc_profile::close(doc_create);
+        dc_profile::add("doc.create", doc_create.total);
         auto* body = lxb_dom_interface_element(lxb_html_document_body_element(doc.value));
         attribute(body,"id","entries");
         auto* root = element(doc, "span");

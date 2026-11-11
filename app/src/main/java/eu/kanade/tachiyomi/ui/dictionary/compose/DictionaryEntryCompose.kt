@@ -550,7 +550,15 @@ internal fun dictionaryThemeVars(
 /** Parses dictionary styles with theme variables and the user's custom CSS. */
 internal fun buildParsedCssMap(styles: List<DictionaryStyle>, customCss: String, context: Context,
     themeVars: Map<String, String> = emptyMap()): Map<String, ParsedCss> {
-    val base = context.assets.open("dictionary/base.css").bufferedReader().use { it.readText() }
+    // Rebuilding ~19 dictionary sheets from base.css costs ~9 ms on every popup and is a pure
+    // function of (styles, customCss, themeVars), so keep the last result.
+    synchronized(parsedCssCache) {
+        val cached = parsedCssCache.map
+        if (cached != null && parsedCssCache.styles === styles &&
+            parsedCssCache.customCss == customCss && parsedCssCache.themeVars == themeVars) return cached
+    }
+    val base = parsedCssCache.base ?: context.assets.open("dictionary/base.css").bufferedReader().use { it.readText() }
+        .also { parsedCssCache.base = it }
     val result = mutableMapOf("" to ParsedCss(nativeCoreStylesheet(base, customCss, themeVars)))
     for (sheet in styles) {
         val css = ParsedCss(nativeCoreStylesheet(base, sheet.styles + "\n" + customCss, themeVars))
@@ -559,7 +567,21 @@ internal fun buildParsedCssMap(styles: List<DictionaryStyle>, customCss: String,
             result[name.lowercase()] = css
         }
     }
+    synchronized(parsedCssCache) {
+        parsedCssCache.styles = styles
+        parsedCssCache.customCss = customCss
+        parsedCssCache.themeVars = themeVars
+        parsedCssCache.map = result
+    }
     return result
+}
+
+private object parsedCssCache {
+    var styles: List<DictionaryStyle>? = null
+    var customCss: String? = null
+    var themeVars: Map<String, String>? = null
+    var map: Map<String, ParsedCss>? = null
+    var base: String? = null
 }
 
 internal suspend fun buildCards(
