@@ -211,13 +211,9 @@ struct DeclarationCollector {
     std::vector<std::pair<std::string_view,Declaration>> declarations;
     DeclarationTexts& inline_text;
     const DeclarationTexts& sheet_text;
-    // Keep name slots across elements instead of allocating a map node per property.
-    struct Slot { size_t generation, index; };
-    std::unordered_map<std::string_view, Slot> slots;
     dc_profile::Span callback_span, slots_span;
     int64_t declaration_count = 0, inline_count = 0;
-    size_t generation = 0;
-    void reset() { declarations.clear(); ++generation; }
+    void reset() { declarations.clear(); }
     bool contains(std::string_view name) const {
         const auto it = std::lower_bound(declarations.begin(), declarations.end(), name,
                                         [](const auto& item, auto key) { return item.first < key; });
@@ -242,19 +238,9 @@ lxb_status_t declaration(lxb_dom_element_t*, const lxb_css_rule_declaration_t* v
         // Lexbor stores every declaration its typed parser rejected (var(), etc.) under the single
         // __UNDEF id, so a later declaration for one property evicts earlier ones into the weak
         // chain. Rank every callback, including weak ones, to recover the real winner per name.
-        const std::pair<uint32_t,size_t> rank{specificity,value->offset.name_begin};
-        const Declaration result{text->second, rank.first, rank.second};
-        dc_profile::open(collector.slots_span);
-        auto [it, inserted] = collector.slots.try_emplace(text->first, DeclarationCollector::Slot{collector.generation, collector.declarations.size()});
-        dc_profile::close(collector.slots_span);
-        auto& slot = it->second;
-        if (inserted || slot.generation != collector.generation) {
-            slot = {collector.generation, collector.declarations.size()};
-            collector.declarations.emplace_back(text->first, result);
-        } else {
-            auto& found = collector.declarations[slot.index].second;
-            if (std::pair{found.specificity, found.offset} < rank) found = result;
-        }
+        // Collecting every callback and resolving the winner after the sort avoids a per-declaration
+        // name lookup; the sort below already orders by name, then by rank.
+        collector.declarations.emplace_back(text->first, Declaration{text->second,specificity,value->offset.name_begin});
         dc_profile::close(collector.callback_span);
         return LXB_STATUS_OK;
     } catch (...) { return LXB_STATUS_ERROR; }
@@ -721,6 +707,7 @@ struct SourceCompiler {
         char digits[24];
         DeclarationCollector collector{{},declaration_cache,*sheet_declarations};
         collector.declarations.reserve(24);
+        int64_t resolved_hits = 0;
         for (size_t element = 0; element < elements.size(); ++element) {
             auto& node = elements[element];
             dc_profile::open(reset);
@@ -738,8 +725,23 @@ struct SourceCompiler {
                 dc_profile::close(walk);
             }
             dc_profile::open(key);
+            // Name order is the emit order; rank is the secondary key so the winner of each property
+            // is the last of its run and the dedupe below is a single pass.
             std::sort(collector.declarations.begin(), collector.declarations.end(),
-                      [](const auto& a, const auto& b) { return a.first < b.first; });
+                      [](const auto& a, const auto& b) {
+                          if (a.first != b.first) return a.first < b.first;
+                          return std::pair{a.second.specificity, a.second.offset} <
+                                 std::pair{b.second.specificity, b.second.offset};
+                      });
+            {
+                auto& all = collector.declarations;
+                size_t kept = 0;
+                for (size_t at = 0; at < all.size(); ++at) {
+                    if (at + 1 < all.size() && all[at + 1].first == all[at].first) continue;
+                    all[kept++] = all[at];
+                }
+                all.resize(kept);
+            }
             const auto parent_style = node.parent == none ? none : elements[node.parent].style;
             signature.clear();
             signature.reserve(256);
@@ -765,6 +767,7 @@ struct SourceCompiler {
                 if(node.parent==none)output.base_font_size_px=node.computed_font_size;
                 node.hidden = node.disclosure_hidden || (node.parent != none && elements[node.parent].hidden) || output.info[node.style].display == "none";
                 dc_profile::close(hit);
+                ++resolved_hits;
                 ++output.elements;
                 continue;
             }
@@ -832,9 +835,10 @@ struct SourceCompiler {
         dc_profile::add("resolve.store", store.total);
         dc_profile::add("resolve.hit", hit.total);
         dc_profile::add("resolve.callback", collector.callback_span.total);
-        dc_profile::add("resolve.slots", collector.slots_span.total);
         dc_profile::count("decl.total", collector.declaration_count);
         dc_profile::count("decl.inline", collector.inline_count);
+        dc_profile::count("resolve.elements", static_cast<int64_t>(elements.size()));
+        dc_profile::count("resolve.hits", static_cast<int64_t>(resolved_hits));
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
         const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
@@ -993,10 +997,12 @@ struct SourceCompiler {
                 if(verify_candidates) {
                     require_status(lxb_dom_document_style_attach(css_document,candidate.rule),"CSS matching failed");
                 } else {
+                    const auto before=flat_declarations.size();
                     FlatContext context{this,css_document,candidate.rule,&element_index};
                     require_status(lxb_selectors_find(css_document->css->selectors,
                         lxb_dom_interface_node(doc.value),candidate.rule->selector,collect_declaration,&context),
                         "CSS matching failed");
+                    if(flat_declarations.size()==before)dc_profile::count("attach.empty");
                 }
             } else if(verify_candidates) {
                 dc_profile::count("attach.verify");
