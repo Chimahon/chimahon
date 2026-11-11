@@ -118,10 +118,11 @@ class DictionaryPlanSlot internal constructor(private val scope: CoroutineScope,
 
     internal fun start(builder: DictionaryPlanBuilder, results: List<LookupResult>, styles: List<DictionaryStyle>,
         id: Long, cards: DictionaryCardPreparation?, entryJsons: List<String>?,
-        onPartial: (RenderPlan) -> Unit = {}): DictionaryPlanPreparation {
+        onPartial: (RenderPlan) -> Unit = {},
+        firstFrame: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(0)): DictionaryPlanPreparation {
         matching(builder, results, styles, entryJsons)?.let { return it }
         preparation?.cancel()
-        return builder.start(scope, results, styles, id, cards, entryJsons, onPartial).also { preparation = it }
+        return builder.start(scope, results, styles, id, cards, entryJsons, onPartial, firstFrame).also { preparation = it }
     }
 
     internal fun cancel() { preparation?.cancel() }
@@ -158,12 +159,13 @@ internal class DictionaryPlanBuilder(
 
     fun start(scope: CoroutineScope, results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
         cards: DictionaryCardPreparation?, entryJsons: List<String>?,
-        onPartial: (RenderPlan) -> Unit = {}): DictionaryPlanPreparation {
+        onPartial: (RenderPlan) -> Unit = {},
+        firstFrame: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(0)): DictionaryPlanPreparation {
         val planId = NativeRenderDiagnostics.nextPlanId()
         NativeRenderDiagnostics.mark(id, planId, "plan.queued", "origin=popup-result")
         return DictionaryPlanPreparation(this, results, styles, entryJsons, scope.async(Dispatchers.Default) {
             try {
-                Result.success(prepare(results, styles, id, cards, entryJsons, planId, onPartial))
+                Result.success(prepare(results, styles, id, cards, entryJsons, planId, onPartial, firstFrame))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -174,7 +176,8 @@ internal class DictionaryPlanBuilder(
 
     suspend fun prepare(results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
         cards: DictionaryCardPreparation?, entryJsons: List<String>?, planId: Long = NativeRenderDiagnostics.nextPlanId(),
-        onPartial: (RenderPlan) -> Unit = {}): RenderPlan {
+        onPartial: (RenderPlan) -> Unit = {},
+        firstFrame: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(0)): RenderPlan {
         NativeRenderDiagnostics.mark(id, planId, "plan.config", "schema=native-cpp-draw-v1 widthPolicy=assigned tablePolicy=allocated-grid rubyLookup=base-only workerLimit=$glossaryWorkerCount popupWidth=${layout.viewportWidth} fontSize=${layout.style.fontSize.value} density=${layout.density.density} fontScale=${layout.density.fontScale} direction=${layout.direction} results=${results.size}")
         val plan = NativeRenderDiagnostics.elapsed(id, planId, "plan.prepare") {
             val (cssMap, planCards) = NativeRenderDiagnostics.elapsed(id, planId, "plan.inputs.await") {
@@ -238,6 +241,11 @@ internal class DictionaryPlanBuilder(
                 documents.putAll(firstDocuments)
                 NativeRenderDiagnostics.mark(id, planId, "plan.first.ready", "documents=${firstDocuments.size}")
                 onPartial(planFor(1, nativeCardsFor(0..0)))
+                /* Let the first card reach the screen before saturating the workers again: the
+                   remaining batches otherwise compete with the render thread and stretch the
+                   frame that shows that card. */
+                if (workByCard.drop(1).sumOf { it.size } >= 8 && firstFrame.count > 0)
+                    firstFrame.await(150, java.util.concurrent.TimeUnit.MILLISECONDS)
             }
             val remaining = workByCard.drop(1).flatten().sortedByDescending { it.sourceLength }
             val next = java.util.concurrent.atomic.AtomicInteger()

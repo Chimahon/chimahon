@@ -322,6 +322,11 @@ fun DictionaryEntryCompose(
        the coroutine that is still waiting for the finished one. */
     val preparationFinished = remember(builder, results, styles, entryJsons, resultsAreOrdered, isLoading,
         profilingId, planSlot) { java.util.concurrent.atomic.AtomicBoolean(false) }
+    /* Counted down once the first card has had two frames to reach the screen, so preparation can
+       hold the remaining work back instead of competing with that frame. */
+    val firstFrame = remember(builder, results, styles, entryJsons, isLoading, profilingId, planSlot) {
+        java.util.concurrent.CountDownLatch(1)
+    }
     LaunchedEffect(builder, results, styles, entryJsons, resultsAreOrdered, isLoading, profilingId, planSlot) {
         if (isLoading) {
             return@LaunchedEffect
@@ -340,13 +345,13 @@ fun DictionaryEntryCompose(
         }
         val preparedPlan = suppliedPlan?.await() ?: if (planSlot != null && resultsAreOrdered) {
             planSlot.start(builder, results, styles, profilingId, snapshotCardPreparation, entryJsons,
-                onPartial = publishPartial).await()
+                onPartial = publishPartial, firstFrame = firstFrame).await()
         } else withContext(Dispatchers.Default) {
             val planId = NativeRenderDiagnostics.nextPlanId()
             NativeRenderDiagnostics.mark(profilingId, planId, "plan.queued", "origin=renderer")
             val shown = if (resultsAreOrdered) results else orderLookupResultsForDisplay(results, activeProfile, context)
             builder.prepare(shown, styles, profilingId, snapshotCardPreparation, entryJsons, planId,
-                onPartial = publishPartial)
+                onPartial = publishPartial, firstFrame = firstFrame)
         }
         NativeRenderDiagnostics.mark(profilingId, preparedPlan.profilingPlanId, "plan.ui.resume")
         preparationFinished.set(true)
@@ -356,6 +361,12 @@ fun DictionaryEntryCompose(
     LaunchedEffect(planState, plan) {
         if (plan != null && plan !== RenderPlan.Empty) planReadyCallback.value?.invoke()
         else onContentReadyChange?.invoke(false)
+        val current = plan
+        if (current != null && current !== RenderPlan.Empty && current.nativeCards.isNotEmpty() && firstFrame.count > 0) {
+            androidx.compose.runtime.withFrameNanos { }
+            androidx.compose.runtime.withFrameNanos { }
+            firstFrame.countDown()
+        }
     }
     val effectivePlan = plan ?: RenderPlan.Empty
     val diagnostics = remember { DictionaryPlanDiagnostics() }
