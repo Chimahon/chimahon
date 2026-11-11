@@ -541,6 +541,7 @@ struct ParsedSheet {
     uint64_t unsupported = 0;
     std::vector<RuleCandidate> candidates;
     std::vector<fastmatch::Rule> programs;
+    std::vector<std::vector<std::vector<uint32_t>>> alternative_slots;  /* per rule, per alternative, match-table slots */
     fastmatch::Table matcher;
     std::vector<GeneratedRule> generated;
     DeclarationTexts declaration_texts;
@@ -643,6 +644,32 @@ ParsedSheet* parse_sheet(const dc_css_source& source) {
     parsed->programs.resize(parsed->candidates.size());
     for (size_t i = 0; i < parsed->candidates.size(); ++i)
         fastmatch::compile(parsed->candidates[i].rule, parsed->matcher, parsed->programs[i]);
+    /* The presence filter's keys live in the same table as the matcher's, so a document answers
+       "could this rule match at all" from the ids it already resolved. */
+    parsed->alternative_slots.clear();
+    parsed->alternative_slots.reserve(parsed->candidates.size());
+    for (const auto& candidate : parsed->candidates) {
+        std::vector<std::vector<uint32_t>> slots;
+        slots.reserve(candidate.alternatives.size());
+        for (const auto& alternative : candidate.alternatives) {
+            std::vector<uint32_t> keys;
+            keys.reserve(alternative.size());
+            for (const auto& key : alternative) {
+                if (key.size() < 3) continue;
+                fastmatch::Kind kind;
+                switch (key[0]) {
+                    case 't': kind = fastmatch::Kind::Tag; break;
+                    case 'c': kind = fastmatch::Kind::Class; break;
+                    case 'a': kind = fastmatch::Kind::Attr; break;
+                    case 'i': kind = fastmatch::Kind::Id; break;
+                    default: continue;
+                }
+                keys.push_back(parsed->matcher.slot(kind, std::string_view(key).substr(2)));
+            }
+            slots.push_back(std::move(keys));
+        }
+        parsed->alternative_slots.push_back(std::move(slots));
+    }
     if (std::getenv("DC_PROBE_PROGRAMS")) {
         int supported = 0, reasons[256] = {0};
         for (const auto& program : parsed->programs) {
@@ -828,7 +855,10 @@ struct SourceCompiler {
                 index.prev[i] = last_child[node.parent];
                 last_child[node.parent] = i;
             }
-            index.tag[i] = intern(tag_ids, index.tag_count, node.tag, true);
+            size_t tag_length = 0;
+            const auto* local = lxb_dom_element_local_name(node.dom, &tag_length);
+            index.tag[i] = intern(tag_ids, index.tag_count,
+                std::string_view(reinterpret_cast<const char*>(local), tag_length), true);
             size_t size = 0;
             const auto* classes = lxb_dom_element_get_attribute(node.dom, bytes("class"), 5, &size);
             if (classes) {
@@ -1224,6 +1254,7 @@ struct SourceCompiler {
     }
     void compile(const SourceRange& range, const std::vector<RuleCandidate>& candidates,
         const std::vector<fastmatch::Rule>& programs, const fastmatch::Table& match_table,
+        const std::vector<std::vector<std::vector<uint32_t>>>& alternative_slots,
         const std::vector<GeneratedRule>& generated_rules, const DeclarationTexts& declarations, bool verify_candidates) {
         dc_profile::Span styled_dom, styled_attach, styled_resolve, styled_hidden, styled_flow;
         sheet_declarations = &declarations;
@@ -1341,29 +1372,6 @@ struct SourceCompiler {
         dc_profile::add("styled.dom", styled_dom.total);
         dc_profile::count("dom.elements", static_cast<int64_t>(elements.size()));
         dc_profile::open(styled_attach);
-        std::unordered_set<std::string_view> present;
-        present.reserve(elements.size() * 3);
-        for(const auto& node:elements) {
-            size_t size=0;const auto* tag=lxb_dom_element_local_name(node.dom,&size);
-            present.emplace(reinterpret_cast<const char*>(tag),size);
-            for(auto* attr=lxb_dom_element_first_attribute(node.dom);attr;attr=lxb_dom_element_next_attribute(attr)) {
-                const auto* name=lxb_dom_attr_local_name(attr,&size);
-                present.emplace(reinterpret_cast<const char*>(name),size);
-            }
-            const auto* classes=lxb_dom_element_get_attribute(node.dom,bytes("class"),5,&size);
-            if(classes) {
-                const std::string_view value(reinterpret_cast<const char*>(classes),size);
-                size_t at=0;
-                while(at<value.size()) {
-                    while(at<value.size() && space(value[at]))++at;
-                    const auto first=at;while(at<value.size() && !space(value[at]))++at;
-                    if(at>first)present.emplace(value.substr(first,at-first));
-                }
-            }
-            const auto* id=lxb_dom_element_get_attribute(node.dom,bytes("id"),2,&size);
-            if(id)present.emplace(reinterpret_cast<const char*>(id),size);
-        }
-        dc_profile::count("dom.keys", static_cast<int64_t>(present.size()));
         dc_profile::count("sheet.candidates", static_cast<int64_t>(candidates.size()));
         dc_profile::count("sheet.generated", static_cast<int64_t>(generated_rules.size()));
         auto* css_document = lxb_dom_interface_document(doc.value);
@@ -1380,8 +1388,12 @@ struct SourceCompiler {
         for(size_t candidate_at=0;candidate_at<candidates.size();++candidate_at) {
             const auto& candidate=candidates[candidate_at];
             bool possible=false;
-            for(const auto& required:candidate.alternatives) {
-                if(std::all_of(required.begin(),required.end(),[&](const auto& key){return present.contains(std::string_view(key).substr(2));})) {possible=true;break;}
+            if(candidate_at<alternative_slots.size()) {
+                for(const auto& required:alternative_slots[candidate_at]) {
+                    bool all=true;
+                    for(const auto slot:required) if(index.resolved[slot]==MatchIndex::kNone){all=false;break;}
+                    if(all){possible=true;break;}
+                }
             }
             if(possible) {
                 dc_profile::count("attach.rules");
@@ -1428,6 +1440,13 @@ struct SourceCompiler {
                                 size_t size=0;
                                 const auto* cls=lxb_dom_element_get_attribute(elements[at].dom,bytes("class"),5,&size);
                                 if(cls)std::fprintf(stderr," class=%.*s",static_cast<int>(size),reinterpret_cast<const char*>(cls));
+                            }
+                            if(slow.empty())for(const auto& e:fast) {
+                                const auto at=std::get<0>(e);
+                                size_t local=0;
+                                const auto* name=lxb_dom_element_local_name(elements[at].dom,&local);
+                                std::fprintf(stderr,"\n  fast-only element %u tag=%s local=%.*s",at,elements[at].tag.c_str(),
+                                    static_cast<int>(local),reinterpret_cast<const char*>(name));
                             }
                             std::fprintf(stderr,"\n");
                             for(size_t i=0;i<std::max(fast.size(),slow.size())&&i<4;++i) {
@@ -1740,7 +1759,7 @@ int dc_compile_styled_configured(const dc_document* input,dc_stylesheets* sheets
             const auto* sheet=sheets->sheets[indices[i]];
             result->unsupported += sheet->unsupported;
             SourceCompiler compiler{input->storage,*result,static_cast<uint32_t>(i),*options};
-            compiler.compile(input->storage.sources[i],sheet->candidates,sheet->programs,sheet->matcher,
+            compiler.compile(input->storage.sources[i],sheet->candidates,sheet->programs,sheet->matcher,sheet->alternative_slots,
         sheet->generated,sheet->declaration_texts,sheets->verify_candidates);
         }
         result->resolved=std::make_unique<dictionary_core::ResolvedStyles>(dc_prepared_document_view(result.get()));
