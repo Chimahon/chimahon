@@ -141,7 +141,7 @@ internal class LookupReplayTimings(
         /** Bounded allowlist: the marks that explain a replay sample, not the whole profile stream. */
         val RETAINED_PHASES = setOf(
             "plan.queued", "plan.config", "plan.prepare", "plan.ready",
-            "plan.ui.await", "plan.ui.resume", "plan.ui.publish", "plan.ui.partial",
+            "plan.ui.await", "plan.ui.resume", "plan.ui.publish", "plan.native.batch", "plan.ui.partial",
             "document.attached", "document.bind", "document.first_measure", "document.first_layout",
             "document.first_draw.begin", "document.first_draw", "document.first_paint",
             "document.frame_commit", "document.frame_presented",
