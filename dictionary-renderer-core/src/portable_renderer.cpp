@@ -1,4 +1,5 @@
-#include "portable_renderer.h"
+﻿#include "portable_renderer.h"
+#include "profile.hpp"
 #include "portable_color_glyph.hpp"
 #include <hb.h>
 #include <hb-ot.h>
@@ -345,6 +346,7 @@ struct dc_portable_document {
         runs.push_back(std::move(run));
     }
     void measure(float pixel_scale) {
+        DC_PROFILE("measure.total");
         require(!measured, "Portable measurement is single-use");
         require(std::isfinite(pixel_scale) && pixel_scale > 0, "Invalid measurement pixel scale");
         auto v = dc_drawing_plan_view(plan);
@@ -372,6 +374,7 @@ struct dc_portable_document {
                 j += cp > 0xffff ? 2 : 1;
             }
             if (simple) {
+                DC_PROFILE("measure.faces");
                 for (uint32_t j = c.start; j < c.start + c.count;) {
                     const auto cp = codepoint(v.text, v.text_count, j);
                     const uint32_t width = cp > 0xffff ? 2 : 1;
@@ -380,6 +383,7 @@ struct dc_portable_document {
                 }
             } else {
                 boundaries.resize(c.count);
+                DC_PROFILE("measure.graphemes");
                 set_graphemebreaks_utf16(v.text+c.start, c.count, "ja", boundaries.data());
                 for (uint32_t from = 0; from < c.count;) {
                     auto until = from + 1;
@@ -391,6 +395,7 @@ struct dc_portable_document {
             }
             if (!(c.annotation & 1)) {
                 boundaries.resize(c.count);
+                DC_PROFILE("measure.linebreak");
                 set_linebreaks_utf16(v.text + c.start, c.count, "ja", boundaries.data());
                 for (uint32_t j = 0; j < c.count; ++j) v.breaks[c.start + j] = boundaries[j] <= LINEBREAK_ALLOWBREAK;
                 v.breaks[c.start + c.count - 1] = 1;
@@ -406,6 +411,7 @@ struct dc_portable_document {
                 j += cp > 0xffff ? 2 : 1;
             }
             if (rtl) {
+                DC_PROFILE("measure.bidi");
                 const SBCodepointSequence sequence{SBStringEncodingUTF16, v.text + c.start, c.count};
                 auto algorithm = SBAlgorithmCreate(&sequence);
                 require(algorithm != nullptr, "Cannot allocate bidi analysis");
@@ -422,6 +428,7 @@ struct dc_portable_document {
             }
         }
         const auto facts = dc_drawing_font_facts(plan);
+        DC_PROFILE("measure.facts");
         faces.front()->load();
         for (size_t i = 0; i < facts.font_count; ++i) {
             const auto &font = v.fonts[facts.styles[i]];
@@ -451,7 +458,11 @@ struct dc_portable_document {
             (void)font;
         }
         dc_error error{};
-        if (dc_drawing_apply_font_facts(plan, &error)) throw std::runtime_error(error.message);
+        {
+            DC_PROFILE("measure.apply");
+            if (dc_drawing_apply_font_facts(plan, &error)) throw std::runtime_error(error.message);
+        }
+        DC_PROFILE("measure.shape");
         auto buffer = hb_buffer_create();
         require(buffer != nullptr, "Cannot allocate shaping buffer");
         for (size_t i = 0; i < v.shaping_run_count; ++i) {
@@ -607,12 +618,13 @@ int dc_portable_measure(dc_portable_document *doc, float pixel_scale, dc_error *
 }
 int dc_portable_raster(dc_portable_document *doc, uint32_t source, float scale, float sx, float sy,
     uint32_t width, uint32_t height, uint8_t *pixels, size_t stride, dc_error *error) {
-    return guarded(error, [&] { require(doc != nullptr, "Closed portable document"); doc->raster(source, scale, sx, sy, width, height, pixels, stride); });
+    return guarded(error, [&] { DC_PROFILE("raster.total"); require(doc != nullptr, "Closed portable document"); doc->raster(source, scale, sx, sy, width, height, pixels, stride); });
 }
 void dc_portable_destroy(dc_portable_document *doc) { delete doc; }
 int dc_portable_raster_tinted(dc_portable_document *doc, uint32_t source, float scale, float sx, float sy,
     uint32_t width, uint32_t height, uint8_t *pixels, size_t stride, uint32_t text_color, int override_color, dc_error *error) {
     return guarded(error, [&] {
+        DC_PROFILE("raster.total");
         require(doc != nullptr, "Closed portable document");
         doc->raster(source, scale, sx, sy, width, height, pixels, stride, override_color ? &text_color : nullptr);
     });

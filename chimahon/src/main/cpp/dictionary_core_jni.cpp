@@ -3,8 +3,13 @@
 #include "drawing_plan.h"
 #include "styled_document.h"
 #include "portable_renderer.h"
+#include "profile.hpp"
 #include "android_dictionary_fonts.h"
+#if defined(__ANDROID__)
+#include <sys/system_properties.h>
+#endif
 #include <android/bitmap.h>
+#include <atomic>
 #include <chrono>
 #include <climits>
 #include <cstdio>
@@ -15,6 +20,15 @@
 #include <vector>
 
 namespace {
+thread_local bool profiling = false;
+bool profiling_enabled() {
+#if defined(__ANDROID__)
+    char value[PROP_VALUE_MAX] = {};
+    return __system_property_get("debug.chima.profile", value) > 0 && value[0] == '1';
+#else
+    return false;
+#endif
+}
 template <class T, auto Destroy> using Owned = std::unique_ptr<T, decltype(Destroy)>;
 struct Context {
     Owned<dc_stylesheets, dc_stylesheets_destroy> sheets{nullptr, dc_stylesheets_destroy};
@@ -93,6 +107,9 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
         if (!input || !typed || !indices || !widths)
             throw std::invalid_argument("Null drawing batch");
         auto &c = object<Context>(context);
+        static std::atomic<int64_t> next_profile{1};
+        profiling = profiling_enabled();
+        if (profiling) dc_profile::begin(next_profile.fetch_add(1));
         const auto count = env->GetArrayLength(input);
         if (env->GetArrayLength(typed) != count || env->GetArrayLength(indices) != count || env->GetArrayLength(widths) != count)
             throw std::invalid_argument("Drawing batch lengths differ");
@@ -299,6 +316,10 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_finishDr
         failure(env, e.what());
     } catch (...) {
         failure(env, "Drawing layout failed");
+    }
+    if (profiling) {
+        dc_profile::end();
+        profiling = false;
     }
 }
 extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_measurePortable(
@@ -643,4 +664,12 @@ extern "C" JNIEXPORT jfloatArray JNICALL Java_chimahon_renderer_DictionaryCore_d
         return result;
     } catch (const std::exception &e) { failure(env, e.what()); }
     return nullptr;
+}
+
+extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_profileBegin(JNIEnv *, jobject, jlong id) {
+    dc_profile::begin(id);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_profileEnd(JNIEnv *, jobject) {
+    dc_profile::end();
 }

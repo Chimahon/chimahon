@@ -1,4 +1,5 @@
-#include "drawing_plan.h"
+﻿#include "drawing_plan.h"
+#include "profile.hpp"
 #include "css_numeric.hpp"
 #include "resolved_style.hpp"
 #include <algorithm>
@@ -939,6 +940,7 @@ void release(void *, uint64_t) {}
 } // namespace
 int dc_drawing_begin(const dc_prepared_document *input, const float *widths, size_t count, uint32_t fg, uint32_t border,
                      dc_drawing_plan **output, dc_error *error) {
+    DC_PROFILE("draw.begin");
     if (output)
         *output = nullptr;
     try {
@@ -970,6 +972,7 @@ dc_font_facts_view dc_drawing_font_facts(dc_drawing_plan *d) {
             d->punctuation_probes.data(), d->punctuation_types.data(), d->punctuation_types.size()};
 }
 int dc_drawing_apply_font_facts(dc_drawing_plan *d, dc_error *error) {
+    DC_PROFILE("draw.facts");
     try {
         if (!d || d->finished) throw std::invalid_argument("Invalid drawing font facts target");
         for (size_t i = 0; i < d->requests.size(); ++i)
@@ -988,6 +991,7 @@ int dc_drawing_apply_font_facts(dc_drawing_plan *d, dc_error *error) {
     }
 }
 int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
+    DC_PROFILE("draw.finish");
     try {
         if (!d || d->finished)
             throw std::invalid_argument("Drawing finish is single-use");

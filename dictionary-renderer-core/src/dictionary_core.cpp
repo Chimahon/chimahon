@@ -1,4 +1,5 @@
 #include "document_storage.hpp"
+#include "profile.hpp"
 #include <rapidjson/reader.h>
 #include <rapidjson/memorystream.h>
 #include <rapidjson/error/en.h>
@@ -182,6 +183,7 @@ int dc_prepare_mixed(const dc_source* sources, const dc_typed_source *typed, siz
     }
     size_t source = 0;
     try {
+        DC_PROFILE("prep.total");
         auto result = std::make_unique<dc_document>();
         auto& storage = result->storage;
         size_t bytes = 0;
@@ -197,6 +199,7 @@ int dc_prepare_mixed(const dc_source* sources, const dc_typed_source *typed, siz
         rapidjson::Reader reader;
         for (; source < count; ++source) {
             if (typed && typed[source].data) {
+                DC_PROFILE("prep.typed");
                 typed_source(storage, typed[source]);
                 continue;
             }
@@ -205,20 +208,24 @@ int dc_prepare_mixed(const dc_source* sources, const dc_typed_source *typed, siz
             const auto root = checked_index(storage.tokens.size());
             const bool json = first != std::string_view::npos && (input[first] == '[' || input[first] == '{');
             if (json) {
+                DC_PROFILE("prep.json");
                 rapidjson::MemoryStream stream(input.data(), input.size());
                 if (!reader.Parse<rapidjson::kParseValidateEncodingFlag>(stream, handler)) {
                     if (error) error->offset = reader.GetErrorOffset();
                     throw std::runtime_error(rapidjson::GetParseError_En(reader.GetParseErrorCode()));
                 }
             } else if(input.find('<') != std::string_view::npos) {
+                DC_PROFILE("prep.html");
                 html_source(storage,input);
                 ++storage.counts.html_sources;
             } else {
+                DC_PROFILE("prep.plain");
                 storage.scalar(Kind::string,input);
                 ++storage.counts.plain_sources;
             }
             storage.finish_source(root, json || input.find('<') != std::string_view::npos);
         }
+        DC_PROFILE("prep.finish");
         storage.finish();
         *output = result.release();
         return 0;

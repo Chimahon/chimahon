@@ -76,6 +76,7 @@ public class NativeCoreCompiler(
         val context = context(inputs.map { it.css }, style, dark, expanded)
         trace.checkpoint("configuration")
         val start = System.nanoTime()
+        if (profilingId != 0L) DictionaryCore.profileBegin(profilingId * 1000 + workerId)
         val handle = DictionaryCore.prepareDrawing(context.handle, inputs.map { it.raw }.toTypedArray(),
             Array(inputs.size) { nativeCardTape(inputs[it].identity) }, context.sourceSheets,
             FloatArray(inputs.size) { inputs[it].width / density.density }, style.color.toArgb(), border.toArgb())
@@ -151,6 +152,7 @@ public class NativeCoreCompiler(
             if (trace.enabled) trace.report("backend=portable-cpp retained=true sources=${inputs.size} utf16=${counts[2]} requests=${counts[3]} shapingGroups=${counts[15]} paragraphs=${counts[11]} rubyPairs=${counts[12]} platformShapeCalls=0")
             return documents
         } finally {
+            if (profilingId != 0L) DictionaryCore.profileEnd()
             if (!transferred) {
                 val drawing = owner
                 if (drawing != null) drawing.close() else DictionaryCore.closeDrawing(handle)
