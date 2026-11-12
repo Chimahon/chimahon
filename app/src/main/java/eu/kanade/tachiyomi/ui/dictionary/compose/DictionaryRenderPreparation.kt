@@ -112,6 +112,9 @@ class DictionaryPlanPreparation internal constructor(
 /** One live history frame owns its preparation, including environment-triggered replacements. */
 class DictionaryPlanSlot internal constructor(private val scope: CoroutineScope,
     private var preparation: DictionaryPlanPreparation? = null) {
+    /** First card published before the plan is complete; the popup shows it while it waits. */
+    internal val partial = androidx.compose.runtime.mutableStateOf<RenderPlan?>(null)
+    internal fun current(): DictionaryPlanPreparation? = preparation
     internal fun matching(builder: DictionaryPlanBuilder, results: List<LookupResult>,
         styles: List<DictionaryStyle>, entryJsons: List<String>?): DictionaryPlanPreparation? =
         preparation?.takeIf { it.matches(builder, results, styles, entryJsons) }
@@ -122,7 +125,9 @@ class DictionaryPlanSlot internal constructor(private val scope: CoroutineScope,
         firstFrame: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(0)): DictionaryPlanPreparation {
         matching(builder, results, styles, entryJsons)?.let { return it }
         preparation?.cancel()
-        return builder.start(scope, results, styles, id, cards, entryJsons, onPartial, firstFrame).also { preparation = it }
+        return builder.start(scope, results, styles, id, cards, entryJsons,
+            onPartial = { published -> partial.value = published; onPartial(published) },
+            firstFrame).also { preparation = it }
     }
 
     internal fun cancel() { preparation?.cancel() }

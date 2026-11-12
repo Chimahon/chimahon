@@ -327,6 +327,12 @@ fun DictionaryEntryCompose(
     val firstFrame = remember(builder, results, styles, entryJsons, isLoading, profilingId, planSlot) {
         java.util.concurrent.CountDownLatch(1)
     }
+    /* A plan prepared by the host publishes its first card before it is complete; show that card
+       while the popup waits for the finished plan. */
+    LaunchedEffect(planSlot?.partial?.value) {
+        val partial = planSlot?.partial?.value ?: return@LaunchedEffect
+        if (!preparationFinished.get()) planState.value = partial
+    }
     LaunchedEffect(builder, results, styles, entryJsons, resultsAreOrdered, isLoading, profilingId, planSlot) {
         if (isLoading) {
             return@LaunchedEffect

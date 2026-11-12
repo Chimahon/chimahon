@@ -538,18 +538,18 @@ fun OcrLookupPopup(
         contentReady = false
 
         fun handleResult(result: chimahon.DictionaryRepository.LookupResult2, orderedResults: List<LookupResult>, lookupStart: Long,
-            preparedCards: DictionaryCardPreparation? = null, preparedPlan: DictionaryPlanPreparation? = null) {
+            preparedCards: DictionaryCardPreparation? = null, preparedSlot: DictionaryPlanSlot? = null) {
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.main.resume")
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "popup.renderer",
                 "renderer=$rendererLabel generation=$generation recursive=$isRecursive")
             if (generation != lookupGeneration || nativeLookup && (!visibleRef.value || requestInput !== lookupInputRef.value)) {
                 preparedCards?.cancel()
-                preparedPlan?.cancel()
+                preparedSlot?.cancel()
                 return
             }
             if (isRecursive && result.results.isEmpty()) {
                 preparedCards?.cancel()
-                preparedPlan?.cancel()
+                preparedSlot?.cancel()
                 // A miss leaves the parent frame active, including its freshness gate.
                 lookupPublication = LookupPublication(generation, requestInput)
                 lastRenderedLookupGeneration = generation
@@ -568,7 +568,7 @@ fun OcrLookupPopup(
                 mediaDataUris = result.mediaDataUris,
                 existingExpressions = emptySet(),
                 profilingId = result.profilingId,
-                planSlot = if (nativeLookup) DictionaryPlanSlot(scope, preparedPlan) else null,
+                planSlot = if (nativeLookup) preparedSlot else null,
             )
 
             // Truncate any forward history past the current index, then push
@@ -577,7 +577,7 @@ fun OcrLookupPopup(
             lookupStackState.stack.drop(retained.size).forEach { it.planSlot?.cancel() }
             val truncated = retained + frame
             cardPreparation = preparedCards
-            renderPreparation = preparedPlan
+            renderPreparation = preparedSlot?.current()
             lookupStackState = LookupStackState(stack = truncated, activeIndex = truncated.size - 1)
             lookupPublication = LookupPublication(generation, requestInput)
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "results.publish")
@@ -691,11 +691,15 @@ fun OcrLookupPopup(
                             getDictionaryTitle(context, it)
                         }
                     } else null
-                    val plan = if (preparation != null) {
-                        checkNotNull(planBuilder).start(scope, ordered, result.styles,
-                            result.profilingId, preparation, entryJsons)
+                    val slot = if (preparation != null) {
+                        /* Started through a slot so its first card can be published to the popup
+                           before the whole plan is ready. */
+                        DictionaryPlanSlot(scope).also { created ->
+                            created.start(checkNotNull(planBuilder), ordered, result.styles,
+                                result.profilingId, preparation, entryJsons)
+                        }
                     } else null
-                    Result.success(result to Triple(ordered, preparation, plan))
+                    Result.success(result to Triple(ordered, preparation, slot))
                 } catch (error: Exception) {
                     preparation?.cancel()
                     if (error is CancellationException) throw error
@@ -708,7 +712,7 @@ fun OcrLookupPopup(
                 errorMessage = null
                 try {
                     val (result, prepared) = preparing.await().getOrThrow()
-                    val (orderedResults, preparedCards, preparedPlan) = prepared
+                    val (orderedResults, preparedCards, preparedPlanSlot) = prepared
                     Log.i(
                         "DictPerf",
                         "popup lookup='$finalQuery' recursive=$isRecursive " +
@@ -719,7 +723,7 @@ fun OcrLookupPopup(
                             "stale=${generation != lookupGeneration}",
                     )
                     if (generation == lookupGeneration) ownedLookup = null
-                    handleResult(result, orderedResults, lookupStart, preparedCards, preparedPlan)
+                    handleResult(result, orderedResults, lookupStart, preparedCards, preparedPlanSlot)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     if (generation != lookupGeneration) return@launch
@@ -1640,6 +1644,7 @@ fun OcrLookupPopup(
                             historyScrollState = historyScrollState,
                             cardPreparation = cardPreparation,
                             renderPreparation = renderPreparation,
+
                             planSlot = currentFrame?.planSlot,
                             viewportWidthPx = with(density) { actualWidthDp.roundToPx() },
                             profilingId = currentFrame?.profilingId ?: 0L,
