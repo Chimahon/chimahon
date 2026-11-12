@@ -58,9 +58,6 @@ public class NativeCoreCompiler(
         return BatchContext(handle, sourceSheets).also { batch = it }
     }
 
-    public fun warm(css: List<String>, style: TextStyle, dark: Boolean = false, expanded: Boolean = false) {
-        context(css, style, dark, expanded)
-    }
 
     public fun prepare(raw: String, cssText: String, style: TextStyle, width: Int,
         dark: Boolean = false, expanded: Boolean = false, identity: List<StructuredNode> = emptyList(),

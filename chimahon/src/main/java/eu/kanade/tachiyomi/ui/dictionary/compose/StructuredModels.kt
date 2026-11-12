@@ -2,21 +2,6 @@ package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import androidx.compose.runtime.Immutable
 
-/** Mirrors renderer.js's sc-prefixed DOMStringMap key conversion, not CSS property camel-casing. */
-internal fun structuredDataName(key: String): String? {
-    if (key == "class") return key
-    if (key.indices.any { key[it] == '-' && key.getOrNull(it + 1)?.let { next -> next in 'a'..'z' } == true }) return null
-    if (key.isEmpty()) return key
-    if (key[0] in 'a'..'z' && key.none { it in 'A'..'Z' }) return key
-    return buildString {
-        val name = key.take(1).uppercase() + key.substring(1)
-        for (char in name) {
-            if (char in 'A'..'Z') { if (isNotEmpty()) append('-'); append(char.lowercaseChar()) }
-            else append(char)
-        }
-    }.removePrefix("-")
-}
-
 /**
  * A parsed structured-glossary element tree. Mirrors the DOM that `renderer.js` builds from
  * a dictionary's JSON `structured-content`, preserving every attribute needed to apply
@@ -24,9 +9,6 @@ internal fun structuredDataName(key: String): String? {
  */
 @Immutable
 sealed interface StructuredNode {
-    @Immutable
-    data object TextBreak : StructuredNode
-
     @Immutable
     data class Text(val text: String) : StructuredNode
 
@@ -138,13 +120,4 @@ data class StructuredAttributes(
             data["class"]?.let { c -> out.addAll(c.split(" ").filter { it.isNotBlank() }) }
             return out
         }
-}
-
-/** A single parsed glossary line (entry), produced by [GlossaryJsonParser]. */
-@Immutable
-sealed interface StructuredEntry {
-    @Immutable
-    data class Tree(val nodes: List<StructuredNode>) : StructuredEntry
-    @Immutable
-    data object PlainText : StructuredEntry
 }

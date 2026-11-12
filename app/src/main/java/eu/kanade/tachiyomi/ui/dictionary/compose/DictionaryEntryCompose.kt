@@ -710,10 +710,6 @@ internal suspend fun buildCards(
     return out.map { it.finish() }
 }
 
-/**
- * Raw source identity only; actual parsing is owned by the native batch compiler.
- */
-internal fun parseGlossaryNodes(glossary: String): List<StructuredNode> = nativeCoreSource(glossary)
 
 /**
  * Expressions already in Anki, provided at the [DictionaryEntryCompose] root and read ONLY by

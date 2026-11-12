@@ -24,19 +24,6 @@ public fun dictionaryBaseStyle(color: Color, fontSize: Int, fontFamily: FontFami
         ),
     )
 
-private val QUERY_PARAM_REGEX = Regex("[?&]([^=]+)=([^&]+)")
-
-public fun extractQuery(href: String): String? {
-    val params = QUERY_PARAM_REGEX.findAll(href)
-    return params.asSequence().mapNotNull { m ->
-        if (m.groupValues[1] == "query") m.groupValues[2].replace("+", " ") else null
-    }.firstOrNull()?.let { raw ->
-        // WebView's URLSearchParams.get() percent-decodes; match it so kanji
-        // queries (`?query=%E4%B8%80…`) look up instead of missing.
-        runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
-    }
-}
-
 public fun resolveMediaUri2(dictName: String, path: String, map: Map<String, String>): String? {
     if (path.startsWith("data:image/")) return path
     if (map.isEmpty()) return null

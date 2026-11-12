@@ -112,113 +112,6 @@ import kotlin.math.roundToInt
 /** Fire-and-forget scope for Anki mining jobs — survives popup dismissals */
 private val miningScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-/**
- * Tracks ready-container drawing and subsequent callback activity. This is not proof of display
- * presentation or completion of every visible glossary/image. Native glossary first-draw and
- * frame-commit events are emitted by NativeGlossaryView and correlated separately in the report.
- */
-private object ContentFrameTracer {
-    private var profilingId = 0L
-    /** Consecutive frames that drew nothing new before the popup counts as settled. */
-    private const val SETTLE_FRAMES = 4
-
-    /** Give up watching after this long so a permanently animating popup cannot log forever. */
-    private const val WATCH_MS = 4000L
-
-    // System.nanoTime() when armed. Choreographer's frameTimeNanos uses the same CLOCK_MONOTONIC
-    // domain, so popupToContent/Settled are real durations. SystemClock.elapsedRealtime() is a
-    // different domain (advances during deep sleep) and produced multi-day negatives against it.
-    private var start = 0L
-    private var label = ""
-    private var terms = 0
-    private var armed = false
-    private var sawContent = false
-    private var frames = 0
-    private var stable = 0
-    private var lastHeight = Int.MIN_VALUE
-    private var drewSinceFrame = false
-    private var settledLogged = false
-
-    private val callback = object : android.view.Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
-            if (!armed) return
-            val elapsedMs = (frameTimeNanos - start) / 1_000_000L
-            if (elapsedMs > WATCH_MS) {
-                Log.i("DictPerf", "watchTimeout lookup='$label' afterMs=$elapsedMs frames=$frames settled=$settledLogged")
-                disarm()
-                return
-            }
-
-            if (!sawContent) {
-                // Only claim a content frame once a draw has proven content exists. Until then this
-                // is still the spinner, and reporting it is exactly the bug this replaced.
-                if (drewSinceFrame) {
-                    sawContent = true
-                    chimahon.diagnostics.LookupProfiler.mark(profilingId, "content.container.callback")
-                    Log.i(
-                        "DictPerf",
-                        "containerFrame lookup='$label' popupToReadyContainerCallbackMs=$elapsedMs terms=$terms notPresentation=true",
-                    )
-                }
-            } else {
-                frames++
-                if (drewSinceFrame) stable = 0 else stable++
-                if (stable >= SETTLE_FRAMES && !settledLogged) {
-                    settledLogged = true
-                    Log.i(
-                        "DictPerf",
-                        "settled lookup='$label' popupToSettledMs=$elapsedMs terms=$terms frames=$frames",
-                    )
-                    disarm()
-                    return
-                }
-            }
-
-            drewSinceFrame = false
-            android.view.Choreographer.getInstance().postFrameCallback(this)
-        }
-    }
-
-    fun arm(startAt: Long, query: String, termCount: Int, requestId: Long = 0) {
-        disarm()
-        profilingId = requestId
-        if (startAt == 0L) return
-        armed = false
-        start = startAt
-        label = query
-        terms = termCount
-        sawContent = false
-        frames = 0
-        stable = 0
-        lastHeight = Int.MIN_VALUE
-        drewSinceFrame = false
-        settledLogged = false
-        armed = true
-        android.view.Choreographer.getInstance().postFrameCallback(callback)
-    }
-
-    fun disarm() {
-        armed = false
-        android.view.Choreographer.getInstance().removeFrameCallback(callback)
-    }
-
-    /**
-     * Invoked from `drawWithContent` on the results container, so it only runs when that container
-     * actually drew. A height change means content is still arriving (media decoded, ruby rewrapped,
-     * a table finished measuring), which resets the settle counter.
-     */
-    fun onContentDraw(heightPx: Int) {
-        if (!armed) return
-        if (!sawContent && !drewSinceFrame) chimahon.diagnostics.LookupProfiler.mark(profilingId, "content.container.draw", "height=$heightPx")
-        drewSinceFrame = true
-        if (heightPx != lastHeight) {
-            lastHeight = heightPx
-            stable = 0
-            settledLogged = false
-        }
-    }
-}
-
 /** One entry in the recursive-lookup history stack. */
 private data class LookupFrame(
     val id: String = UUID.randomUUID().toString(),
@@ -583,16 +476,6 @@ fun OcrLookupPopup(
             chimahon.diagnostics.LookupProfiler.mark(result.profilingId, "results.publish")
             errorMessage = result.error
 
-            // Arm popup -> content-frame tracing now that results are published. The popup owns this
-            // clock: traversal, composition and draw happen here, while lookup origin timestamps live
-            // in whichever host opened the popup.
-            ContentFrameTracer.arm(
-                java.lang.System.nanoTime(),
-                finalQuery,
-                orderedResults.size,
-                result.profilingId,
-            )
-
             isLoading = false
 
             if (!isRecursive && orderedResults.isNotEmpty()) {
@@ -628,10 +511,6 @@ fun OcrLookupPopup(
                             )
                             lookupStackState = lookupStackState.copy(stack = stack)
                         }
-                        Log.i(
-                            "DictionaryPopup",
-                            "anki_check_ms=${android.os.SystemClock.elapsedRealtime() - lookupStart} expressions=${uniqueExpressions.size}",
-                        )
                     }
                 }
             }
@@ -639,7 +518,7 @@ fun OcrLookupPopup(
             // Load media in background
             scope.launch(Dispatchers.IO) {
                 val media = chimahon.diagnostics.LookupProfiler.operation("popup.media.load") {
-                    chimahon.diagnostics.LookupProfiler.section(result.profilingId, "media.load") { repository.loadMediaAsync(finalQuery, orderedResults) }
+                    chimahon.diagnostics.LookupProfiler.section(result.profilingId, "media.load") { repository.loadMediaAsync(orderedResults) }
                 }
                 if (media.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
@@ -713,15 +592,6 @@ fun OcrLookupPopup(
                 try {
                     val (result, prepared) = preparing.await().getOrThrow()
                     val (orderedResults, preparedCards, preparedPlanSlot) = prepared
-                    Log.i(
-                        "DictPerf",
-                        "popup lookup='$finalQuery' recursive=$isRecursive " +
-                            "ms=${android.os.SystemClock.elapsedRealtime() - lookupStart} " +
-                            "terms=${result.results.size} " +
-                            "dicts=${result.results.flatMap { r -> r.term.glossaries.map { it.dictName } }.distinct().size} " +
-                            "cssBytes=${result.styles.sumOf { it.styles.length }} " +
-                            "stale=${generation != lookupGeneration}",
-                    )
                     if (generation == lookupGeneration) ownedLookup = null
                     handleResult(result, orderedResults, lookupStart, preparedCards, preparedPlanSlot)
                 } catch (e: Exception) {
@@ -744,12 +614,6 @@ fun OcrLookupPopup(
                 val result = deferred.getCompleted()
                 val orderedResults = chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") { orderLookupResultsForDisplay(result.results, activeProfile, context) }
                 if (generation == lookupGeneration) ownedLookup = null
-                Log.i(
-                    "DictPerf",
-                    "popup(pre-completed) lookup='$finalQuery' recursive=$isRecursive " +
-                        "ms=${android.os.SystemClock.elapsedRealtime() - lookupStart} " +
-                        "terms=${result.results.size}",
-                )
                 handleResult(result, orderedResults, lookupStart)
             } catch (e: Exception) {
                 if (generation != lookupGeneration) return
@@ -1680,14 +1544,7 @@ fun OcrLookupPopup(
                             resultsAreOrdered = true,
                             onContentReadyChange = composeContentReady,
                             onPlanReady = composePlanReady,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                // Gate container callbacks on readiness; actual glossary drawing is
-                                // measured inside NativeGlossaryView, not inferred from this box.
-                                .drawWithContent {
-                                    drawContent()
-                                    if (contentReady) ContentFrameTracer.onContentDraw(size.height.toInt())
-                                },
+                            modifier = Modifier.fillMaxSize(),
                         )
                         }
                     } else if (webView != null) {

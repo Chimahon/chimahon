@@ -1,6 +1,5 @@
 package chimahon
 
-import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import chimahon.anki.AnkiProfile
@@ -124,7 +123,6 @@ class DictionaryRepository(
 
     fun lookup(query: String, paths: DictionaryPaths, languageCode: String = "", profilingId: Long = 0): LookupResult2 {
         val requestId = profilingId.takeIf { it != 0L } ?: LookupProfiler.start(query)
-        val t0 = SystemClock.elapsedRealtime()
 
         // Warm up BEFORE taking the read lock. `ReentrantReadWriteLock` cannot upgrade a held read
         // lock to a write lock, so calling warmUp from inside readLocked would deadlock whenever a
@@ -144,8 +142,6 @@ class DictionaryRepository(
                 error = null,
                 profilingId = requestId,
             )
-
-            val tLookupStart = SystemClock.elapsedRealtime()
 
         val effectiveLang = languageCode.lowercase()
 
@@ -194,14 +190,7 @@ class DictionaryRepository(
             nativeLookup()
         }
 
-        val lookupMs = SystemClock.elapsedRealtime() - tLookupStart
-
         // Media loading is now deferred — don't block on I/O here
-        val totalMs = SystemClock.elapsedRealtime() - t0
-        Log.i(
-            "DictionaryRepo",
-            "lookup_ms=$totalMs lookup_hoshidicts_ms=$lookupMs results=${results.size}",
-        )
         // Last expression, not a `return`: a non-local return would make the lambda's inferred type
         // Nothing and `readLocked` would fail to unify with LookupResult2.
         LookupResult2(
@@ -245,10 +234,6 @@ class DictionaryRepository(
                 coalescedLookup = null
                 LookupProfiler.mark(pending.result.profilingId, "repo.coalesced")
                 LookupProfiler.mark(profilingId, "request.coalesced", "source=${pending.result.profilingId}")
-                Log.i(
-                    "DictionaryRepo",
-                    "lookup_coalesced query='$query' results=${pending.result.results.size}",
-                )
                 return pending.result
             }
         }
@@ -297,16 +282,9 @@ class DictionaryRepository(
         }
     }
 
-    fun loadMediaAsync(query: String, results: List<LookupResult>): Map<String, String> = readLocked {
-        val t0 = SystemClock.elapsedRealtime()
+    fun loadMediaAsync(results: List<LookupResult>): Map<String, String> = readLocked {
         val activeSession = session ?: return emptyMap()
-        val mediaDataUris = buildMediaDataUris(activeSession, results)
-        val mediaMs = SystemClock.elapsedRealtime() - t0
-        Log.i(
-            "DictionaryRepo",
-            "loadMediaAsync_ms=$mediaMs query='$query' media_count=${mediaDataUris.size}",
-        )
-        return mediaDataUris
+        buildMediaDataUris(activeSession, results)
     }
 
     fun queryKanji(char: String): KanjiResult? = readLocked {
@@ -435,11 +413,6 @@ class DictionaryRepository(
                 candidates += it.replace('\\', '/')
             }
         return candidates
-    }
-
-    private fun currentUsedRamMb(): Long {
-        val rt = Runtime.getRuntime()
-        return (rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L)
     }
 
     data class LookupResult2(

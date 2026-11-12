@@ -428,7 +428,7 @@ struct Part {
     std::vector<Comb> links;          /* links[i] joins compounds[i] to compounds[i+1] */
     lxb_css_selector_specificity_t specificity = 0;
 };
-struct Rule { bool supported = false; uint8_t reason = 0; std::vector<Part> parts; };
+struct Rule { bool supported = false; std::vector<Part> parts; };
 struct Table {
     std::vector<std::string> names;
     std::vector<uint8_t> kinds;
@@ -466,16 +466,16 @@ void add_key(Rule& rule, Table& table, Compound& compound, Kind kind,
 }
 void compile(const lxb_css_rule_style_t* rule, Table& table, Rule& out) {
     out = Rule{};
-    if (!rule || !rule->selector) { out.reason = 1; return; }
+    if (!rule || !rule->selector) return;
     for (auto* list = rule->selector; list; list = list->next) {
-        if (!list->first || !list->last) { out.reason = 2; return; }
+        if (!list->first || !list->last) return;
         Part part;
         std::vector<Compound> compounds;
         std::vector<Comb> combs;
         Compound current;
         uint32_t ids = 0, classes = 0, types = 0;
         for (auto* sel = list->last; sel; sel = sel->prev) {
-            if (sel->ns.length) { out.reason = 3; return; }
+            if (sel->ns.length) return;
             switch (sel->type) {
                 case LXB_CSS_SELECTOR_TYPE_ELEMENT: {
                     std::string name(reinterpret_cast<const char*>(sel->name.data), sel->name.length);
@@ -497,20 +497,19 @@ void compile(const lxb_css_rule_style_t* rule, Table& table, Rule& out) {
                     break;
                 }
                 case LXB_CSS_SELECTOR_TYPE_ATTRIBUTE: {
-                    if (sel->u.attribute.modifier != LXB_CSS_SELECTOR_MODIFIER_UNSET) { out.reason = 4; return; }
+                    if (sel->u.attribute.modifier != LXB_CSS_SELECTOR_MODIFIER_UNSET) return;
                     std::string name(reinterpret_cast<const char*>(sel->name.data), sel->name.length);
                     for (auto& c : name) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + 32);
                     const bool presence = sel->u.attribute.value.data == NULL;
                     const std::string_view value = presence ? std::string_view{}
                         : std::string_view(reinterpret_cast<const char*>(sel->u.attribute.value.data), sel->u.attribute.value.length);
-                    if (!presence && value.empty() && sel->u.attribute.match != LXB_CSS_SELECTOR_MATCH_EQUAL) { out.reason = 5; return; }
-                    if (legacy_attribute(name)) { out.reason = 7; return; }
+                    if (!presence && value.empty() && sel->u.attribute.match != LXB_CSS_SELECTOR_MATCH_EQUAL) return;
+                    if (legacy_attribute(name)) return;
                     add_key(out, table, current, Kind::Attr, sel->u.attribute.match, name, value, presence);
                     ++classes;
                     break;
                 }
                 default:
-                    out.reason = static_cast<uint8_t>(100 + static_cast<int>(sel->type));
                     return;  /* pseudo-class, pseudo-element, :not(), universal, ... */
             }
             /* A selector's combinator relates it to the selector on its left; the first selector of
@@ -523,7 +522,7 @@ void compile(const lxb_css_rule_style_t* rule, Table& table, Rule& out) {
                     case LXB_CSS_SELECTOR_COMBINATOR_CHILD: comb = Comb::Child; break;
                     case LXB_CSS_SELECTOR_COMBINATOR_SIBLING: comb = Comb::Sibling; break;
                     case LXB_CSS_SELECTOR_COMBINATOR_FOLLOWING: comb = Comb::Following; break;
-                    default: out.reason = 6; return;
+                    default: return;
                 }
                 compounds.push_back(std::move(current));
                 current = Compound{};
@@ -531,8 +530,8 @@ void compile(const lxb_css_rule_style_t* rule, Table& table, Rule& out) {
             }
         }
         compounds.push_back(std::move(current));
-        if (compounds.size() != combs.size() + 1) { out.reason = 2; return; }
-        for (const auto& compound : compounds) if (compound.keys.empty()) { out.reason = 8; return; }
+        if (compounds.size() != combs.size() + 1) return;
+        for (const auto& compound : compounds) if (compound.keys.empty()) return;
         std::reverse(compounds.begin(), compounds.end());
         std::reverse(combs.begin(), combs.end());
         part.compounds = std::move(compounds);
@@ -543,7 +542,6 @@ void compile(const lxb_css_rule_style_t* rule, Table& table, Rule& out) {
         out.parts.push_back(std::move(part));
     }
     out.supported = !out.parts.empty();
-    if (!out.supported) out.reason = 9;
 }
 }
 struct GeneratedRule { size_t candidate; lxb_css_selector_list_t* list; };
@@ -682,16 +680,6 @@ ParsedSheet* parse_sheet(const dc_css_source& source) {
             slots.push_back(std::move(keys));
         }
         parsed->alternative_slots.push_back(std::move(slots));
-    }
-    if (std::getenv("DC_PROBE_PROGRAMS")) {
-        int supported = 0, reasons[256] = {0};
-        for (const auto& program : parsed->programs) {
-            if (program.supported) ++supported;
-            else ++reasons[program.reason];
-        }
-        std::fprintf(stderr, "PROGRAMS rules=%zu slots=%zu supported=%d\n",
-                     parsed->programs.size(), parsed->matcher.names.size(), supported);
-        for (int i = 0; i < 256; ++i) if (reasons[i]) std::fprintf(stderr, "  reason %d = %d\n", i, reasons[i]);
     }
     return parsed.release();
 }

@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
-import android.os.SystemClock
-import android.util.Log
 import android.util.Base64
 import android.webkit.WebView
 import androidx.compose.foundation.clickable
@@ -863,8 +861,6 @@ data object DictionaryTab : Tab {
                     styles = emptyList(),
                     mediaDataUris = emptyMap(),
                     error = "Unable to access app storage.",
-                    diagnostics = null,
-                    debugDumpDir = null,
                 )
             }
 
@@ -876,8 +872,6 @@ data object DictionaryTab : Tab {
                     styles = emptyList(),
                     mediaDataUris = emptyMap(),
                     error = "No imported dictionaries found. Import one in Settings > Dictionary.",
-                    diagnostics = null,
-                    debugDumpDir = null,
                 )
             }
 
@@ -893,8 +887,6 @@ data object DictionaryTab : Tab {
                     styles = emptyList(),
                     mediaDataUris = emptyMap(),
                     error = e.message ?: "Dictionary lookup failed",
-                    diagnostics = null,
-                    debugDumpDir = null,
                 )
             }
             lookupResult.copy(
@@ -970,36 +962,19 @@ data object DictionaryTab : Tab {
         }
 
         fun lookup(query: String, paths: chimahon.DictionaryPaths, languageCode: String = ""): LookupUiResult {
-            val t0 = SystemClock.elapsedRealtime()
-            val ramBefore = currentUsedRamMb()
-            var sessionCreateMs = 0L
-            var rebuildMs = 0L
-
             // Warm up before taking the read lock: the lock cannot be upgraded read -> write.
             warmUp(paths)
 
             return readLocked {
-                    val hadSession = session != null
-                    // warmUp above guarantees a session exists; creating one under the read lock would
-                    // let two concurrent lookups each create (and leak) a native session.
-                    val activeSession = session ?: return@readLocked LookupUiResult(
-                        results = emptyList(),
-                        styles = cachedStyles,
-                        mediaDataUris = emptyMap(),
-                        error = null,
-                        diagnostics = null,
-                        debugDumpDir = null,
-                    )
-                    if (!hadSession) {
-                        sessionCreateMs = SystemClock.elapsedRealtime() - t0
-                    }
-                    if (paths != configuredPaths) {
-                        // warmUp above already reconciled paths, so reaching here means something
-                        // changed paths in between; report it rather than rebuild under the read lock.
-                        rebuildMs = SystemClock.elapsedRealtime() - t0
-                    }
+                // warmUp above guarantees a session exists; creating one under the read lock would
+                // let two concurrent lookups each create (and leak) a native session.
+                val activeSession = session ?: return@readLocked LookupUiResult(
+                    results = emptyList(),
+                    styles = cachedStyles,
+                    mediaDataUris = emptyMap(),
+                    error = null,
+                )
 
-                    val lookupStart = SystemClock.elapsedRealtime()
                 val effectiveLang = languageCode.lowercase()
                 val genericDeinflector = chimahon.dictionary.DeinflectorRegistry.get(effectiveLang)
                 val results = if (effectiveLang == "ja") {
@@ -1018,35 +993,6 @@ data object DictionaryTab : Tab {
                 } else {
                     HoshiDicts.lookup(activeSession, query, 50, 25).toList()
                 }
-                val lookupMs = SystemClock.elapsedRealtime() - lookupStart
-
-                val totalMs = SystemClock.elapsedRealtime() - t0
-                val cssBytes = cachedStyles.sumOf { it.styles.length }
-                val jsonGlossaryCount = countJsonGlossaries(results)
-                val diagnostics = LookupDiagnostics(
-                    totalMs = totalMs,
-                    sessionCreateMs = sessionCreateMs,
-                    rebuildMs = rebuildMs,
-                    lookupMs = lookupMs,
-                    mediaMs = 0L,
-                    ramBeforeMb = ramBefore,
-                    ramAfterMb = currentUsedRamMb(),
-                    resultCount = results.size,
-                    jsonGlossaryCount = jsonGlossaryCount,
-                    cssBytes = cssBytes,
-                )
-
-                // These were computed on every lookup and then dropped on the floor. Logging them is what
-                // separates "the native lookup was slow" from "the renderer was slow", which the two
-                // failure modes otherwise look identical for in a stack dump.
-                Log.i(
-                    "DictPerf",
-                    "lookup term='$query' total=${diagnostics.totalMs}ms " +
-                        "session=${diagnostics.sessionCreateMs}ms rebuild=${diagnostics.rebuildMs}ms " +
-                        "lookup=${diagnostics.lookupMs}ms results=${diagnostics.resultCount} " +
-                        "jsonGlossaries=${diagnostics.jsonGlossaryCount} cssBytes=${diagnostics.cssBytes} " +
-                        "ram=${diagnostics.ramBeforeMb}->${diagnostics.ramAfterMb}MB",
-                )
 
                 // Last expression, not a `return` - see the note in chimahon.DictionaryRepository.lookup.
                 LookupUiResult(
@@ -1054,8 +1000,6 @@ data object DictionaryTab : Tab {
                     styles = cachedStyles,
                     mediaDataUris = emptyMap(),
                     error = null,
-                    diagnostics = diagnostics,
-                    debugDumpDir = null,
                 )
             }
         }
@@ -1063,19 +1007,6 @@ data object DictionaryTab : Tab {
         fun loadMediaDataUris(results: List<LookupResult>): Map<String, String> = readLocked {
             val activeSession = session ?: return@readLocked emptyMap()
             buildMediaDataUris(activeSession, results)
-        }
-
-        private fun countJsonGlossaries(results: List<LookupResult>): Int {
-            var count = 0
-            results.forEach { lookup ->
-                lookup.term.glossaries.forEach { glossary ->
-                    val text = glossary.glossary.trim()
-                    if (text.startsWith("{") || text.startsWith("[")) {
-                        count++
-                    }
-                }
-            }
-            return count
         }
 
         private fun buildMediaDataUris(activeSession: Long, results: List<LookupResult>): Map<String, String> {
@@ -1183,12 +1114,6 @@ data object DictionaryTab : Tab {
             return candidates
         }
 
-        private fun currentUsedRamMb(): Long {
-            val rt = Runtime.getRuntime()
-            val usedBytes = rt.totalMemory() - rt.freeMemory()
-            return usedBytes / (1024L * 1024L)
-        }
-
         fun close() {
             sessionLock.writeLock().lock()
             try {
@@ -1205,20 +1130,5 @@ data object DictionaryTab : Tab {
         val styles: List<DictionaryStyle>,
         val mediaDataUris: Map<String, String>,
         val error: String?,
-        val diagnostics: LookupDiagnostics?,
-        val debugDumpDir: String?,
-    )
-
-    private data class LookupDiagnostics(
-        val totalMs: Long,
-        val sessionCreateMs: Long,
-        val rebuildMs: Long,
-        val lookupMs: Long,
-        val mediaMs: Long,
-        val ramBeforeMb: Long,
-        val ramAfterMb: Long,
-        val resultCount: Int,
-        val jsonGlossaryCount: Int,
-        val cssBytes: Int,
     )
 }
