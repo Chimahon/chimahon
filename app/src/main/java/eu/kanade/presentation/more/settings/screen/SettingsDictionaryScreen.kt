@@ -603,6 +603,7 @@ object SettingsDictionaryScreen : SearchableSettings {
         val popupSwipeThresholdPref = dictionaryPreferences.popupSwipeThreshold()
         val popupSwipeThreshold by popupSwipeThresholdPref.collectAsState()
         val popupSwipeToDismiss by dictionaryPreferences.popupSwipeToDismiss().collectAsState()
+        val renderer by dictionaryPreferences.renderer().collectAsState()
 
         val paginatedScrolling by dictionaryPreferences.paginatedScrolling().collectAsState()
         val paginatedScrollStepSizePref = dictionaryPreferences.paginatedScrollStepSize()
@@ -675,13 +676,13 @@ object SettingsDictionaryScreen : SearchableSettings {
                 Preference.PreferenceItem.ListPreference(
                     preference = dictionaryPreferences.renderer(),
                     entries = persistentListOf(
-                        DictionaryPreferences.RENDERER_WEBVIEW to "WebView (default)",
-                        DictionaryPreferences.RENDERER_COMPOSE to "Compose (native)",
+                        DictionaryPreferences.RENDERER_WEBVIEW to "WebView",
+                        DictionaryPreferences.RENDERER_COMPOSE to "Native",
                     ).filter { (renderer, _) ->
                         DictionaryPreferences.supportsNativeRenderer || renderer == DictionaryPreferences.RENDERER_WEBVIEW
                     }.associate { it.first to it.second }.toPersistentMap(),
                     title = "Renderer",
-                    subtitle = "Compose renders entries with native text layout instead of a WebView",
+                    subtitle = "Native draws entries without a WebView",
                 ),
             )
             add(
@@ -702,7 +703,7 @@ object SettingsDictionaryScreen : SearchableSettings {
                     ),
                 )
             }
-            if (paginatedScrolling) {
+            if (renderer == DictionaryPreferences.RENDERER_WEBVIEW && paginatedScrolling) {
                 add(
                     Preference.PreferenceItem.SliderPreference(
                         value = paginatedScrollStepSize,
@@ -714,24 +715,26 @@ object SettingsDictionaryScreen : SearchableSettings {
                     ),
                 )
             }
-            add(
-                Preference.PreferenceItem.ListPreference(
-                    preference = dictionaryPreferences.scrollBehavior(),
-                    entries = persistentListOf(
-                        DictionaryPreferences.SCROLL_SMOOTH to "Smooth",
-                        DictionaryPreferences.SCROLL_INSTANT to "Instant",
-                    ).associate { it.first to it.second }.toPersistentMap(),
-                    title = "Scroll behavior",
-                    subtitle = "Controls how floating navigation buttons scroll between entries",
-                ),
-            )
-            add(
-                Preference.PreferenceItem.SwitchPreference(
-                    preference = dictionaryPreferences.volumeKeyNavigation(),
-                    title = "Volume key navigation",
-                    subtitle = "Use volume keys to scroll between dictionary entries",
-                ),
-            )
+            if (renderer == DictionaryPreferences.RENDERER_WEBVIEW) {
+                add(
+                    Preference.PreferenceItem.ListPreference(
+                        preference = dictionaryPreferences.scrollBehavior(),
+                        entries = persistentListOf(
+                            DictionaryPreferences.SCROLL_SMOOTH to "Smooth",
+                            DictionaryPreferences.SCROLL_INSTANT to "Instant",
+                        ).associate { it.first to it.second }.toPersistentMap(),
+                        title = "Scroll behavior",
+                        subtitle = "Controls how floating navigation buttons scroll between entries",
+                    ),
+                )
+                add(
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = dictionaryPreferences.volumeKeyNavigation(),
+                        title = "Volume key navigation",
+                        subtitle = "Use volume keys to scroll between dictionary entries",
+                    ),
+                )
+            }
         }.toPersistentList() as kotlinx.collections.immutable.ImmutableList<Preference.PreferenceItem<out Any, out Any>>
 
         return listOf(
@@ -912,11 +915,17 @@ object SettingsDictionaryScreen : SearchableSettings {
                         title = "E-Ink mode",
                         subtitle = "Removes animations, shadows, and rounded corners for better readability on e-ink displays",
                     ),
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = dictionaryPreferences.paginatedScrolling(),
-                        title = "Paginated scrolling",
-                        subtitle = "Scroll by page-sized steps instead of smooth scrolling",
-                    ),
+                    *if (renderer == DictionaryPreferences.RENDERER_WEBVIEW) {
+                        arrayOf<Preference.PreferenceItem<out Any, out Any>>(
+                            Preference.PreferenceItem.SwitchPreference(
+                                preference = dictionaryPreferences.paginatedScrolling(),
+                                title = "Paginated scrolling",
+                                subtitle = "Scroll by page-sized steps instead of smooth scrolling",
+                            ),
+                        )
+                    } else {
+                        emptyArray()
+                    },
                     Preference.PreferenceItem.CustomPreference(
                         title = stringResource(MR.strings.pref_dict_custom_css),
                         content = {
@@ -1020,16 +1029,22 @@ object SettingsDictionaryScreen : SearchableSettings {
                         title = stringResource(MR.strings.pref_dict_group_terms),
                         subtitle = stringResource(MR.strings.pref_dict_group_terms_summary),
                     ),
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = dictionaryPreferences.compactGlossary(),
-                        title = "Compact glossaries",
-                        subtitle = "Show all senses inline separated by · instead of a numbered list",
-                    ),
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = dictionaryPreferences.showNavigationButtons(),
-                        title = stringResource(KMR.strings.pref_dict_show_navigation_buttons),
-                        subtitle = stringResource(KMR.strings.pref_dict_show_navigation_buttons_summary),
-                    ),
+                    *if (renderer == DictionaryPreferences.RENDERER_WEBVIEW) {
+                        arrayOf<Preference.PreferenceItem<out Any, out Any>>(
+                            Preference.PreferenceItem.SwitchPreference(
+                                preference = dictionaryPreferences.compactGlossary(),
+                                title = "Compact glossaries",
+                                subtitle = "Show all senses inline separated by · instead of a numbered list",
+                            ),
+                            Preference.PreferenceItem.SwitchPreference(
+                                preference = dictionaryPreferences.showNavigationButtons(),
+                                title = stringResource(KMR.strings.pref_dict_show_navigation_buttons),
+                                subtitle = stringResource(KMR.strings.pref_dict_show_navigation_buttons_summary),
+                            ),
+                        )
+                    } else {
+                        emptyArray()
+                    },
                     Preference.PreferenceItem.ListPreference(
                         preference = dictionaryPreferences.recursiveLookupMode(),
                         entries = persistentListOf(
