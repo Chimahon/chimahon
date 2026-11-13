@@ -70,8 +70,6 @@ class SimpleLNReaderSource(
     }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-    // Serializes JS executions of this source (see withPlugin).
-    private val jsMutex = Mutex()
     // Novel: single shared executor per process to avoid thread leak (one per source → 50 threads)
     private var cachedJsCode: String? = if (jsCode.isNotBlank()) jsCode else null
     // Novel: bridgeCache for filters/settings so getFilterList never init QuickJS on main thread
@@ -87,6 +85,12 @@ class SimpleLNReaderSource(
         // are confined here, otherwise evaluate/close land on random pool threads and fail
         // ("Cannot get jni env because the vm is not cached") with thread-luck flakiness.
         private val jsDispatcher = Executors.newSingleThreadExecutor { r -> Thread(r, "LNReader-js").apply { isDaemon = true } }.asCoroutineDispatcher()
+
+        /**
+         * Serializes every plugin JS execution in the process. All sources share
+         * [jsDispatcher], so two runtimes must not open, evaluate or close at once.
+         */
+        private val jsMutex = Mutex()
     }
 
     private suspend fun ensureJsCode(): String {
@@ -130,9 +134,7 @@ class SimpleLNReaderSource(
     }
 
     private suspend fun <T> withPlugin(block: suspend (chimahon.novel.plugin.runtime.NovelPluginInstance) -> T): T {
-        // One JS execution per source at a time: concurrent loads (e.g. Popular
-        // + Latest firing together on first open) created two runtimes sharing
-        // the single JS thread and tripped JNI affinity failures.
+        // One JS execution per process: all runtimes share jsDispatcher.
         return jsMutex.withLock {
             val code = ensureJsCode()
             if (code.isBlank()) throw IllegalStateException("JS code not available for $pluginId (site=$siteUrl codeUrl=$codeUrl)")
