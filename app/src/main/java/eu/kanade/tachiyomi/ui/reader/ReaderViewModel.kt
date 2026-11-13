@@ -210,6 +210,7 @@ class ReaderViewModel @JvmOverloads constructor(
     private data class MokuroChapterData(
         val mokuro: chimahon.ocr.MokuroVolume,
         val imageFiles: List<chimahon.ocr.ImageFileInfo>,
+        val isDownload: Boolean,
     )
 
     private val ocrCacheMutex = Mutex()
@@ -2222,7 +2223,7 @@ class ReaderViewModel @JvmOverloads constructor(
             val mokuro = chimahon.ocr.Mokuro.parseMokuro(content)
                 ?: return@withLock null
 
-            val data = MokuroChapterData(mokuro, imageFiles)
+            val data = MokuroChapterData(mokuro, imageFiles, isDownload = !source.isLocal())
             mokuroChapterCache[chapterId] = data
             logcat { "Mokuro: cached chapter $chapterId with ${mokuro.pages.size} pages, ${imageFiles.size} images" }
             data
@@ -2233,11 +2234,16 @@ class ReaderViewModel @JvmOverloads constructor(
         chapterData: MokuroChapterData,
         pageIndex: Int,
     ): List<eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock>? {
-        val mokuroPage = chimahon.ocr.Mokuro.resolveMokuroPage(
-            chapterData.mokuro,
-            chapterData.imageFiles,
-            pageIndex,
-        ) ?: return null
+        val mokuroPage = if (chapterData.isDownload) {
+            // Downloads are renamed 001..N in source order, so the reader index is the mokuro index.
+            chapterData.mokuro.pages.getOrNull(pageIndex)
+        } else {
+            chimahon.ocr.Mokuro.resolveMokuroPage(
+                chapterData.mokuro,
+                chapterData.imageFiles,
+                pageIndex,
+            )
+        } ?: return null
 
         return chimahon.ocr.Mokuro.convertMokuroBlocks(mokuroPage).map { block ->
             eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock(
