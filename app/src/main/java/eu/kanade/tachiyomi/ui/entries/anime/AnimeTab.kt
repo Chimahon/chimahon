@@ -301,16 +301,11 @@ fun Screen.AnimeLibraryPanel(
 
     val onDismissRequest = screenModel::closeDialog
     when (val dialog = state.dialog) {
-        is AnimeLibraryScreenModel.Dialog.SettingsSheet -> run {
-            val category = state.displayCategories.getOrNull(state.coercedActiveCategoryIndex)
-            if (category == null) {
-                onDismissRequest()
-                return@run
-            }
+        is AnimeLibraryScreenModel.Dialog.SettingsSheet -> {
             AnimeLibrarySettingsDialog(
                 onDismissRequest = onDismissRequest,
                 screenModel = settingsScreenModel,
-                category = category,
+                category = state.displayCategories.getOrNull(state.coercedActiveCategoryIndex),
             )
         }
         is AnimeLibraryScreenModel.Dialog.ChangeCategory -> {
