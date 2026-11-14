@@ -1261,17 +1261,12 @@ object AnkiCardCreator {
             previousDictName = entry.dictName
         }
         sb.append("</ol>")
+        for (style in scopedStyles) {
+            sb.append("<style>")
+            sb.append(style)
+            sb.append("</style>")
+        }
         sb.append("</div>")
-        sb.append("<style>")
-        val lists = ".yomitan-glossary .glossary-list, .yomitan-glossary ul[data-sc-content=\"glossary\"]"
-        sb.append("$lists { display: inline; list-style: none; padding-left: 0; }")
-        val items = ".yomitan-glossary .glossary-list > li, .yomitan-glossary ul[data-sc-content=\"glossary\"] > li"
-        sb.append("$items { display: inline; }")
-        sb.append(".yomitan-glossary .glossary-list > li:not(:first-child)::before, ")
-        sb.append(".yomitan-glossary ul[data-sc-content=\"glossary\"] > li:not(:first-child)::before ")
-        sb.append("{ content: \" | \"; white-space: pre-wrap; color: #777; }")
-        sb.append(scopedStyles)
-        sb.append("</style>")
         return sb.toString()
     }
 
@@ -1283,18 +1278,19 @@ object AnkiCardCreator {
     private fun buildScopedDictionaryStyles(
         dictionaryNames: Set<String>,
         styles: List<DictionaryStyle>,
-    ): String {
-        if (dictionaryNames.isEmpty() || styles.isEmpty()) return ""
+    ): List<String> {
+        if (dictionaryNames.isEmpty() || styles.isEmpty()) return emptyList()
         return styles
             .asSequence()
             .filter { it.dictName in dictionaryNames && it.styles.isNotBlank() }
-            .joinToString("\n") { style ->
+            .map { style ->
                 scopeDictionaryCss(
                     css = sanitizeDictionaryCss(style.styles),
                     scopeSelector = """[data-dictionary="${cssDoubleQuotedContent(style.dictName)}"]""",
                 )
             }
-            .trim()
+            .filter { it.isNotBlank() }
+            .toList()
     }
 
     private fun sanitizeDictionaryCss(css: String): String = css
