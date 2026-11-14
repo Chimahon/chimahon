@@ -1,9 +1,7 @@
 package eu.kanade.tachiyomi.ui.player.controls
 
-import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -13,7 +11,6 @@ import androidx.compose.ui.platform.LocalContext
 import chimahon.DictionaryRepository
 import chimahon.MediaInfo
 import chimahon.anki.AnkiMediaRequest
-import eu.kanade.tachiyomi.ui.dictionary.DictionaryPopupWebViewWarmup
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
 import eu.kanade.tachiyomi.ui.player.PlayerViewModel
@@ -69,19 +66,11 @@ internal fun PlayerSubtitleLookupPopup(
             sourceLang = source?.lang.orEmpty(),
         )
     }
-    val webView: WebView = remember(activeProfile.languageCode) {
-        DictionaryPopupWebViewWarmup.acquire(context, activeProfile.languageCode)
-    }
+    val webView = eu.kanade.tachiyomi.ui.dictionary.rememberDictionaryPopupWebView(activeProfile.languageCode)
 
     LaunchedEffect(activeProfile) {
         withContext(Dispatchers.IO) {
             repository.warmUp(getDictionaryPaths(context, activeProfile), activeProfile.id)
-        }
-    }
-
-    DisposableEffect(webView) {
-        onDispose {
-            DictionaryPopupWebViewWarmup.recycle(context, webView)
         }
     }
 

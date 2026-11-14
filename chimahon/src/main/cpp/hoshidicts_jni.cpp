@@ -1,14 +1,17 @@
-#include <jni.h>
+﻿#include <jni.h>
 #include <pthread.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "hoshidicts/include/hoshidicts.h"
+#include "hoshidicts_profile.hpp"
 
 namespace {
     struct Slot {
@@ -20,11 +23,24 @@ namespace {
         DictionaryQuery query;
         Deinflector deinflector;
         std::unique_ptr<Lookup> lookup;
+        /* Retained so card grouping can happen natively without a second query. */
+        std::mutex last_mutex;
+        std::vector<LookupResult> last_results;
 
         LookupObject() : lookup(std::make_unique<Lookup>(query, deinflector)) {}
     };
 
     LookupObject *as_object(jlong handle) { return reinterpret_cast<LookupObject *>(handle); }
+
+    void failure(JNIEnv *env, const char *message) {
+        if (env->ExceptionCheck())
+            return;
+        auto type = env->FindClass("java/lang/IllegalStateException");
+        if (type) {
+            env->ThrowNew(type, message);
+            env->DeleteLocalRef(type);
+        }
+    }
 
     std::string jstring_to_std_string(JNIEnv *env, jstring input) {
         const char *chars = env->GetStringUTFChars(input, nullptr);
@@ -403,7 +419,23 @@ Java_chimahon_HoshiDicts_lookup(JNIEnv *env, jobject, jlong session, jstring tex
     auto text_str = jstring_to_std_string(env, text);
     auto result = obj->lookup->lookup(text_str, static_cast<int>(max_results),
                                       static_cast<size_t>(scan_length));
-    return new_lookup_result_array(env, result);
+    std::lock_guard<std::mutex> lock(obj->last_mutex);
+    obj->last_results = std::move(result);
+    return new_lookup_result_array(env, obj->last_results);
+}
+
+// DICT_PROFILE: separate entry point keeps the ordinary lookup path unchanged.
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_chimahon_HoshiDicts_lookupProfiled(JNIEnv *env, jobject, jlong session, jstring text,
+                                      jint max_results, jint scan_length, jlong request_id) {
+    dict_profile::Context context(request_id);
+    dict_profile::Scope total("native.total");
+    LookupObject *obj = as_object(session);
+    auto text_str = dict_profile::measure("jni.input", [&] { return jstring_to_std_string(env, text); });
+    auto result = obj->lookup->lookup(text_str, static_cast<int>(max_results), static_cast<size_t>(scan_length));
+    std::lock_guard<std::mutex> lock(obj->last_mutex);
+    obj->last_results = std::move(result);
+    return dict_profile::measure("jni.results", [&] { return new_lookup_result_array(env, obj->last_results); });
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
@@ -542,4 +574,133 @@ Java_chimahon_HoshiDicts_probeEntryTypes(JNIEnv *env, jobject, jstring dict_path
     };
     env->SetLongArrayRegion(result, 0, 4, counts);
     return result;
+}
+
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_chimahon_HoshiDicts_cards(JNIEnv *env, jobject, jlong session, jboolean group_terms) {
+    try {
+        LookupObject *obj = as_object(session);
+        std::lock_guard<std::mutex> lock(obj->last_mutex);
+        const auto &results = obj->last_results;
+
+        struct Group {
+            std::string name;
+            struct Gloss { std::string glossary, def_tags, term_tags; };
+            std::vector<Gloss> glosses;
+            std::set<std::pair<std::string, std::string>> seen;
+        };
+        struct Card {
+            std::string expression, reading, matched, deinflected, term_tags, rules;
+            std::vector<std::pair<std::string, std::string>> process;
+            std::set<std::pair<std::string, std::string>> process_seen;
+            std::vector<Group> groups;
+            std::vector<FrequencyEntry> frequencies;
+            std::vector<PitchEntry> pitches;
+        };
+
+        std::vector<Card> cards;
+        for (const auto &result : results) {
+            const auto &term = result.term;
+            const bool merge = group_terms && !cards.empty() &&
+                               cards.back().expression == term.expression &&
+                               cards.back().reading == term.reading;
+            if (!merge) {
+                Card fresh;
+                fresh.expression = term.expression;
+                fresh.reading = term.reading;
+                fresh.matched = result.matched;
+                fresh.deinflected = result.deinflected;
+                fresh.rules = term.rules;
+                fresh.term_tags = term.glossaries.empty() ? std::string() : term.glossaries.front().term_tags;
+                cards.push_back(std::move(fresh));
+            }
+            Card &card = cards.back();
+            if (card.term_tags.empty() && !term.glossaries.empty()) card.term_tags = term.glossaries.front().term_tags;
+            if (card.rules.empty()) card.rules = term.rules;
+            if (card.matched.empty()) card.matched = result.matched;
+            if (card.deinflected.empty()) card.deinflected = result.deinflected;
+            for (const auto &step : result.trace)
+                if (card.process_seen.insert({step.name, step.description}).second)
+                    card.process.push_back({step.name, step.description});
+            for (const auto &entry : term.glossaries) {
+                Group *group = nullptr;
+                for (auto &candidate : card.groups)
+                    if (candidate.name == entry.dict_name) { group = &candidate; break; }
+                if (!group) {
+                    card.groups.push_back(Group{entry.dict_name, {}, {}});
+                    group = &card.groups.back();
+                }
+                if (group->seen.insert({entry.glossary, entry.definition_tags}).second)
+                    group->glosses.push_back({entry.glossary, entry.definition_tags, entry.term_tags});
+            }
+            for (const auto &entry : term.frequencies) {
+                FrequencyEntry *existing = nullptr;
+                for (auto &candidate : card.frequencies)
+                    if (candidate.dict_name == entry.dict_name) { existing = &candidate; break; }
+                if (existing)
+                    existing->frequencies.insert(existing->frequencies.end(),
+                                                 entry.frequencies.begin(), entry.frequencies.end());
+                else
+                    card.frequencies.push_back(entry);
+            }
+            for (const auto &entry : term.pitches) {
+                bool replaced = false;
+                for (auto &candidate : card.pitches)
+                    if (candidate.dict_name == entry.dict_name) { candidate = entry; replaced = true; break; }
+                if (!replaced) card.pitches.push_back(entry);
+            }
+        }
+
+        std::vector<uint32_t> records;
+        std::string pool;
+        auto str = [&](const std::string &value) {
+            records.push_back(static_cast<uint32_t>(pool.size()));
+            records.push_back(static_cast<uint32_t>(value.size()));
+            pool += value;
+        };
+        for (const auto &card : cards) {
+            str(card.expression); str(card.reading); str(card.matched); str(card.deinflected);
+            str(card.term_tags); str(card.rules);
+            records.push_back(static_cast<uint32_t>(card.process.size()));
+            for (const auto &step : card.process) { str(step.first); str(step.second); }
+            records.push_back(static_cast<uint32_t>(card.groups.size()));
+            for (const auto &group : card.groups) {
+                str(group.name);
+                records.push_back(static_cast<uint32_t>(group.glosses.size()));
+                for (const auto &gloss : group.glosses) { str(gloss.glossary); str(gloss.def_tags); str(gloss.term_tags); }
+            }
+            records.push_back(static_cast<uint32_t>(card.frequencies.size()));
+            for (const auto &entry : card.frequencies) {
+                str(entry.dict_name);
+                records.push_back(static_cast<uint32_t>(entry.frequencies.size()));
+                for (const auto &value : entry.frequencies) {
+                    records.push_back(static_cast<uint32_t>(value.value));
+                    str(value.display_value);
+                }
+            }
+            records.push_back(static_cast<uint32_t>(card.pitches.size()));
+            for (const auto &entry : card.pitches) {
+                str(entry.dict_name);
+                records.push_back(static_cast<uint32_t>(entry.pitch_positions.size()));
+                for (const int position : entry.pitch_positions) records.push_back(static_cast<uint32_t>(position));
+
+            }
+        }
+
+        const size_t header = 12;
+        const size_t total = header + pool.size() + records.size() * 4;
+        std::vector<uint8_t> out(total);
+        uint32_t values[3] = {0x47525031u, static_cast<uint32_t>(cards.size()),
+                              static_cast<uint32_t>(pool.size())};
+        std::memcpy(out.data(), values, header);
+        std::memcpy(out.data() + header, pool.data(), pool.size());
+        std::memcpy(out.data() + header + pool.size(), records.data(), records.size() * 4);
+        auto array = env->NewByteArray(static_cast<jsize>(total));
+        if (array) env->SetByteArrayRegion(array, 0, static_cast<jsize>(total),
+                                           reinterpret_cast<const jbyte *>(out.data()));
+        return array;
+    } catch (const std::exception &e) {
+        failure(env, e.what());
+    }
+    return nullptr;
 }

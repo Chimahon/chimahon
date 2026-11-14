@@ -64,6 +64,7 @@ coil-core = { module = "io.coil-kt.coil3:coil" }
 coil-gif = { module = "io.coil-kt.coil3:coil-gif" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp" }
+coil-svg = { module = "io.coil-kt.coil3:coil-svg" }
 
 subsamplingscaleimageview = "com.github.tachiyomiorg:subsampling-scale-image-view:66e0db195d"
 image-decoder = "com.github.yomihon:image-decoder:da05c859ff"
@@ -155,7 +156,7 @@ firebase-crashlytics = { id = "com.google.firebase.crashlytics", version = "3.0.
 [bundles]
 okhttp = ["okhttp-core", "okhttp-logging", "okhttp-brotli", "okhttp-dnsoverhttps", "okhttp-zstd"]
 sqlite = ["sqlite-framework", "sqlite-ktx", "sqlite-android"]
-coil = ["coil-core", "coil-gif", "coil-compose", "coil-network-okhttp"]
+coil = ["coil-core", "coil-gif", "coil-compose", "coil-network-okhttp", "coil-svg"]
 shizuku = ["shizuku-api", "shizuku-provider"]
 sqldelight = ["sqldelight-android-driver", "sqldelight-coroutines", "sqldelight-android-paging"]
 voyager = ["voyager-navigator", "voyager-screenmodel", "voyager-tab-navigator", "voyager-transitions"]

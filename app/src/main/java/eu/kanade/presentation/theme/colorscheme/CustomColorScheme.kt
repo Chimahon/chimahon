@@ -20,8 +20,8 @@ internal class CustomColorScheme(
     seed: Color,
     style: PaletteStyle,
 ) : BaseColorScheme() {
-    override val lightScheme = generateColorSchemeFromSeed(seed = seed, style = style, dark = false)
-    override val darkScheme = generateColorSchemeFromSeed(seed = seed, style = style, dark = true)
+    override val lightScheme by lazy { generateColorSchemeFromSeed(seed = seed, style = style, dark = false) }
+    override val darkScheme by lazy { generateColorSchemeFromSeed(seed = seed, style = style, dark = true) }
 
     companion object {
         fun generateColorSchemeFromSeed(seed: Color, style: PaletteStyle, dark: Boolean): ColorScheme {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Debug-only replay entry point for tools/perf/lookup-replay/replay.py. It lives in this
+         source set (and is declared here, not in main) so release variants never ship it. -->
+    <application>
+        <activity
+            android:name="eu.kanade.tachiyomi.ui.dictionary.bench.LookupReplayActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Tachiyomi"
+            android:label="Lookup Replay" />
+    </application>
+
+</manifest>

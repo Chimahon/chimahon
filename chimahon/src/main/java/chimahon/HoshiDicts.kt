@@ -1,4 +1,4 @@
-package chimahon
+﻿package chimahon
 
 data class ImportResult(
     val success: Boolean,
@@ -89,7 +89,9 @@ data class LookupResult(
 
 object HoshiDicts {
     init {
-        System.loadLibrary("hoshidicts_jni")
+        // One native library owns lookup and rendering; DictionaryCore also
+        // honours the debug .so override used by the fast-swap workflow.
+        chimahon.renderer.DictionaryCore.ensureLoaded()
     }
 
     external fun importDictionary(zipPath: String, outputDir: String): ImportResult
@@ -105,6 +107,11 @@ object HoshiDicts {
     )
 
     external fun lookup(session: Long, text: String, maxResults: Int, scanLength: Int): Array<LookupResult>
+    // DICT_PROFILE: used only by explicitly enabled captures.
+    external fun lookupProfiled(session: Long, text: String, maxResults: Int, scanLength: Int, requestId: Long): Array<LookupResult>
+
+    /** Groups the session's last lookup into cards in C++; returns the binary blob. */
+    external fun cards(session: Long, groupTerms: Boolean): ByteArray
     external fun query(session: Long, text: String): Array<TermResult>
     external fun queryKanji(session: Long, character: String): KanjiResult
     external fun getStyles(session: Long): Array<DictionaryStyle>

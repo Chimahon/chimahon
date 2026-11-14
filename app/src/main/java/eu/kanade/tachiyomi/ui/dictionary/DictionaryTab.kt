@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
-import android.os.SystemClock
 import android.util.Base64
 import android.webkit.WebView
 import androidx.compose.foundation.clickable
@@ -33,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +49,8 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import chimahon.DictionaryStyle
+import eu.kanade.tachiyomi.ui.dictionary.compose.DictionaryEntryCompose
+import eu.kanade.tachiyomi.ui.dictionary.compose.GlossTab
 import chimahon.HoshiDicts
 import chimahon.LookupResult
 import chimahon.anki.AnkiCardCreator
@@ -223,7 +225,7 @@ data object DictionaryTab : Tab {
         var isLoading by remember { mutableStateOf(false) }
         var errorMessage by remember { mutableStateOf<String?>(null) }
         var hasSearched by remember { mutableStateOf(false) }
-        var shouldMountWebView by remember { mutableStateOf(false) }
+        var shouldMountResults by remember { mutableStateOf(false) }
         var searchJob by remember { mutableStateOf<Job?>(null) }
         var retainedWebView by remember { mutableStateOf<WebView?>(null) }
         val focusManager = LocalFocusManager.current
@@ -264,6 +266,7 @@ data object DictionaryTab : Tab {
         val groupTerms by dictionaryPreferences.groupTerms().collectAsState()
         val compactGlossary by dictionaryPreferences.compactGlossary().collectAsState()
         val recursiveNavMode by dictionaryPreferences.recursiveLookupMode().collectAsState()
+    val eInkMode by dictionaryPreferences.eInkMode().collectAsState()
         val popupFontSizePref by dictionaryPreferences.fontSize().collectAsState()
         val customCss by dictionaryPreferences.customCss().collectAsState()
         val wordAudioEnabled by dictionaryPreferences.wordAudioEnabled().collectAsState()
@@ -287,7 +290,7 @@ data object DictionaryTab : Tab {
         /** Push a lookup onto the stack; cancels any in-flight search first. */
         fun stackLookup(rawQuery: String, type: String? = null) {
             searchJob?.cancel()
-            shouldMountWebView = true
+            shouldMountResults = true
             searchJob = scope.launch {
                 isLoading = true
                 errorMessage = null
@@ -387,6 +390,27 @@ data object DictionaryTab : Tab {
             }
         }
 
+        // Stable identity across recompositions: `stackLookup` reads current state at call
+        // time, so taps always see fresh data while remember keys and strong skipping stay calm -
+        // without this every keystroke re-render hands a fresh lambda down and recomposes the
+        // whole card tree.
+        val recursiveLookupRef = rememberUpdatedState(
+            { word: String, _: String?, _: Int?, _: Float?, _: Float?, type: String? ->
+                stackLookup(word, type)
+            },
+        )
+        val stableRecursiveLookup: (String, String?, Int?, Float?, Float?, String?) -> Unit = remember {
+            { word, s, o, x, y, type -> recursiveLookupRef.value(word, s, o, x, y, type) }
+        }
+        // Same stability treatment: both bodies only touch tab state at call time, so the
+        // remembered instances always act on fresh data while downstream skipping stays calm.
+        val stableTabSelect: (Int) -> Unit = remember {
+            { idx -> if (idx in lookupStack.indices) activeTabIndex = idx }
+        }
+        val stableBack: () -> Unit = remember {
+            { if (activeTabIndex > 0) activeTabIndex-- }
+        }
+
         fun saveDictionaryHistory(targetQuery: String) {
             val trimmed = targetQuery.trim()
             if (trimmed.isNotBlank() && searchHistoryEnabled) {
@@ -437,7 +461,7 @@ data object DictionaryTab : Tab {
         }
 
         // Simple callback for Anki lookup - index maps to results array, glossaryIndex is optional
-        val onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = if (ankiEnabled) {
+        val onAnkiLookupImpl: ((Int, Int?, String?, String?, Boolean) -> Unit)? = if (ankiEnabled) {
             { resultIndex, glossaryIndex, selectedDict, popupSelection, forceOpen ->
                 val result = results.getOrNull(resultIndex)
                 if (result != null) {
@@ -513,6 +537,18 @@ data object DictionaryTab : Tab {
             }
         } else {
             null
+        }
+        // Stable identity across recompositions: the impl above reads `results`/`activeTabIndex`
+        // at call time, so routing it through a ref keeps taps fresh while the instance handed
+        // downstream never changes - a fresh lambda here would recompose the whole card tree on
+        // every keystroke re-render.
+        val onAnkiLookupRef = rememberUpdatedState(onAnkiLookupImpl)
+        val onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)? = remember(ankiEnabled) {
+            if (ankiEnabled) {
+                { a, b, c, d, e -> onAnkiLookupRef.value?.invoke(a, b, c, d, e) }
+            } else {
+                null
+            }
         }
 
         LaunchedEffect(Unit) {
@@ -728,49 +764,79 @@ data object DictionaryTab : Tab {
                 results.isEmpty() && hasSearched && entryJsons == null -> Text(stringResource(MR.strings.no_results_found))
             }
 
-            if (shouldMountWebView) {
-                // Create the WebView only when the user starts searching, so the search bar
-                // renders immediately when opening the tab.
-                DictionaryEntryWebView(
-                    results = results,
-                    styles = styles,
-                    mediaDataUris = mediaDataUris,
-                    placeholder = if (hasSearched) {
-                        stringResource(MR.strings.no_results_found)
-                    } else {
-                        "Search to view dictionary entries"
-                    },
-                    showFrequencyHarmonic = showFreqHarmonic,
-                    showFrequencyAverage = showFreqAverage,
-                    groupTerms = groupTerms,
-                    showPitchDiagram = showPitchDiagram,
-                    showPitchNumber = showPitchNumber,
-                    showPitchText = showPitchText,
-                    activeProfile = activeProfile,
-                    existingExpressions = existingExpressions,
-                    tabs = buildTabs(),
-                    recursiveNavMode = recursiveNavMode,
-                    fontSize = popupFontSizePref,
-                    customCss = customCss,
-                    wordAudioEnabled = wordAudioEnabled,
-                    entryJsons = entryJsons,
-                    webViewProvider = { context ->
-                        retainedWebView ?: WebView(context).also { retainedWebView = it }
-                    },
-                    onAnkiLookup = onAnkiLookup,
-                    onRecursiveLookup = { word, _, _, _, _, type -> stackLookup(word, type) },
-                    onTabSelect = { idx ->
-                        if (idx in lookupStack.indices) activeTabIndex = idx
-                    },
-                    onBack = {
-                        if (activeTabIndex > 0) activeTabIndex--
-                    },
-                    groupPitches = groupPitches,
-                    forceDefaultTheme = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                )
+            if (shouldMountResults) {
+                val renderer by dictionaryPreferences.renderer().collectAsState()
+                if (renderer == DictionaryPreferences.RENDERER_COMPOSE) {
+                    DictionaryEntryCompose(
+                        results = results,
+                        styles = styles,
+                        mediaDataUris = mediaDataUris,
+                        placeholder = if (hasSearched) {
+                            stringResource(MR.strings.no_results_found)
+                        } else {
+                            stringResource(MR.strings.dictionary_search_placeholder)
+                        },
+                        showFrequencyHarmonic = showFreqHarmonic,
+                        showFrequencyAverage = showFreqAverage,
+                        groupTerms = groupTerms,
+                        showPitchDiagram = showPitchDiagram,
+                        showPitchNumber = showPitchNumber,
+                        showPitchText = showPitchText,
+                        activeProfile = activeProfile,
+                        existingExpressions = existingExpressions,
+                        entryJsons = entryJsons,
+                        customCss = customCss,
+                        eInkMode = eInkMode,
+                        recursiveNavMode = recursiveNavMode,
+                        tabs = buildTabs().map { GlossTab(it.label, it.active) },
+                        wordAudioEnabled = wordAudioEnabled,
+                        groupPitches = groupPitches,
+                        onAnkiLookup = onAnkiLookup,
+                        onRecursiveLookup = stableRecursiveLookup,
+                        onTabSelect = stableTabSelect,
+                        onBack = stableBack,
+                        isLoading = isLoading,
+                        resultsAreOrdered = true,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                } else {
+                    DictionaryEntryWebView(
+                        results = results,
+                        styles = styles,
+                        mediaDataUris = mediaDataUris,
+                        placeholder = if (hasSearched) {
+                            stringResource(MR.strings.no_results_found)
+                        } else {
+                            stringResource(MR.strings.dictionary_search_placeholder)
+                        },
+                        showFrequencyHarmonic = showFreqHarmonic,
+                        showFrequencyAverage = showFreqAverage,
+                        groupTerms = groupTerms,
+                        showPitchDiagram = showPitchDiagram,
+                        showPitchNumber = showPitchNumber,
+                        showPitchText = showPitchText,
+                        activeProfile = activeProfile,
+                        existingExpressions = existingExpressions,
+                        tabs = buildTabs(),
+                        recursiveNavMode = recursiveNavMode,
+                        fontSize = popupFontSizePref,
+                        customCss = customCss,
+                        wordAudioEnabled = wordAudioEnabled,
+                        entryJsons = entryJsons,
+                        webViewProvider = { context ->
+                            retainedWebView ?: WebView(context).also { retainedWebView = it }
+                        },
+                        onAnkiLookup = onAnkiLookup,
+                        onRecursiveLookup = stableRecursiveLookup,
+                        onTabSelect = stableTabSelect,
+                        onBack = stableBack,
+                        groupPitches = groupPitches,
+                        forceDefaultTheme = false,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                }
             } else {
                 Column(
                     modifier = Modifier
@@ -797,8 +863,6 @@ data object DictionaryTab : Tab {
                     styles = emptyList(),
                     mediaDataUris = emptyMap(),
                     error = "Unable to access app storage.",
-                    diagnostics = null,
-                    debugDumpDir = null,
                 )
             }
 
@@ -810,8 +874,6 @@ data object DictionaryTab : Tab {
                     styles = emptyList(),
                     mediaDataUris = emptyMap(),
                     error = "No imported dictionaries found. Import one in Settings > Dictionary.",
-                    diagnostics = null,
-                    debugDumpDir = null,
                 )
             }
 
@@ -827,8 +889,6 @@ data object DictionaryTab : Tab {
                     styles = emptyList(),
                     mediaDataUris = emptyMap(),
                     error = e.message ?: "Dictionary lookup failed",
-                    diagnostics = null,
-                    debugDumpDir = null,
                 )
             }
             lookupResult.copy(
@@ -847,10 +907,37 @@ data object DictionaryTab : Tab {
         private var configuredPaths: chimahon.DictionaryPaths = chimahon.DictionaryPaths()
         private var cachedStyles: List<DictionaryStyle> = emptyList()
 
-        @Synchronized
+        // See chimahon.DictionaryRepository: lookups take the READ lock and run concurrently,
+        // while an engine rebuild or destroy takes the WRITE lock. `@Synchronized` here serialised
+        // every lookup behind the slowest one - the log showed 1.5s of "Long monitor contention"
+        // with 3 threads queued on exactly this monitor.
+        private val sessionLock = java.util.concurrent.locks.ReentrantReadWriteLock()
+
+        private inline fun <T> readLocked(block: () -> T): T {
+            sessionLock.readLock().lock()
+            return try {
+                block()
+            } finally {
+                sessionLock.readLock().unlock()
+            }
+        }
+
         fun warmUp(paths: chimahon.DictionaryPaths) {
-            val activeSession = session ?: HoshiDicts.createLookupObject().also { session = it }
-            if (paths != configuredPaths) {
+            // Cheap check under the read lock first, so a no-op warmUp never contends.
+            val needsRebuild = sessionLock.readLock().run {
+                lock()
+                try {
+                    session == null || paths != configuredPaths
+                } finally {
+                    unlock()
+                }
+            }
+            if (!needsRebuild) return
+            sessionLock.writeLock().lock()
+            try {
+                val activeSession = session ?: HoshiDicts.createLookupObject().also { session = it }
+                // Re-check after waiting for the write lock.
+                if (paths == configuredPaths) return
                 HoshiDicts.rebuildQuery(
                     session = activeSession,
                     termPaths = paths.termPaths.toTypedArray(),
@@ -860,102 +947,68 @@ data object DictionaryTab : Tab {
                 )
                 cachedStyles = HoshiDicts.getStyles(activeSession).toList()
                 configuredPaths = paths
+            } finally {
+                sessionLock.writeLock().unlock()
             }
         }
 
-        @Synchronized
-        fun queryKanji(char: String): chimahon.KanjiResult? {
-            val activeSession = session ?: HoshiDicts.createLookupObject().also { session = it }
-            return try {
+        fun queryKanji(char: String): chimahon.KanjiResult? = readLocked {
+            // Not created here: this is a read lock, so concurrent callers could each create a
+            // native session. warmUp owns creation, under the write lock.
+            val activeSession = session ?: return@readLocked null
+            try {
                 HoshiDicts.queryKanji(activeSession, char)
             } catch (_: Exception) {
                 null
             }
         }
 
-        @Synchronized
         fun lookup(query: String, paths: chimahon.DictionaryPaths, languageCode: String = ""): LookupUiResult {
-            val t0 = SystemClock.elapsedRealtime()
-            val ramBefore = currentUsedRamMb()
-            var sessionCreateMs = 0L
-            var rebuildMs = 0L
+            // Warm up before taking the read lock: the lock cannot be upgraded read -> write.
+            warmUp(paths)
 
-            val hadSession = session != null
-            val activeSession = session ?: HoshiDicts.createLookupObject().also { session = it }
-            if (!hadSession) {
-                sessionCreateMs = SystemClock.elapsedRealtime() - t0
-            }
+            return readLocked {
+                // warmUp above guarantees a session exists; creating one under the read lock would
+                // let two concurrent lookups each create (and leak) a native session.
+                val activeSession = session ?: return@readLocked LookupUiResult(
+                    results = emptyList(),
+                    styles = cachedStyles,
+                    mediaDataUris = emptyMap(),
+                    error = null,
+                )
 
-            if (paths != configuredPaths) {
-                val rebuildStart = SystemClock.elapsedRealtime()
-                warmUp(paths)
-                rebuildMs = SystemClock.elapsedRealtime() - rebuildStart
-            }
-
-            val lookupStart = SystemClock.elapsedRealtime()
-            val effectiveLang = languageCode.lowercase()
-            val genericDeinflector = chimahon.dictionary.DeinflectorRegistry.get(effectiveLang)
-            val results = if (effectiveLang == "ja") {
-                HoshiDicts.lookup(activeSession, query, 50, 25).toList()
-            } else if (genericDeinflector != null) {
-                val preprocessed = genericDeinflector.preProcess(query)
-                val deinflected = preprocessed.flatMap { genericDeinflector.deinflect(it, effectiveLang) }
-                val candidates = deinflected.map { it.text }.distinct()
-                if (candidates.isEmpty()) {
-                    emptyList()
-                } else {
-                    candidates.flatMap { candidate ->
-                        HoshiDicts.lookup(activeSession, candidate, 50, 25).toList()
-                    }.distinctBy { it.term.expression to it.term.reading }.take(50)
-                }
-            } else {
-                HoshiDicts.lookup(activeSession, query, 50, 25).toList()
-            }
-            val lookupMs = SystemClock.elapsedRealtime() - lookupStart
-
-            val totalMs = SystemClock.elapsedRealtime() - t0
-            val cssBytes = cachedStyles.sumOf { it.styles.length }
-            val jsonGlossaryCount = countJsonGlossaries(results)
-            val diagnostics = LookupDiagnostics(
-                totalMs = totalMs,
-                sessionCreateMs = sessionCreateMs,
-                rebuildMs = rebuildMs,
-                lookupMs = lookupMs,
-                mediaMs = 0L,
-                ramBeforeMb = ramBefore,
-                ramAfterMb = currentUsedRamMb(),
-                resultCount = results.size,
-                jsonGlossaryCount = jsonGlossaryCount,
-                cssBytes = cssBytes,
-            )
-
-            return LookupUiResult(
-                results = results,
-                styles = cachedStyles,
-                mediaDataUris = emptyMap(),
-                error = null,
-                diagnostics = diagnostics,
-                debugDumpDir = null,
-            )
-        }
-
-        @Synchronized
-        fun loadMediaDataUris(results: List<LookupResult>): Map<String, String> {
-            val activeSession = session ?: return emptyMap()
-            return buildMediaDataUris(activeSession, results)
-        }
-
-        private fun countJsonGlossaries(results: List<LookupResult>): Int {
-            var count = 0
-            results.forEach { lookup ->
-                lookup.term.glossaries.forEach { glossary ->
-                    val text = glossary.glossary.trim()
-                    if (text.startsWith("{") || text.startsWith("[")) {
-                        count++
+                val effectiveLang = languageCode.lowercase()
+                val genericDeinflector = chimahon.dictionary.DeinflectorRegistry.get(effectiveLang)
+                val results = if (effectiveLang == "ja") {
+                    HoshiDicts.lookup(activeSession, query, 50, 25).toList()
+                } else if (genericDeinflector != null) {
+                    val preprocessed = genericDeinflector.preProcess(query)
+                    val deinflected = preprocessed.flatMap { genericDeinflector.deinflect(it, effectiveLang) }
+                    val candidates = deinflected.map { it.text }.distinct()
+                    if (candidates.isEmpty()) {
+                        emptyList()
+                    } else {
+                        candidates.flatMap { candidate ->
+                            HoshiDicts.lookup(activeSession, candidate, 50, 25).toList()
+                        }.distinctBy { it.term.expression to it.term.reading }.take(50)
                     }
+                } else {
+                    HoshiDicts.lookup(activeSession, query, 50, 25).toList()
                 }
+
+                // Last expression, not a `return` - see the note in chimahon.DictionaryRepository.lookup.
+                LookupUiResult(
+                    results = results,
+                    styles = cachedStyles,
+                    mediaDataUris = emptyMap(),
+                    error = null,
+                )
             }
-            return count
+        }
+
+        fun loadMediaDataUris(results: List<LookupResult>): Map<String, String> = readLocked {
+            val activeSession = session ?: return@readLocked emptyMap()
+            buildMediaDataUris(activeSession, results)
         }
 
         private fun buildMediaDataUris(activeSession: Long, results: List<LookupResult>): Map<String, String> {
@@ -1063,16 +1116,14 @@ data object DictionaryTab : Tab {
             return candidates
         }
 
-        private fun currentUsedRamMb(): Long {
-            val rt = Runtime.getRuntime()
-            val usedBytes = rt.totalMemory() - rt.freeMemory()
-            return usedBytes / (1024L * 1024L)
-        }
-
-        @Synchronized
         fun close() {
-            session?.let(HoshiDicts::destroyLookupObject)
-            session = null
+            sessionLock.writeLock().lock()
+            try {
+                session?.let(HoshiDicts::destroyLookupObject)
+                session = null
+            } finally {
+                sessionLock.writeLock().unlock()
+            }
         }
     }
 
@@ -1081,20 +1132,5 @@ data object DictionaryTab : Tab {
         val styles: List<DictionaryStyle>,
         val mediaDataUris: Map<String, String>,
         val error: String?,
-        val diagnostics: LookupDiagnostics?,
-        val debugDumpDir: String?,
-    )
-
-    private data class LookupDiagnostics(
-        val totalMs: Long,
-        val sessionCreateMs: Long,
-        val rebuildMs: Long,
-        val lookupMs: Long,
-        val mediaMs: Long,
-        val ramBeforeMb: Long,
-        val ramAfterMb: Long,
-        val resultCount: Int,
-        val jsonGlossaryCount: Int,
-        val cssBytes: Int,
     )
 }
