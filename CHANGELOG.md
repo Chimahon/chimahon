@@ -4,6 +4,37 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.5.0]
+
+### Added
+
+- Optional native Compose dictionary glossary renderer, much faster than the WebView renderer
+- Anime subtitle font import
+- Subtitle audio padding controls
+- Anki app selection, including kuma3 and custom AnkiDroid-compatible packages
+
+### Changed
+
+- Novel browse library actions and badges
+- Anki glossary exports no longer repeat the inline style block
+
+### Fixed
+
+- Anime screenshots on image-wrapped streams
+- Webtoon lookup across page boundaries
+- Jimaku subtitles being lost after reopening the player
+- Anki browser showing only one matching note
+- Custom dictionary names and dictionary order in the popup
+- OCR outlines on rotated text lines
+- Mokuro OCR on downloaded chapters loading the wrong page
+- Novel character lookup through furigana
+- Furigana included in copied novel text
+- Novel browse scroll resets and missing-source loading
+- Novel search retries and source navigation
+- Novel global search across sources returning no results
+- Novel chapter selection and download feedback
+- Incognito mode in the novel reader
+
 ## [v2.4.9]
 
 ### Changed
