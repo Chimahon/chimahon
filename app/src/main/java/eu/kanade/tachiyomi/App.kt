@@ -36,6 +36,7 @@ import com.elvishew.xlog.printer.AndroidPrinter
 import com.elvishew.xlog.printer.Printer
 import com.elvishew.xlog.printer.file.backup.NeverBackupStrategy
 import com.elvishew.xlog.printer.file.naming.DateFileNameGenerator
+import chimahon.anki.AnkiAppSelection
 import dev.mihon.injekt.patchInjekt
 import eu.kanade.domain.AnimeDomainModule
 import eu.kanade.domain.DomainModule
@@ -68,6 +69,7 @@ import eu.kanade.tachiyomi.di.PreferenceModule
 import eu.kanade.tachiyomi.di.SYPreferenceModule
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.ui.base.delegate.SecureActivityDelegate
+import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.ScreenLookupServiceState
 import eu.kanade.tachiyomi.util.CrashLogUtil
 import eu.kanade.tachiyomi.util.system.DeviceUtil
@@ -151,6 +153,9 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         Injekt.importModule(SYPreferenceModule(this))
         Injekt.importModule(SYDomainModule())
         // SY <--
+
+        // Restore the Anki app the bridges talk to (AnkiDroid or a compatible fork).
+        AnkiAppSelection.packageName = Injekt.get<DictionaryPreferences>().ankiAppPackage().get()
 
         setupExhLogging() // EXH logging
         if (!LogcatLogger.isInstalled) {

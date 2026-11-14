@@ -56,11 +56,13 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- AnkiDroid -->
+    <!-- AnkiDroid and AnkiDroid-API-compatible forks -->
     <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_DATABASE" />
+    <uses-permission android:name="io.github.pedrubik2000.kuma3.permission.READ_WRITE_DATABASE" />
 
     <queries>
         <package android:name="com.ichi2.anki" />
+        <package android:name="io.github.pedrubik2000.kuma3" />
     </queries>
 
     <application

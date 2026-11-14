@@ -857,7 +857,11 @@
     <string name="pref_anki_duplicate_overwrite">Update existing</string>
     <string name="pref_anki_screenshot_animated_scene">Animated Scene</string>
     <string name="pref_anki_default_tags">Default tags</string>
-    <string name="pref_anki_no_ankidroid">AnkiDroid is not installed</string>
+    <string name="pref_anki_no_ankidroid">The selected Anki app is not installed or does not expose the AnkiDroid API</string>
+    <string name="pref_anki_app">Anki app</string>
+    <string name="pref_anki_app_custom">Custom package</string>
+    <string name="pref_anki_app_package">Package name</string>
+    <string name="pref_anki_app_unsupported">This Anki app uses its own database permission, which this Chimahon build can\'t request</string>
     <string name="pref_anki_permission_denied">AnkiDroid permission denied</string>
     <string name="pref_anki_select_deck">Select deck</string>
     <string name="pref_anki_select_model">Select note type</string>

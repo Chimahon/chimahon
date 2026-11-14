@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
+import chimahon.anki.AnkiAppSelection
 import chimahon.anki.AnkiProfile
 import chimahon.anki.AnkiProfileStore
 import chimahon.audio.WordAudioPreferences
@@ -229,6 +230,12 @@ class DictionaryPreferences(
             }
         return true
     }
+
+    // -------------------------------------------------------------------------
+    // Anki app (AnkiDroid or an AnkiDroid-API-compatible fork)
+    // -------------------------------------------------------------------------
+
+    fun ankiAppPackage() = preferenceStore.getString("pref_anki_app_package", AnkiAppSelection.DEFAULT_PACKAGE)
 
     // -------------------------------------------------------------------------
     // Legacy flat-key READERS — only used for one-time migration.

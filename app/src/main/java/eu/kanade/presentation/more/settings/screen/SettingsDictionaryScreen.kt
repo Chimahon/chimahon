@@ -53,6 +53,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -80,10 +81,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import chimahon.HoshiDicts
+import chimahon.anki.AnkiAppSelection
 import chimahon.anki.AnkiCardCreator
 import chimahon.anki.AnkiDroidBridge
 import chimahon.anki.AnkiProfile
 import chimahon.anki.AnkiScreenshotMode
+import chimahon.anki.KNOWN_ANKI_APPS
 import chimahon.anki.LapisPreset
 import chimahon.anki.Marker
 import chimahon.dictionary.DictionaryCommitter
@@ -1758,7 +1761,12 @@ object SettingsDictionaryScreen : SearchableSettings {
         val activity = context as? android.app.Activity
         val scope = rememberCoroutineScope()
         val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
-        val bridge = remember { AnkiDroidBridge(context) }
+        val ankiAppPackage by dictionaryPreferences.ankiAppPackage().collectAsState()
+        val bridge = remember(ankiAppPackage) { AnkiDroidBridge(context, ankiAppPackage) }
+
+        LaunchedEffect(ankiAppPackage) {
+            AnkiAppSelection.packageName = ankiAppPackage
+        }
 
         val dictionaries by dictionaryNames.collectAsState()
 
@@ -1846,17 +1854,15 @@ object SettingsDictionaryScreen : SearchableSettings {
         }
 
         // Check AnkiDroid status whenever screen is visible and enabled
-        LaunchedEffect(enabled, selectedDeck, selectedModel) {
+        LaunchedEffect(enabled, selectedDeck, selectedModel, ankiAppPackage) {
             if (!enabled) {
                 Log.d("AnkiSettings", "Anki disabled, skipping")
                 return@LaunchedEffect
             }
 
-            // Check installation
-            if (ankiInstalled == null) {
-                ankiInstalled = bridge.isAnkiDroidInstalled()
-                Log.d("AnkiSettings", "AnkiDroid installed: $ankiInstalled")
-            }
+            // Check installation for the selected Anki app
+            ankiInstalled = bridge.isAnkiDroidInstalled()
+            Log.d("AnkiSettings", "Anki app $ankiAppPackage installed: $ankiInstalled")
 
             // Check permission
             val hasPerm = bridge.hasPermission()
@@ -1965,6 +1971,39 @@ object SettingsDictionaryScreen : SearchableSettings {
         val cropPresetMap = cropPresetEntries.associate { it.first to it.second }.toPersistentMap()
 
         val preferenceItems = buildList<Preference.PreferenceItem<*, *>> {
+            add(
+                Preference.PreferenceItem.CustomPreference(
+                    title = "Anki app",
+                    content = {
+                        var showAppDialog by remember { mutableStateOf(false) }
+                        val currentApp = AnkiAppSelection.app(ankiAppPackage)
+                        TextPreferenceWidget(
+                            title = stringResource(MR.strings.pref_anki_app),
+                            subtitle = "${currentApp.label} (${currentApp.packageName})",
+                            onPreferenceClick = { showAppDialog = true },
+                        )
+                        if (showAppDialog) {
+                            AnkiAppPickerDialog(
+                                currentPackage = ankiAppPackage,
+                                onDismiss = { showAppDialog = false },
+                                onConfirm = { picked ->
+                                    showAppDialog = false
+                                    when {
+                                        !AnkiAppSelection.isInstalled(context, picked) ->
+                                            context.toast(MR.strings.pref_anki_no_ankidroid)
+                                        !AnkiAppSelection.canRequestPermission(context, picked) ->
+                                            context.toast(MR.strings.pref_anki_app_unsupported)
+                                        else -> {
+                                            dictionaryPreferences.ankiAppPackage().set(picked)
+                                            AnkiAppSelection.packageName = picked
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    },
+                ),
+            )
             add(
                 Preference.PreferenceItem.CustomPreference(
                     title = stringResource(MR.strings.pref_anki_enable),
@@ -2994,4 +3033,91 @@ private fun getFileNameFromUri(context: Context, uri: Uri): String {
         }
     }
     return uri.lastPathSegment ?: "Unknown File"
+}
+
+@Composable
+private fun AnkiAppPickerDialog(
+    currentPackage: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val knownPackages = KNOWN_ANKI_APPS.map { it.packageName }
+    var customSelected by remember { mutableStateOf(currentPackage !in knownPackages) }
+    var selectedPackage by remember { mutableStateOf(currentPackage) }
+    var customPackage by remember { mutableStateOf(if (currentPackage in knownPackages) "" else currentPackage) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(MR.strings.pref_anki_app)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                KNOWN_ANKI_APPS.forEach { app ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                customSelected = false
+                                selectedPackage = app.packageName
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = !customSelected && selectedPackage == app.packageName,
+                            onClick = {
+                                customSelected = false
+                                selectedPackage = app.packageName
+                            },
+                        )
+                        Column {
+                            Text(app.label)
+                            Text(
+                                text = app.packageName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { customSelected = true }
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = customSelected,
+                        onClick = { customSelected = true },
+                    )
+                    Text(stringResource(MR.strings.pref_anki_app_custom))
+                }
+                if (customSelected) {
+                    OutlinedTextField(
+                        value = customPackage,
+                        onValueChange = { customPackage = it },
+                        label = { Text(stringResource(MR.strings.pref_anki_app_package)) },
+                        placeholder = { Text("io.github.example.anki") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val picked = if (customSelected) customPackage.trim() else selectedPackage
+                    if (picked.isNotBlank()) onConfirm(picked)
+                },
+            ) {
+                Text(stringResource(MR.strings.action_ok))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(MR.strings.action_cancel))
+            }
+        },
+    )
 }
