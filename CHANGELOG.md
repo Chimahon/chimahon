@@ -34,6 +34,8 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 - Novel global search across sources returning no results
 - Novel chapter selection and download feedback
 - Incognito mode in the novel reader
+- Anki `{glossary-plain}` markers exporting example sentences and ruby instead of definitions
+- Anime library filter dialog unreachable after filtering out every entry
 
 ## [v2.4.9]
 

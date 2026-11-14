@@ -46,7 +46,7 @@ add_library(dc_breaks STATIC ${unibreak}/unibreakbase.c ${unibreak}/unibreakdef.
     ${unibreak}/eastasianwidthdef.c ${unibreak}/emojidef.c)
 target_sources(dc_breaks PRIVATE ${unibreak}/graphemebreak.c)
 target_include_directories(dc_breaks PUBLIC "${unibreak}")
-set(agg "${DC_DEPENDENCIES}/agg")
+set(agg "${CMAKE_CURRENT_SOURCE_DIR}/third_party/agg")
 add_library(dc_raster STATIC ${agg}/src/agg_curves.cpp ${agg}/src/agg_trans_affine.cpp
     ${agg}/src/agg_rounded_rect.cpp ${agg}/src/agg_bezier_arc.cpp
     ${agg}/src/agg_arc.cpp ${agg}/src/agg_sqrt_tables.cpp)
