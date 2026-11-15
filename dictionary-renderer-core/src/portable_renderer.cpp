@@ -23,6 +23,7 @@
 #include <agg_span_gradient.h>
 #include <agg_span_interpolator_linear.h>
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <climits>
 #include <cstdio>
@@ -32,6 +33,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <tuple>
 #include <type_traits>
@@ -39,10 +41,104 @@
 
 namespace {
 void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
+/* Family names arrive from CSS and from the OpenType name table. Compare them
+ * trimmed, unquoted and lowercased so "Noto Sans CJK JP" matches its face. */
+std::string normalize_family(std::string_view value) {
+    size_t first = 0, last = value.size();
+    while (first < last && std::isspace(static_cast<unsigned char>(value[first]))) ++first;
+    while (last > first && std::isspace(static_cast<unsigned char>(value[last - 1]))) --last;
+    if (last - first >= 2 && (value[first] == '"' || value[first] == '\'') && value[last - 1] == value[first]) {
+        ++first; --last;
+        while (first < last && std::isspace(static_cast<unsigned char>(value[first]))) ++first;
+        while (last > first && std::isspace(static_cast<unsigned char>(value[last - 1]))) --last;
+    }
+    std::string out;
+    out.reserve(last - first);
+    for (size_t i = first; i < last; ++i)
+        out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(value[i]))));
+    return out;
+}
+/* Generic families have no single installed face; keep the language-ranked
+ * fallback instead of guessing one. */
+bool generic_family(std::string_view name) {
+    return name == "serif" || name == "sans-serif" || name == "monospace" ||
+        name == "cursive" || name == "fantasy" || name == "system-ui" ||
+        name == "-apple-system" || name == "blinkmacsystemfont" || name == "ui-serif" ||
+        name == "ui-sans-serif" || name == "ui-monospace" || name == "ui-rounded" ||
+        name == "emoji" || name == "math" || name == "inherit" || name == "initial" ||
+        name == "unset" || name == "revert";
+}
 uint32_t codepoint(const uint16_t *text, size_t count, size_t at) {
     const uint32_t a = text[at];
     return a >= 0xd800 && a <= 0xdbff && at + 1 < count && text[at + 1] >= 0xdc00 && text[at + 1] <= 0xdfff
         ? 0x10000 + ((a - 0xd800) << 10) + text[at + 1] - 0xdc00 : a;
+}
+uint16_t be16(const unsigned char *p) { return static_cast<uint16_t>((p[0] << 8) | p[1]); }
+void append_utf8(std::string &out, uint32_t cp) {
+    if (cp < 0x80) out.push_back(static_cast<char>(cp));
+    else if (cp < 0x800) {
+        out.push_back(static_cast<char>(0xc0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+    } else if (cp < 0x10000) {
+        out.push_back(static_cast<char>(0xe0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+    } else {
+        out.push_back(static_cast<char>(0xf0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3f)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+    }
+}
+/* HarfBuzz's name API is not available in every minimal build, so read the
+ * OpenType name table directly: typographic family (16), then family (1). */
+std::string family_from_name_table(hb_face_t *face) {
+    auto *blob = hb_face_reference_table(face, HB_TAG('n', 'a', 'm', 'e'));
+    if (!blob) return {};
+    unsigned length = 0;
+    const auto *data = reinterpret_cast<const unsigned char *>(hb_blob_get_data(blob, &length));
+    std::string family;
+    int best = 100;
+    if (data && length >= 6) {
+        const uint16_t count = be16(data + 2), storage = be16(data + 4);
+        for (uint16_t i = 0; i < count; ++i) {
+            const auto *record = data + 6 + static_cast<size_t>(i) * 12;
+            if (record + 12 > data + length) break;
+            const uint16_t platform = be16(record), encoding = be16(record + 2);
+            const uint16_t language = be16(record + 4), name = be16(record + 6);
+            const uint16_t bytes = be16(record + 8), offset = be16(record + 10);
+            if (name != 1 && name != 16) continue;
+            const size_t start = static_cast<size_t>(storage) + offset;
+            if (start + bytes > length) continue;
+            std::string value;
+            if (platform == 3 && (encoding == 1 || encoding == 10)) {
+                for (size_t at = 0; at + 1 < bytes; at += 2) {
+                    uint32_t cp = be16(data + start + at);
+                    if (cp >= 0xd800 && cp <= 0xdbff && at + 3 < bytes) {
+                        const uint32_t low = be16(data + start + at + 2);
+                        if (low >= 0xdc00 && low <= 0xdfff) {
+                            cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00);
+                            at += 2;
+                        }
+                    }
+                    append_utf8(value, cp);
+                }
+            } else if (platform == 1 && encoding == 0) {
+                value.assign(reinterpret_cast<const char *>(data + start), bytes);
+            } else continue;
+            if (const auto nul = value.find('\0'); nul != std::string::npos) value.resize(nul);
+            auto candidate = normalize_family(value);
+            if (candidate.empty()) continue;
+            // Prefer typographic family, then English/neutral language records.
+            const int priority = (name == 16 ? 0 : 10) + (language == 0x409 || language == 0 ? 0 : 1);
+            if (priority < best) {
+                best = priority;
+                family = std::move(candidate);
+            }
+        }
+    }
+    hb_blob_destroy(blob);
+    return family;
 }
 struct FontData {
     hb_blob_t *blob = nullptr;
@@ -52,6 +148,7 @@ struct FontData {
      * native phase (a Japanese lookup opened every font in the catalog). */
     hb_font_t *probe = nullptr;
     bool color = false;
+    std::string family;
     std::once_flag ready;
     ~FontData() { if (probe) hb_font_destroy(probe); if (face) hb_face_destroy(face); if (blob) hb_blob_destroy(blob); }
     void load(const std::string &path, uint32_t collection) {
@@ -64,6 +161,7 @@ struct FontData {
             face = created;
             probe = hb_font_create(face);
             hb_ot_font_set_funcs(probe);
+            family = family_from_name_table(face);
             hb_tag_t tags[64];
             unsigned count = 64;
             hb_face_get_table_tags(face, 0, &count, tags);
@@ -111,6 +209,7 @@ struct Face {
         return hb_font_get_nominal_glyph(font().probe, cp, &glyph) && glyph;
     }
     bool color() { return font().color; }
+    const std::string &family() { return font().family; }
     void load();
     ~Face() = default;
 };
@@ -242,25 +341,83 @@ struct dc_portable_document {
         face_values[slot] = selected;
         return selected;
     }
-    uint32_t cluster_face(const uint16_t *text, uint32_t start, uint32_t end) {
+    /* CSS font-family is resolved per style into face indexes in the order the
+       dictionary listed the families. A missing or generic family keeps the
+       language-ranked fallback order. */
+    std::vector<std::vector<uint32_t>> family_faces;
+    bool families_indexed = false;
+    void index_families() {
+        if (families_indexed) return;
+        families_indexed = true;
+        const auto v = dc_drawing_plan_view(plan);
+        family_faces.assign(v.font_count, {});
+        if (!v.font_count || !v.names || !v.names_bytes) return;
+        std::vector<std::string> names;
+        names.reserve(faces.size());
+        for (auto &face : faces) names.push_back(face->family());
+        for (uint32_t style = 0; style < v.font_count; ++style) {
+            const auto &font = v.fonts[style];
+            if (!font.family_bytes || font.family_offset >= v.names_bytes) continue;
+            const size_t bytes = std::min<size_t>(font.family_bytes, v.names_bytes - font.family_offset);
+            const std::string_view list(v.names + font.family_offset, bytes);
+            for (size_t at = 0; at < list.size();) {
+                const auto comma = list.find(',', at);
+                auto item = list.substr(at, comma == std::string_view::npos ? std::string_view::npos : comma - at);
+                if (const auto bang = item.find('!'); bang != std::string_view::npos) item = item.substr(0, bang);
+                const auto family = normalize_family(item);
+                if (!family.empty()) {
+                    /* Concrete families match by name. Generic serif/monospace still map to
+                       installed faces, so a dictionary that falls back to `serif` (common for
+                       example sentences) gets a Mincho-like face like the WebView does. */
+                    const bool want_serif = family == "serif" || family == "ui-serif";
+                    const bool want_mono = family == "monospace" || family == "ui-monospace";
+                    for (uint32_t i = 0; i < names.size(); ++i) {
+                        const bool match = (!generic_family(family) && names[i] == family) ||
+                            (want_serif && names[i].find("serif") != std::string::npos &&
+                                names[i].find("sans serif") == std::string::npos) ||
+                            (want_mono && (names[i].find("mono") != std::string::npos ||
+                                names[i].find("courier") != std::string::npos));
+                        if (!match) continue;
+                        auto &want = family_faces[style];
+                        if (std::find(want.begin(), want.end(), i) == want.end()) want.push_back(i);
+                    }
+                }
+                if (comma == std::string_view::npos) break;
+                at = comma + 1;
+            }
+        }
+    }
+    uint32_t face_for_style(uint32_t cp, uint32_t style) {
+        if (style < family_faces.size())
+            for (const uint32_t i : family_faces[style])
+                if (faces[i]->covers(cp)) return i;
+        return face_for(cp);
+    }
+    uint32_t cluster_face(const uint16_t *text, uint32_t start, uint32_t end, uint32_t style) {
         const auto first = codepoint(text, end, start);
-        if (start + (first > 0xffff ? 2 : 1) == end) return face_for(first);
+        if (start + (first > 0xffff ? 2 : 1) == end) return face_for_style(first, style);
         bool emoji = false, monochrome = false;
         for (auto at = start; at < end; ++at) { emoji |= text[at] == 0xfe0f; monochrome |= text[at] == 0xfe0e; }
-        for (unsigned pass = 0; pass < 2; ++pass) for (uint32_t i = 0; i < faces.size(); ++i) {
+        const auto covers = [&](uint32_t i, unsigned pass) {
             const bool color = faces[i]->color();
-            if (!pass && ((emoji && !color) || (monochrome && color))) continue;
-            bool covered = true;
+            if (!pass && ((emoji && !color) || (monochrome && color))) return false;
             for (auto at = start; at < end;) {
                 const auto cp = codepoint(text, end, at);
                 at += cp > 0xffff ? 2 : 1;
                 if (cp == 0xfe0e || cp == 0xfe0f || (cp >= 0xe0100 && cp <= 0xe01ef) ||
                     hb_unicode_general_category(hb_unicode_funcs_get_default(), cp) == HB_UNICODE_GENERAL_CATEGORY_FORMAT) continue;
-                if (!faces[i]->covers(cp)) { covered = false; break; }
+                if (!faces[i]->covers(cp)) return false;
             }
-            if (covered) return i;
+            return true;
+        };
+        for (unsigned pass = 0; pass < 2; ++pass) {
+            if (style < family_faces.size())
+                for (const uint32_t i : family_faces[style])
+                    if (covers(i, pass)) return i;
+            for (uint32_t i = 0; i < faces.size(); ++i)
+                if (covers(i, pass)) return i;
         }
-        return face_for(first);
+        return face_for_style(first, style);
     }
     uint32_t configured_face = UINT32_MAX;
     uint32_t configured_key = 0;
@@ -432,6 +589,17 @@ struct dc_portable_document {
         std::fill(v.levels, v.levels + v.text_count, 0);
         std::vector<char> boundaries;
         text_faces.resize(v.text_count);
+        index_families();
+        // Every code point belongs to one request, so the request style decides
+        // which CSS family list applies to it.
+        std::vector<uint32_t> text_styles(v.text_count, 0);
+        for (size_t q = 0; q < v.request_count; ++q) {
+            const auto &request = v.requests[q];
+            const size_t begin = std::min<size_t>(request.start, v.text_count);
+            const size_t end = std::min<size_t>(static_cast<size_t>(request.start) + request.count, v.text_count);
+            for (size_t j = begin; j < end; ++j) text_styles[j] = request.style;
+        }
+
         for (size_t i = 0; i < v.context_count; ++i) {
             const auto &c = v.contexts[i];
             if (!c.count) continue;
@@ -455,7 +623,8 @@ struct dc_portable_document {
                 for (uint32_t j = c.start; j < c.start + c.count;) {
                     const auto cp = codepoint(v.text, v.text_count, j);
                     const uint32_t width = cp > 0xffff ? 2 : 1;
-                    std::fill(text_faces.begin() + j, text_faces.begin() + j + width, face_for(cp));
+                    std::fill(text_faces.begin() + j, text_faces.begin() + j + width,
+                        face_for_style(cp, text_styles[j]));
                     j += width;
                 }
             } else {
@@ -465,7 +634,7 @@ struct dc_portable_document {
                 for (uint32_t from = 0; from < c.count;) {
                     auto until = from + 1;
                     while (until < c.count && boundaries[until-1] != GRAPHEMEBREAK_BREAK) ++until;
-                    const auto face = cluster_face(v.text, c.start+from, c.start+until);
+                    const auto face = cluster_face(v.text, c.start+from, c.start+until, text_styles[c.start+from]);
                     std::fill(text_faces.begin()+c.start+from, text_faces.begin()+c.start+until, face);
                     from = until;
                 }
