@@ -26,6 +26,8 @@ public class NativeGlossaryLayoutContext(
     val viewportWidth: Int,
     val fontFiles: List<Pair<String, Int>> = emptyList(),
     val language: String = "ja",
+    /** The imported dictionary font, so Compose-drawn entry text uses it like the WebView. */
+    val fontFamily: FontFamily? = null,
 ) {
     init { require(viewportWidth >= 0 && viewportWidth != Constraints.Infinity) }
 

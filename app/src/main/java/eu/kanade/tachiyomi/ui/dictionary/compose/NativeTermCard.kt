@@ -99,12 +99,24 @@ internal class NativeCardTheme(appearance: DictionaryRenderAppearance) {
         ".card-popular{color:$accent}.card-rare{color:${appearance.secondary.copy(alpha = .7f).css()}}" +
         ".card-process{font-size:.8em;color:$secondary}" +
         ".card-process-step{padding:7px 10px;margin-bottom:6px;background:${appearance.hover.css()};border:1px solid ${appearance.border.css()};border-radius:8px;font-size:.88em}" +
-        // WebView's .pronunciation-group-list is a wrapping flex row, so separate pitch sources
-        // sit side by side and only wrap when they run out of width.
-        ".card-pitch-list{margin:2px 0 4px}.card-pitch-entry{display:inline-block;vertical-align:top;margin:2px 12px 2px 0}" +
-        ".card-pitch-name{color:$foreground;white-space:nowrap;margin-right:.5em}.card-pitch-number{color:$foreground}" +
-        ".card-pitch-mora{font-size:.9em;border-top:0;padding:0 1px}.card-pitch-high{border-top:1px solid $foreground}" +
-        ".card-pitch-drop{border-right:1px solid $foreground;padding-right:2px}" +
+        // The WebView lays sources out as a wrapping flex row (pronunciation-group-list).
+        // Real table cells give the same columns while the text has room; larger sizes fall
+        // back to the stacked list.
+        ".card-pitch-list{margin:2px 0 4px}" +
+        ".card-pitch-table{width:100%;border-collapse:collapse}" +
+        ".card-pitch-table td{border:none;padding:0 12px 4px 0;vertical-align:top}" +
+        ".card-pitch-entry{display:block;margin:2px 0}" +
+        ".card-pitch-name{display:block;color:$foreground}.card-pitch-number{color:$foreground}" +
+        ".card-pitch-row{display:inline}" +
+        // One source is compact in the WebView: its tag and pitch row share one line.
+        ".card-pitch-compact .card-pitch-entry{display:inline}" +
+        ".card-pitch-compact .card-pitch-name{display:inline;margin-right:.5em;white-space:nowrap}" +
+        ".card-pitch-mora{display:inline-block;position:relative;font-size:.9em;border-top:0;padding:0 1px}" +
+        ".card-pitch-high{border-top:1px solid $foreground}" +
+        // base.css gives the drop mark 0.4em at the top; a full-height right border on the
+        // whole mora made the downward mark much longer than the upward overline.
+        ".card-pitch-drop{padding-right:2px}" +
+        ".card-pitch-drop-bar{position:absolute;right:0;top:0;width:0;height:.4em;border-right:1px solid $foreground}" +
         ".card-group{font-size:.94em;font-weight:600;color:$secondary;padding:4px 0 4px 12px}")
 }
 
@@ -167,23 +179,48 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
         val pitches = if (options.groupPitches) listOf(card.pitches.joinToString(", ") { it.dictName } to
             card.pitches.flatMap { it.pitchPositions.toList() }.distinct()) else card.pitches.map { it.dictName to it.pitchPositions.toList().distinct() }
         if (pitches.any { it.second.isNotEmpty() }) add(before = 2) {
-            element("div", "card-pitch-list") {
-                for ((name, positions) in pitches) {
-                    if (positions.isEmpty()) continue
-                    element("div", "card-pitch-entry") {
-                        /* WebView is compact with one pitch source and stacks the tag above the
-                           rows otherwise; a whole-line tag also keeps a long name from wrapping
-                           mid-label at large popup font sizes. */
-                        if (name.isNotBlank()) element(if (pitches.size == 1) "span" else "div", "card-pitch-name") { text(name) }
-                        for (position in positions) {
-                            val high = DictionaryCore.moraHighFlags(reading, position)
-                            element("span", "card-pitch-row") {
-                                if (options.pitchDiagram && morae.isNotEmpty()) pitchImage(morae, high, theme.pitchColor)
-                                if (options.pitchText) morae.forEachIndexed { i, mora ->
-                                    element("span", "card-pitch-mora" + (if (high[i]) " card-pitch-high" else "") +
-                                        (if (high[i] && !high[i + 1]) " card-pitch-drop" else "")) { text(mora) }
+            val shown = pitches.count { it.second.isNotEmpty() }
+            val compact = shown == 1
+            val columns = shown == 2 && layout.style.fontSize.value <= 22f
+            fun NativeCardBuilder.pitchRow(position: Int) {
+                val high = DictionaryCore.moraHighFlags(reading, position)
+                element("span", "card-pitch-row") {
+                    if (options.pitchDiagram && morae.isNotEmpty()) pitchImage(morae, high, theme.pitchColor)
+                    if (options.pitchText) morae.forEachIndexed { i, mora ->
+                        val drop = high[i] && !high[i + 1]
+                        element("span", "card-pitch-mora" + (if (high[i]) " card-pitch-high" else "") +
+                            (if (drop) " card-pitch-drop" else "")) {
+                            text(mora)
+                            if (drop) element("span", "card-pitch-drop-bar") {}
+                        }
+                    }
+                    if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
+                }
+            }
+            if (columns) {
+                element("table", "card-pitch-table") {
+                    element("tr") {
+                        for ((name, positions) in pitches) {
+                            if (positions.isEmpty()) continue
+                            element("td") {
+                                if (name.isNotBlank()) element("div", "card-pitch-name") { text(name) }
+                                positions.forEachIndexed { index, position ->
+                                    if (index > 0) element("br") {}
+                                    pitchRow(position)
                                 }
-                                if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
+                            }
+                        }
+                    }
+                }
+            } else {
+                element("div", if (compact) "card-pitch-list card-pitch-compact" else "card-pitch-list") {
+                    for ((name, positions) in pitches) {
+                        if (positions.isEmpty()) continue
+                        element("span", "card-pitch-entry") {
+                            if (name.isNotBlank()) element("span", "card-pitch-name") { text(name) }
+                            positions.forEachIndexed { index, position ->
+                                if (index > 0) element("br") {}
+                                pitchRow(position)
                             }
                         }
                     }

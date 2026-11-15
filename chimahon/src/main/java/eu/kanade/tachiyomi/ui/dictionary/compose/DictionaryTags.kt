@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,6 +72,7 @@ fun dictionaryTag(
     background: Color? = null,
     category: String? = null,
     fontSize: Int = 14,
+    fontFamily: FontFamily? = null,
     modifier: Modifier = Modifier,
 ) {
     val resolved = category ?: DictionaryTagColors.resolveCategory(label)
@@ -117,6 +119,7 @@ fun dictionaryTag(
                 color = labelFg,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = tagSize,
+                fontFamily = fontFamily,
                 modifier = Modifier
                     .background(labelBg, labelShape)
                     .then(labelBorder)
@@ -128,6 +131,7 @@ fun dictionaryTag(
                 color = labelFg,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = tagSize,
+                fontFamily = fontFamily,
                 modifier = Modifier
                     .background(labelBg, leftShape)
                     .then(labelBorder)
@@ -138,6 +142,7 @@ fun dictionaryTag(
                 color = bodyFg,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = tagSize,
+                fontFamily = fontFamily,
                 modifier = Modifier
                     .padding(start = 1.dp)
                     .background(bodyBg, rightShape)

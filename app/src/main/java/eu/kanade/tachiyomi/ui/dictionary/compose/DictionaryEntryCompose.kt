@@ -444,6 +444,7 @@ fun DictionaryEntryCompose(
                 hoverBg = hoverBg,
                 accent = accent,
                 fontSize = fontSize,
+                fontFamily = builder.layout.fontFamily,
                 onTabSelect = onTabSelect,
                 onBack = onBack,
             )
@@ -483,6 +484,7 @@ fun DictionaryEntryCompose(
                                 border = border,
                                 onBg = onBg,
                                 eInkMode = eInkMode,
+                                textFontFamily = builder.layout.fontFamily,
                                 onRecursiveLookup = onRecursiveLookup,
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -926,6 +928,8 @@ private fun KanjiEntryCard(
     border: Color,
     onBg: Color,
     eInkMode: Boolean,
+    /** Imported dictionary font; entry text follows it like the WebView's HoshiCustomFont. */
+    textFontFamily: FontFamily? = null,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -953,13 +957,14 @@ private fun KanjiEntryCard(
                 eInk = eInkMode,
                 category = "dictionary",
                 fontSize = fontSize,
+                fontFamily = textFontFamily,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
 
         // Meanings
         if (kanji.definitions.isNotEmpty()) {
-            KanjiSectionHeader("Meanings", secondary, baseFontSize = fontSize)
+            KanjiSectionHeader("Meanings", secondary, baseFontSize = fontSize, fontFamily = textFontFamily)
             // WebView renders these as <ol class="kanji-gloss-list"> with padding-left:1.2em,
             // so keep the numbered markers instead of a plain text column.
             Column(Modifier.padding(start = (fontSize * 1.2).dp)) {
@@ -977,7 +982,12 @@ private fun KanjiEntryCard(
                             color = onBg,
                             fontSize = (fontSize - 1).sp,
                             lineHeight = (fontSize + 3).sp,
-                            modifier = Modifier.width((fontSize * 0.8).dp),
+                            fontFamily = textFontFamily,
+                            // Wide enough for "2." in serif custom fonts; a narrower box
+                            // wrapped the period onto its own line.
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.width((fontSize * 1.2).dp),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
@@ -985,6 +995,7 @@ private fun KanjiEntryCard(
                             color = onBg,
                             fontSize = (fontSize - 1).sp,
                             lineHeight = (fontSize + 3).sp,
+                            fontFamily = textFontFamily,
                             modifier = defModifier.weight(1f),
                         )
                     }
@@ -994,7 +1005,8 @@ private fun KanjiEntryCard(
 
         // Readings
         if (kanji.onyomi.isNotEmpty() || kanji.kunyomi.isNotEmpty()) {
-            KanjiSectionHeader("Readings", secondary, modifier = Modifier.padding(top = 8.dp), baseFontSize = fontSize)
+            KanjiSectionHeader("Readings", secondary, baseFontSize = fontSize, fontFamily = textFontFamily,
+                modifier = Modifier.padding(top = 8.dp))
             // base.css: .kanji-readings is a wrapping flex list with gap 8px and 1em readings,
             // so the on'yomi and kun'yomi blocks sit on their own lines.
             Column(
@@ -1007,6 +1019,7 @@ private fun KanjiEntryCard(
                         color = accent,
                         fontSize = fontSize.sp,
                         fontWeight = FontWeight.SemiBold,
+                        fontFamily = textFontFamily,
                     )
                 }
                 if (kanji.kunyomi.isNotEmpty()) {
@@ -1015,6 +1028,7 @@ private fun KanjiEntryCard(
                         color = onBg,
                         fontSize = fontSize.sp,
                         fontWeight = FontWeight.SemiBold,
+                        fontFamily = textFontFamily,
                     )
                 }
             }
@@ -1022,7 +1036,8 @@ private fun KanjiEntryCard(
 
         // Statistics
         if (kanji.stats.isNotEmpty()) {
-            KanjiSectionHeader("Statistics", secondary, modifier = Modifier.padding(top = 8.dp), baseFontSize = fontSize)
+            KanjiSectionHeader("Statistics", secondary, baseFontSize = fontSize, fontFamily = textFontFamily,
+                modifier = Modifier.padding(top = 8.dp))
             Column(Modifier.padding(top = 2.dp)) {
                 kanji.stats.forEach { (label, value) ->
                     Row(
@@ -1037,6 +1052,7 @@ private fun KanjiEntryCard(
                             color = secondary,
                             fontSize = (fontSize * 0.9).sp,
                             fontWeight = FontWeight.SemiBold,
+                            fontFamily = textFontFamily,
                             modifier = Modifier
                                 // base.css: .kanji-info-table-item-header { width: 40% }
                                 .weight(0.4f)
@@ -1047,6 +1063,7 @@ private fun KanjiEntryCard(
                             text = value,
                             color = onBg,
                             fontSize = (fontSize * 0.9).sp,
+                            fontFamily = textFontFamily,
                             modifier = Modifier
                                 .weight(0.6f)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -1064,6 +1081,7 @@ private fun KanjiSectionHeader(
     accent: Color,
     fontScale: Float = 0.85f,
     baseFontSize: Int = 14,
+    fontFamily: FontFamily? = null,
     modifier: Modifier = Modifier,
 ) {
     Text(
@@ -1072,6 +1090,7 @@ private fun KanjiSectionHeader(
         fontSize = (baseFontSize * fontScale).sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = (baseFontSize * 0.05f).sp,
+        fontFamily = fontFamily,
         modifier = modifier,
     )
 }
@@ -1090,6 +1109,7 @@ private fun RecursiveNavBar(
     hoverBg: Color,
     accent: Color,
     fontSize: Int,
+    fontFamily: FontFamily? = null,
     onTabSelect: ((Int) -> Unit)?,
     onBack: (() -> Unit)?,
 ) {
@@ -1111,6 +1131,7 @@ private fun RecursiveNavBar(
                         color = if (selected) accent else secondary,
                         fontSize = (fontSize - 3).sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        fontFamily = fontFamily,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
@@ -1126,6 +1147,7 @@ private fun RecursiveNavBar(
                     text = "← " + previous.label,
                     color = accent,
                     fontSize = (fontSize - 3).sp,
+                    fontFamily = fontFamily,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier

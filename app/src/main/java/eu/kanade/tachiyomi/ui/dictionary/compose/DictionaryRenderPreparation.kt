@@ -12,6 +12,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import chimahon.DictionaryStyle
 import chimahon.LookupResult
 import chimahon.anki.AnkiProfile
@@ -87,11 +89,14 @@ internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: 
             ?.takeIf { runCatching { Typeface.createFromFile(it) }.isSuccess }
     }
     val fontFiles = customFont?.let { listOf(it.absolutePath to 0) } ?: emptyList()
+    val customFamily = remember(customFont) {
+        customFont?.let { runCatching { FontFamily(Font(it)) }.getOrNull() }
+    }
     val language = nativeLanguageTag(profile.languageCode)
-    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont) {
+    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont, customFamily) {
         DictionaryPlanBuilder(context, appearance,
-            NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, null), density, direction,
-                resolver, appearance.secondary, appearance.border, width, fontFiles, language), customCss, profile, groupTerms, cardOptions) { name ->
+            NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, customFamily), density, direction,
+                resolver, appearance.secondary, appearance.border, width, fontFiles, language, customFamily), customCss, profile, groupTerms, cardOptions) { name ->
             if (environment == null) getDictionaryTitle(context, name) else environment.dictionaryTitles[name] ?: name
         }
     }
