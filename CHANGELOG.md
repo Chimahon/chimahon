@@ -10,6 +10,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 
 - Native dictionary renderer crash when shaping text with a font face it had not preloaded
 - Native dictionary renderer ignoring the selected custom dictionary font
+- Anki `{glossary-first}` exporting the selected dictionary instead of the first glossary
 
 ## [v2.5.0]
 

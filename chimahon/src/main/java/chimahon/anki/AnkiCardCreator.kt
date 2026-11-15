@@ -844,7 +844,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            selectGlossaries(result.term.glossaries, glossaryIndex),
             brief = false,
             noDictTag = false,
             firstOnly = true,
@@ -852,7 +852,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST_NO_DICT -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            selectGlossaries(result.term.glossaries, glossaryIndex),
             brief = false,
             noDictTag = true,
             firstOnly = true,
@@ -860,7 +860,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST_BRIEF -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            selectGlossaries(result.term.glossaries, glossaryIndex),
             brief = true,
             noDictTag = false,
             firstOnly = true,
