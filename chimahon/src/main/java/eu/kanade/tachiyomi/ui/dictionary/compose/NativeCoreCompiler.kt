@@ -33,6 +33,7 @@ public class NativeCoreCompiler(
     private val planId: Long = 0L,
     private val workerId: Int = 0,
     private val fontFiles: List<Pair<String, Int>> = emptyList(),
+    private val language: String = "ja",
 ) : Closeable {
     private data class BatchContext(val handle: Long, val sourceSheets: IntArray)
     private var batch: BatchContext? = null
@@ -53,7 +54,7 @@ public class NativeCoreCompiler(
                 sheets.add(sheet)
             } else sourceSheets[i] = index
         }
-        val handle = DictionaryCore.openBatch(sheets.toTypedArray(), style.fontSize.value * density.fontScale, dark, expanded)
+        val handle = DictionaryCore.openBatch(sheets.toTypedArray(), style.fontSize.value * density.fontScale, dark, expanded, language)
         check(handle != 0L)
         return BatchContext(handle, sourceSheets).also { batch = it }
     }

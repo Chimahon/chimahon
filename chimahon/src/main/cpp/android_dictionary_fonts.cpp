@@ -15,6 +15,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -36,13 +37,13 @@ struct Catalog {
     std::vector<File> files;
     std::vector<dc_font_file> view;
 
-    Catalog() {
+    explicit Catalog(const std::string &language) {
         // API 30 is the proven NDK font-matcher path. API 26-29 describe the same
         // catalog in fonts.xml; parse that instead of disabling the renderer.
         if (android_get_device_api_level() >= 30) {
-            load_ndk();
+            load_ndk(language);
         } else {
-            load_xml();
+            load_xml(language);
         }
         if (files.empty()) throw std::runtime_error("System font catalog is empty");
         std::stable_sort(files.begin(), files.end(),
@@ -54,7 +55,7 @@ struct Catalog {
 private:
     /* API 30+: the platform matcher knows which files belong to the device's
      * default sans-serif family, including vendor overrides. */
-    void load_ndk() {
+    void load_ndk(const std::string &language) {
         std::unique_ptr<void, decltype(&dlclose)> library(dlopen("libandroid.so", RTLD_NOW | RTLD_LOCAL), dlclose);
         if (!library) throw std::runtime_error("Cannot load system font catalog");
         auto open = symbol<ASystemFontIterator *(*)()>(library.get(), "ASystemFontIterator_open");
@@ -72,7 +73,7 @@ private:
         auto match = symbol<AFont *(*)(const AFontMatcher *, const char *, const uint16_t *, uint32_t, uint32_t *)>(library.get(), "AFontMatcher_match");
         std::unique_ptr<AFontMatcher, decltype(destroyMatcher)> matcher(createMatcher(), destroyMatcher);
         if (!matcher) throw std::runtime_error("Cannot create system font matcher");
-        setLocales(matcher.get(), "ja-JP");
+        setLocales(matcher.get(), language.c_str());
         std::map<std::pair<std::string, uint32_t>, size_t> seen;
         auto add = [&](const AFont *font, int rank) {
             const auto *filename = path(font);
@@ -98,11 +99,12 @@ private:
             const auto *filename = path(font.get());
             if (!filename) continue;
             const std::string name(filename), languages = locale(font.get()) ? locale(font.get()) : "";
-            const bool japanese = languages.find("ja") != std::string::npos;
+            const std::string primary = language.substr(0, 2);
+            const bool preferred = languages.find(primary) != std::string::npos;
             const bool emoji = name.find("Emoji") != std::string::npos;
             const bool neutral = languages.empty() || languages == "und";
             const bool symbols = name.find("Symbols") != std::string::npos;
-            const int family = neutral && !symbols && !emoji ? 0 : japanese ? 1 : emoji ? 2 : 3;
+            const int family = neutral && !symbols && !emoji ? 0 : preferred ? 1 : emoji ? 2 : 3;
             const int style = std::abs(static_cast<int>(weight(font.get())) - 400) + (italic(font.get()) ? 1000 : 0);
             const auto rank = family * 10000 + style;
             add(font.get(), rank);
@@ -110,7 +112,7 @@ private:
     }
 
     /* API 26-29: fonts.xml (or the legacy system_fonts.xml) is the catalog. */
-    void load_xml() {
+    void load_xml(const std::string &language) {
         static const char *const candidates[] = {
             "/system/etc/fonts.xml",
             "/system/etc/system_fonts.xml",
@@ -121,7 +123,7 @@ private:
             std::ifstream input(candidate, std::ios::binary);
             if (!input) continue;
             const std::string xml((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-            auto parsed = parse_fonts_xml(xml);
+            auto parsed = parse_fonts_xml(xml, "/system/fonts/", language);
             if (parsed.empty()) continue;
             files.reserve(parsed.size());
             for (auto &file : parsed) {
@@ -155,7 +157,12 @@ private:
 };
 }  // namespace
 
-const std::vector<dc_font_file> &dictionary_system_fonts() {
-    static const Catalog catalog;
-    return catalog.view;
+const std::vector<dc_font_file> &dictionary_system_fonts(const char *language) {
+    static std::mutex mutex;
+    static std::map<std::string, std::unique_ptr<Catalog>> catalogs;
+    const std::string key = language && *language ? language : "ja";
+    std::lock_guard<std::mutex> lock(mutex);
+    auto &entry = catalogs[key];
+    if (!entry) entry = std::make_unique<Catalog>(key);
+    return entry->view;
 }

@@ -212,8 +212,10 @@ struct dc_portable_document {
     std::map<uint32_t, uint32_t> coverage;
     std::vector<uint32_t> text_faces;
     std::map<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>, PortableColorGlyph> color_glyphs;
+    std::string language;
     bool measured = false;
-    dc_portable_document(dc_drawing_plan *p, const dc_font_file *files, size_t count) : plan(p) {
+    dc_portable_document(dc_drawing_plan *p, const dc_font_file *files, size_t count, const char *language)
+        : plan(p), language(language && *language ? language : "ja") {
         require(p && files && count, "Portable renderer needs a drawing plan and font files");
         faces.reserve(count);
         for (size_t i = 0; i < count; ++i) faces.push_back(std::make_unique<Face>(library, files[i]));
@@ -284,7 +286,7 @@ struct dc_portable_document {
         auto buffer = hb_buffer_create();
         hb_buffer_add_codepoints(buffer, &cp, 1, 0, 1);
         hb_buffer_set_direction(buffer, HB_DIRECTION_LTR);
-        hb_buffer_set_language(buffer, hb_language_from_string("ja", -1));
+        hb_buffer_set_language(buffer, hb_language_from_string(language.c_str(), -1));
         hb_buffer_guess_segment_properties(buffer);
         const hb_feature_t feature{HB_TAG('h','a','l','t'), 1, 0, UINT_MAX};
         hb_shape(faces[face]->hb, buffer, &feature, 1);
@@ -394,7 +396,7 @@ struct dc_portable_document {
             hb_buffer_clear_contents(buffer);
             hb_buffer_add_utf16(buffer, v.text + context, context_count, at - context, until - at);
             hb_buffer_set_direction(buffer, v.levels[at] & 1 ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
-            hb_buffer_set_language(buffer, hb_language_from_string("ja", -1));
+            hb_buffer_set_language(buffer, hb_language_from_string(language.c_str(), -1));
             hb_buffer_guess_segment_properties(buffer);
             hb_shape(faces[face]->hb, buffer, nullptr, 0);
             unsigned count;
@@ -459,7 +461,7 @@ struct dc_portable_document {
             } else {
                 boundaries.resize(c.count);
                 DC_PROFILE("measure.graphemes");
-                set_graphemebreaks_utf16(v.text+c.start, c.count, "ja", boundaries.data());
+                set_graphemebreaks_utf16(v.text+c.start, c.count, language.c_str(), boundaries.data());
                 for (uint32_t from = 0; from < c.count;) {
                     auto until = from + 1;
                     while (until < c.count && boundaries[until-1] != GRAPHEMEBREAK_BREAK) ++until;
@@ -471,7 +473,7 @@ struct dc_portable_document {
             if (!(c.annotation & 1)) {
                 boundaries.resize(c.count);
                 DC_PROFILE("measure.linebreak");
-                set_linebreaks_utf16(v.text + c.start, c.count, "ja", boundaries.data());
+                set_linebreaks_utf16(v.text + c.start, c.count, language.c_str(), boundaries.data());
                 for (uint32_t j = 0; j < c.count; ++j) v.breaks[c.start + j] = boundaries[j] <= LINEBREAK_ALLOWBREAK;
                 v.breaks[c.start + c.count - 1] = 1;
             }
@@ -688,8 +690,11 @@ template<class F> int guarded(dc_error *error, F &&fn) {
 }
 }
 int dc_portable_create(dc_drawing_plan *plan, const dc_font_file *files, size_t count, dc_portable_document **out, dc_error *error) {
+    return dc_portable_create_language(plan, files, count, "ja", out, error);
+}
+int dc_portable_create_language(dc_drawing_plan *plan, const dc_font_file *files, size_t count, const char *language, dc_portable_document **out, dc_error *error) {
     if (out) *out = nullptr;
-    return guarded(error, [&] { require(out != nullptr, "Missing portable output"); *out = new dc_portable_document(plan, files, count); });
+    return guarded(error, [&] { require(out != nullptr, "Missing portable output"); *out = new dc_portable_document(plan, files, count, language); });
 }
 int dc_portable_measure(dc_portable_document *doc, float pixel_scale, dc_error *error) {
     return guarded(error, [&] { require(doc != nullptr, "Closed portable document"); doc->measure(pixel_scale); });

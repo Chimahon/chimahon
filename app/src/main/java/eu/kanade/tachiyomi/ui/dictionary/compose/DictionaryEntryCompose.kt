@@ -51,7 +51,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import chimahon.novel.data.FontManager
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -209,7 +212,7 @@ internal suspend fun prepareGlossaryBatch(profilingId: Long, nextWork: () -> Glo
         val stats = layout.createResources()
         val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
         NativeCoreCompiler(layout.density, layout.direction, layout.resolver, layout.secondary, layout.border, stats,
-            profilingId, planId, workerId, layout.fontFiles).use { core ->
+            profilingId, planId, workerId, layout.fontFiles, layout.language).use { core ->
             val documents = core.prepareBatch(pending.map { item ->
                 NativeDrawingInput(nativeCoreRaw(item.nodes), item.css.nativeSourceCss, item.width, item.nodes, item.css)
             }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })
@@ -925,6 +928,11 @@ private fun KanjiEntryCard(
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val strokeFont = remember(context) { FontManager.getKanjiStrokeFontFile(context) }
+    val glyphFamily = remember(strokeFont) {
+        strokeFont?.let { runCatching { FontFamily(Font(it)) }.getOrNull() }
+    }
     Column(modifier = modifier.padding(start = 10.dp, end = 0.dp, top = 12.dp, bottom = 6.dp)) {
         // Glyph
         Text(
@@ -932,6 +940,7 @@ private fun KanjiEntryCard(
             color = onBg,
             fontSize = (fontSize * 7).sp,
             fontWeight = FontWeight.Normal,
+            fontFamily = glyphFamily,
             modifier = Modifier.padding(bottom = 6.dp),
         )
 

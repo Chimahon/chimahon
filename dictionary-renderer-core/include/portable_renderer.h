@@ -12,6 +12,10 @@ typedef struct dc_portable_document dc_portable_document;
 typedef struct dc_font_file { const char *path; uint32_t collection_index; } dc_font_file;
 DC_API int dc_portable_create(dc_drawing_plan *, const dc_font_file *, size_t,
                              dc_portable_document **, dc_error *);
+/* Same as dc_portable_create with an explicit shaping/breaking language
+ * (ja, zh-Hans, zh-Hant, ko). A null/empty language keeps the ja default. */
+DC_API int dc_portable_create_language(dc_drawing_plan *, const dc_font_file *, size_t,
+                                       const char *language, dc_portable_document **, dc_error *);
 /* Fills all existing bulk measurements and retains the glyph runs used for painting. */
 DC_API int dc_portable_measure(dc_portable_document *, float pixel_scale, dc_error *);
 /* Premultiplied RGBA pixels. The host supplies only a viewport, never a full long-page bitmap.

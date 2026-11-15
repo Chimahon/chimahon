@@ -9,6 +9,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 
 /** Immutable popup facts shared by preparation and mounting, never mutable worker resources. */
+public fun nativeLanguageTag(code: String): String = when {
+    code.startsWith("zh") -> if (code.contains("TW") || code.contains("HK") ||
+        code.contains("MO") || code.contains("Hant")) "zh-Hant" else "zh-Hans"
+    code.startsWith("ko") -> "ko"
+    else -> "ja"
+}
+
 public class NativeGlossaryLayoutContext(
     val style: TextStyle,
     val density: Density,
@@ -18,6 +25,7 @@ public class NativeGlossaryLayoutContext(
     val border: Color,
     val viewportWidth: Int,
     val fontFiles: List<Pair<String, Int>> = emptyList(),
+    val language: String = "ja",
 ) {
     init { require(viewportWidth >= 0 && viewportWidth != Constraints.Infinity) }
 
