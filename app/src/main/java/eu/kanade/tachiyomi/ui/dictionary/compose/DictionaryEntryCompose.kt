@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -959,6 +960,8 @@ private fun KanjiEntryCard(
         // Meanings
         if (kanji.definitions.isNotEmpty()) {
             KanjiSectionHeader("Meanings", secondary, baseFontSize = fontSize)
+            // WebView renders these as <ol class="kanji-gloss-list"> with padding-left:1.2em,
+            // so keep the numbered markers instead of a plain text column.
             Column(Modifier.padding(start = (fontSize * 1.2).dp)) {
                 kanji.definitions.forEachIndexed { i, def ->
                     val defModifier = if (onRecursiveLookup != null && def.isNotBlank()) {
@@ -968,13 +971,23 @@ private fun KanjiEntryCard(
                     } else {
                         Modifier
                     }
-                    Text(
-                        text = def,
-                        color = onBg,
-                        fontSize = (fontSize - 1).sp,
-                        lineHeight = (fontSize + 3).sp,
-                        modifier = defModifier.padding(bottom = 4.dp),
-                    )
+                    Row(Modifier.padding(bottom = 4.dp)) {
+                        Text(
+                            text = "${i + 1}.",
+                            color = onBg,
+                            fontSize = (fontSize - 1).sp,
+                            lineHeight = (fontSize + 3).sp,
+                            modifier = Modifier.width((fontSize * 0.8).dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = def,
+                            color = onBg,
+                            fontSize = (fontSize - 1).sp,
+                            lineHeight = (fontSize + 3).sp,
+                            modifier = defModifier.weight(1f),
+                        )
+                    }
                 }
             }
         }
@@ -982,15 +995,17 @@ private fun KanjiEntryCard(
         // Readings
         if (kanji.onyomi.isNotEmpty() || kanji.kunyomi.isNotEmpty()) {
             KanjiSectionHeader("Readings", secondary, modifier = Modifier.padding(top = 8.dp), baseFontSize = fontSize)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // base.css: .kanji-readings is a wrapping flex list with gap 8px and 1em readings,
+            // so the on'yomi and kun'yomi blocks sit on their own lines.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 2.dp),
             ) {
                 if (kanji.onyomi.isNotEmpty()) {
                     Text(
                         text = kanji.onyomi.joinToString(", "),
                         color = accent,
-                        fontSize = (fontSize - 1).sp,
+                        fontSize = fontSize.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -998,7 +1013,7 @@ private fun KanjiEntryCard(
                     Text(
                         text = kanji.kunyomi.joinToString(", "),
                         color = onBg,
-                        fontSize = (fontSize - 1).sp,
+                        fontSize = fontSize.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -1023,15 +1038,17 @@ private fun KanjiEntryCard(
                             fontSize = (fontSize * 0.9).sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
-                                .width(96.dp)
+                                // base.css: .kanji-info-table-item-header { width: 40% }
+                                .weight(0.4f)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
+                            maxLines = 1,
                         )
                         Text(
                             text = value,
                             color = onBg,
                             fontSize = (fontSize * 0.9).sp,
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(0.6f)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                     }

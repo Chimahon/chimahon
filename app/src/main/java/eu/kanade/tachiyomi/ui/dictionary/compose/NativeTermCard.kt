@@ -79,8 +79,13 @@ internal class NativeCardTheme(appearance: DictionaryRenderAppearance) {
     private val foreground: String = appearance.onBg.css()
     private val secondary: String = appearance.secondary.css()
     private val accent: String = appearance.accent.css()
-    val pitchColor: String = accent.take(7)
-    val css: ParsedCss = ParsedCss("body{margin:0;line-height:1.4;color:$foreground}rt{font-size:55%;line-height:1}" +
+    // The WebView draws the pitch graph with --pronunciation-annotation-color, i.e. the
+    // foreground, not the accent.
+    val pitchColor: String = foreground.take(7)
+    /* Card chrome is compiled without base.css, so it has no root font size of its own. The
+       engine stamps --font-size-no-units from the popup preference; without this line every
+       card part stayed at the 16px default and the font-size setting looked ignored. */
+    val css: ParsedCss = ParsedCss("body{margin:0;line-height:1.4;font-size:calc(1px * var(--font-size-no-units, 16));color:$foreground}rt{font-size:55%;line-height:1}" +
         (if (appearance.eInk)
             ".chip{font-size:.75em;background:transparent;border:1px solid $foreground;border-radius:0;padding:0 4px;margin-right:3px}"
         else
@@ -94,9 +99,12 @@ internal class NativeCardTheme(appearance: DictionaryRenderAppearance) {
         ".card-popular{color:$accent}.card-rare{color:${appearance.secondary.copy(alpha = .7f).css()}}" +
         ".card-process{font-size:.8em;color:$secondary}" +
         ".card-process-step{padding:7px 10px;margin-bottom:6px;background:${appearance.hover.css()};border:1px solid ${appearance.border.css()};border-radius:8px;font-size:.88em}" +
-        ".card-pitch-name{font-size:10px;color:$secondary}.card-pitch-number{font-size:12px;color:$accent}" +
-        ".card-pitch-mora{font-size:11px;border-top:0}.card-pitch-high{border-top:1px solid $foreground}" +
-        ".card-pitch-drop{border-right:1px solid $foreground}" +
+        // WebView's .pronunciation-group-list is a wrapping flex row, so separate pitch sources
+        // sit side by side and only wrap when they run out of width.
+        ".card-pitch-list{margin:2px 0 4px}.card-pitch-entry{display:inline-block;vertical-align:top;margin:2px 12px 2px 0}" +
+        ".card-pitch-name{color:$foreground;white-space:nowrap;margin-right:.5em}.card-pitch-number{color:$foreground}" +
+        ".card-pitch-mora{font-size:.9em;border-top:0;padding:0 1px}.card-pitch-high{border-top:1px solid $foreground}" +
+        ".card-pitch-drop{border-right:1px solid $foreground;padding-right:2px}" +
         ".card-group{font-size:.94em;font-weight:600;color:$secondary;padding:4px 0 4px 12px}")
 }
 
@@ -158,17 +166,27 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
         val morae = if (reading.isNotBlank()) DictionaryCore.splitMorae(reading).toList() else emptyList()
         val pitches = if (options.groupPitches) listOf(card.pitches.joinToString(", ") { it.dictName } to
             card.pitches.flatMap { it.pitchPositions.toList() }.distinct()) else card.pitches.map { it.dictName to it.pitchPositions.toList().distinct() }
-        for ((name, positions) in pitches) for (position in positions) {
-            val high = DictionaryCore.moraHighFlags(reading, position)
-            add(before = 2) {
-                element("div") {
-                    element("span", "card-pitch-name") { text(name + " ") }
-                    if (options.pitchDiagram && morae.isNotEmpty()) pitchImage(morae, high, theme.pitchColor)
-                    if (options.pitchText) morae.forEachIndexed { i, mora ->
-                        element("span", "card-pitch-mora" + (if (high[i]) " card-pitch-high" else "") +
-                            (if (high[i] && !high[i + 1]) " card-pitch-drop" else "")) { text(mora) }
+        if (pitches.any { it.second.isNotEmpty() }) add(before = 2) {
+            element("div", "card-pitch-list") {
+                for ((name, positions) in pitches) {
+                    if (positions.isEmpty()) continue
+                    element("div", "card-pitch-entry") {
+                        /* WebView is compact with one pitch source and stacks the tag above the
+                           rows otherwise; a whole-line tag also keeps a long name from wrapping
+                           mid-label at large popup font sizes. */
+                        if (name.isNotBlank()) element(if (pitches.size == 1) "span" else "div", "card-pitch-name") { text(name) }
+                        for (position in positions) {
+                            val high = DictionaryCore.moraHighFlags(reading, position)
+                            element("span", "card-pitch-row") {
+                                if (options.pitchDiagram && morae.isNotEmpty()) pitchImage(morae, high, theme.pitchColor)
+                                if (options.pitchText) morae.forEachIndexed { i, mora ->
+                                    element("span", "card-pitch-mora" + (if (high[i]) " card-pitch-high" else "") +
+                                        (if (high[i] && !high[i + 1]) " card-pitch-drop" else "")) { text(mora) }
+                                }
+                                if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
+                            }
+                        }
                     }
-                    if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
                 }
             }
         }
@@ -195,7 +213,6 @@ private fun NativeCardBuilder.pitchImage(morae: List<String>, high: BooleanArray
     val slots = morae.size
     if (slots == 0) return
     fun isHigh(i: Int) = high.getOrElse(i) { false }
-    val width = slots * 18 + 18
     val points = (0 until slots).joinToString(" L") { i ->
         "${i * 50 + 25} ${if (isHigh(i)) 25 else 75}"
     }
@@ -210,17 +227,23 @@ private fun NativeCardBuilder.pitchImage(morae: List<String>, high: BooleanArray
             "<circle cx='$x' cy='$y' r='15' fill='none' stroke='$color' stroke-width='5'/>" +
                 "<circle cx='$x' cy='$y' r='5' fill='$color'/>"
         } else {
-            "<circle cx='$x' cy='$y' r='15' fill='$color'/>"
+            "<circle cx='$x' cy='$y' r='15' fill='$color' stroke='$color' stroke-width='5'/>"
         }
     }
-    val svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${50 * (slots + 1)} 100' width='$width' height='34'>" +
-        "<path d='M$points' fill='none' stroke='$color' stroke-width='3'/>" +
-        "<path d='M$lastX $lastY L$tailX $tailY' fill='none' stroke='$color' stroke-width='3'/>" +
-        "<path d='M0 13 L15 -13 L-15 -13 Z' fill='$color' transform='translate($tailX,$tailY)'/>" +
+    /* base.css sizes the WebView's inline SVG with height:1.2em and lets the 50*n viewBox
+       supply the width, so a 3-mora graph is 2.4em wide. The card chrome is compiled without
+       base.css, so the same 2.4em/1.2em box is requested here in em units; sizing it in px
+       made the graph resolve against the container default and fill the whole column. */
+    val svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${50 * (slots + 1)} 100'>" +
+        "<path d='M$points' fill='none' stroke='$color' stroke-width='5'/>" +
+        "<path d='M$lastX $lastY L$tailX $tailY' fill='none' stroke='$color' stroke-width='5'" +
+        " stroke-dasharray='5 5'/>" +
+        "<path d='M0 13 L15 -13 L-15 -13 Z' fill='none' stroke='$color' stroke-width='5'" +
+        " transform='translate($tailX,$tailY)'/>" +
         dots + "</svg>"
     element("img") {
         property("path", "data:image/svg+xml;base64," + Base64.encodeToString(svg.toByteArray(), Base64.NO_WRAP))
-        property("width", width.toString()); property("height", "34"); property("sizeUnits", "px")
+        property("width", "2.4"); property("height", "1.2"); property("sizeUnits", "em")
         text("")
     }
 }
