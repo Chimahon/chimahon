@@ -19,7 +19,7 @@ internal class NativePortableDrawing(handle: Long) {
         try {
             DictionaryCore.rasterPortable(handle, source, scale, left / scale, top / scale,
                 width, height, bitmap, textColor ?: 0, textColor != null)
-        } finally { java.lang.ref.Reference.reachabilityFence(this) }
+        } finally { fence() }
     }
 
     @Synchronized
@@ -27,7 +27,7 @@ internal class NativePortableDrawing(handle: Long) {
         val handle = allocation.handle.get()
         check(handle != 0L) { "Portable document is closed" }
         try { return DictionaryCore.hitAt(handle, source, x, y) }
-        finally { java.lang.ref.Reference.reachabilityFence(this) }
+        finally { fence() }
     }
 
     @Synchronized
@@ -35,7 +35,7 @@ internal class NativePortableDrawing(handle: Long) {
         val handle = allocation.handle.get()
         check(handle != 0L) { "Portable document is closed" }
         try { return DictionaryCore.selectionRects(handle, source, offset, codePoints) }
-        finally { java.lang.ref.Reference.reachabilityFence(this) }
+        finally { fence() }
     }
 
     @Synchronized
@@ -43,11 +43,22 @@ internal class NativePortableDrawing(handle: Long) {
         val handle = allocation.handle.get()
         check(handle != 0L) { "Portable document is closed" }
         try { return DictionaryCore.sourceText(handle, source) ?: "" }
-        finally { java.lang.ref.Reference.reachabilityFence(this) }
+        finally { fence() }
     }
 
     @Synchronized
     fun close() = allocation.release()
+
+    /* Reference.reachabilityFence is Java 9 / API 28. On 26-27 the synchronized
+     * methods already hold this through the native call; the explicit monitor keeps
+     * the same guarantee before the phantom cleanup can close the handle. */
+    private fun fence() {
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            java.lang.ref.Reference.reachabilityFence(this)
+        } else {
+            synchronized(this) { }
+        }
+    }
 
     private class Allocation(owner: NativePortableDrawing, pointer: Long) : PhantomReference<NativePortableDrawing>(owner, queue) {
         val handle = AtomicLong(pointer)

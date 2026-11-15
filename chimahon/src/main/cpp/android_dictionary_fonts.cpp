@@ -1,15 +1,24 @@
 #include "android_dictionary_fonts.h"
+#include "font_catalog_xml.hpp"
 #include <android/api-level.h>
 #include <android/font.h>
 #include <android/font_matcher.h>
 #include <android/system_fonts.h>
-#include <algorithm>
+#include <dirent.h>
 #include <dlfcn.h>
-#include <memory>
+#include <unistd.h>
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
-#include <tuple>
+#include <utility>
+#include <vector>
 
 namespace {
 template<class T> T symbol(void *library, const char *name) {
@@ -17,13 +26,35 @@ template<class T> T symbol(void *library, const char *name) {
     if (!function) throw std::runtime_error(std::string("Missing system font API: ") + name);
     return function;
 }
+
 struct Catalog {
-    struct File { std::string path; uint32_t index; int rank; };
+    struct File {
+        std::string path;
+        uint32_t index;
+        int rank;
+    };
     std::vector<File> files;
     std::vector<dc_font_file> view;
+
     Catalog() {
-        if (android_get_device_api_level() < 30)
-            throw std::runtime_error("Portable dictionary renderer requires Android 11 or newer");
+        // API 30 is the proven NDK font-matcher path. API 26-29 describe the same
+        // catalog in fonts.xml; parse that instead of disabling the renderer.
+        if (android_get_device_api_level() >= 30) {
+            load_ndk();
+        } else {
+            load_xml();
+        }
+        if (files.empty()) throw std::runtime_error("System font catalog is empty");
+        std::stable_sort(files.begin(), files.end(),
+            [](const File &a, const File &b) { return a.rank < b.rank; });
+        view.reserve(files.size());
+        for (const auto &file : files) view.push_back({file.path.c_str(), file.index});
+    }
+
+private:
+    /* API 30+: the platform matcher knows which files belong to the device's
+     * default sans-serif family, including vendor overrides. */
+    void load_ndk() {
         std::unique_ptr<void, decltype(&dlclose)> library(dlopen("libandroid.so", RTLD_NOW | RTLD_LOCAL), dlclose);
         if (!library) throw std::runtime_error("Cannot load system font catalog");
         auto open = symbol<ASystemFontIterator *(*)()>(library.get(), "ASystemFontIterator_open");
@@ -76,12 +107,54 @@ struct Catalog {
             const auto rank = family * 10000 + style;
             add(font.get(), rank);
         }
-        std::stable_sort(files.begin(), files.end(), [](const auto &a, const auto &b) { return a.rank < b.rank; });
-        if (files.empty()) throw std::runtime_error("System font catalog is empty");
-        for (const auto &file : files) view.push_back({file.path.c_str(), file.index});
+    }
+
+    /* API 26-29: fonts.xml (or the legacy system_fonts.xml) is the catalog. */
+    void load_xml() {
+        static const char *const candidates[] = {
+            "/system/etc/fonts.xml",
+            "/system/etc/system_fonts.xml",
+            "/vendor/etc/fonts.xml",
+            "/product/etc/fonts.xml",
+        };
+        for (const char *candidate : candidates) {
+            std::ifstream input(candidate, std::ios::binary);
+            if (!input) continue;
+            const std::string xml((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+            auto parsed = parse_fonts_xml(xml);
+            if (parsed.empty()) continue;
+            files.reserve(parsed.size());
+            for (auto &file : parsed) {
+                if (access(file.path.c_str(), R_OK) != 0) continue;
+                files.push_back({std::move(file.path), file.collection, static_cast<int>(files.size())});
+            }
+            return;
+        }
+        load_directory("/system/fonts");
+    }
+
+    /* Last resort for vendor images without a readable font description. */
+    void load_directory(const char *directory) {
+        DIR *dir = opendir(directory);
+        if (!dir) return;
+        const auto supported = [](std::string suffix) {
+            for (auto &c : suffix) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return suffix == ".ttf" || suffix == ".otf" || suffix == ".ttc";
+        };
+        std::vector<std::string> names;
+        while (const dirent *entry = readdir(dir)) {
+            const std::string name = entry->d_name;
+            if (name.size() > 4 && supported(name.substr(name.size() - 4))) names.push_back(name);
+        }
+        closedir(dir);
+        std::sort(names.begin(), names.end());
+        for (auto &name : names) {
+            files.push_back({std::string(directory) + "/" + name, 0, static_cast<int>(files.size())});
+        }
     }
 };
-}
+}  // namespace
+
 const std::vector<dc_font_file> &dictionary_system_fonts() {
     static const Catalog catalog;
     return catalog.view;

@@ -681,9 +681,7 @@ object SettingsDictionaryScreen : SearchableSettings {
                     entries = persistentListOf(
                         DictionaryPreferences.RENDERER_WEBVIEW to "WebView",
                         DictionaryPreferences.RENDERER_COMPOSE to "Native",
-                    ).filter { (renderer, _) ->
-                        DictionaryPreferences.supportsNativeRenderer || renderer == DictionaryPreferences.RENDERER_WEBVIEW
-                    }.associate { it.first to it.second }.toPersistentMap(),
+                    ).associate { it.first to it.second }.toPersistentMap(),
                     title = "Renderer",
                     subtitle = "Native draws entries without a WebView",
                 ),
