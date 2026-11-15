@@ -4,6 +4,13 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Native dictionary renderer crash when shaping text with a font face it had not preloaded
+- Native dictionary renderer ignoring the selected custom dictionary font
+
 ## [v2.5.0]
 
 ### Added

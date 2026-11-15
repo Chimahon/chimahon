@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import android.content.Context
+import android.graphics.Typeface
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
@@ -15,6 +16,7 @@ import chimahon.DictionaryStyle
 import chimahon.LookupResult
 import chimahon.anki.AnkiProfile
 import chimahon.diagnostics.LookupProfiler
+import chimahon.novel.data.FontManager
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
@@ -77,10 +79,17 @@ internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: 
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
     val resolver = LocalFontFamilyResolver.current
-    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions) {
+    val prefs = remember { Injekt.get<DictionaryPreferences>() }
+    val fontFamily by prefs.fontFamily().collectAsState()
+    val customFont = remember(context, fontFamily) {
+        FontManager.getFontFile(context, fontFamily)
+            ?.takeIf { runCatching { Typeface.createFromFile(it) }.isSuccess }
+    }
+    val fontFiles = customFont?.let { listOf(it.absolutePath to 0) } ?: emptyList()
+    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont) {
         DictionaryPlanBuilder(context, appearance,
             NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, null), density, direction,
-                resolver, appearance.secondary, appearance.border, width), customCss, profile, groupTerms, cardOptions) { name ->
+                resolver, appearance.secondary, appearance.border, width, fontFiles), customCss, profile, groupTerms, cardOptions) { name ->
             if (environment == null) getDictionaryTitle(context, name) else environment.dictionaryTitles[name] ?: name
         }
     }
@@ -154,13 +163,15 @@ internal class DictionaryPlanBuilder(
         if (layout.viewportWidth != other.layout.viewportWidth) add("width:${layout.viewportWidth}->${other.layout.viewportWidth}")
         if (layout.secondary != other.layout.secondary) add("secondaryColor")
         if (layout.border != other.layout.border) add("borderColor")
+        if (layout.fontFiles != other.layout.fontFiles) add("fontFiles")
     }
 
     fun compatible(other: DictionaryPlanBuilder): Boolean = context === other.context &&
         appearance.variables == other.appearance.variables && customCss == other.customCss && profile == other.profile && groupTerms == other.groupTerms && cardOptions == other.cardOptions &&
         layout.style == other.layout.style && layout.density == other.layout.density && layout.direction == other.layout.direction &&
         layout.resolver === other.layout.resolver && layout.viewportWidth == other.layout.viewportWidth &&
-        layout.secondary == other.layout.secondary && layout.border == other.layout.border
+        layout.secondary == other.layout.secondary && layout.border == other.layout.border &&
+        layout.fontFiles == other.layout.fontFiles
 
     fun start(scope: CoroutineScope, results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
         cards: DictionaryCardPreparation?, entryJsons: List<String>?,

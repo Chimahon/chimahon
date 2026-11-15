@@ -215,7 +215,7 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
             val preparedDocuments = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>().apply { putAll(snapshot) }
             val missing = model.pieces.filter { model.visible(it, wantedOpen, wantedDetails) && !preparedDocuments.containsKey(it.nodes) }
             if (missing.isNotEmpty()) NativeCoreCompiler(model.layout.density, model.layout.direction, model.layout.resolver,
-                model.layout.secondary, model.layout.border).use { core ->
+                model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles).use { core ->
                 val prepared = core.prepareBatch(missing.map { NativeDrawingInput(nativeCoreRaw(it.nodes), it.css.nativeSourceCss,
                     it.width, it.nodes, it.css) }, model.layout.style, dark = onBg.luminance() > .5f,
                     checkCancellation = { caller.ensureActive() })

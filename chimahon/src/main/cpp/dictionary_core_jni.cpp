@@ -9,10 +9,12 @@
 #include <sys/system_properties.h>
 #endif
 #include <android/bitmap.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <climits>
 #include <cstdio>
+#include <cstring>
 #include <jni.h>
 #include <memory>
 #include <stdexcept>
@@ -347,7 +349,14 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_measureP
         }
         std::vector<dc_font_file> files;
         for (jsize i = 0; i < count; ++i) files.push_back({names[i].c_str(), static_cast<uint32_t>(collections[i])});
-        const auto &fonts = count ? files : dictionary_system_fonts();
+        // The selected app font comes first; system faces fill in missing glyphs.
+        for (const auto &system : dictionary_system_fonts()) {
+            const bool present = std::any_of(files.begin(), files.end(), [&](const dc_font_file &file) {
+                return file.collection_index == system.collection_index && std::strcmp(file.path, system.path) == 0;
+            });
+            if (!present) files.push_back(system);
+        }
+        const auto &fonts = files;
         dc_portable_document *document = nullptr;
         dc_error error{};
         if (dc_portable_create(drawing.plan.get(), fonts.data(), fonts.size(), &document, &error))

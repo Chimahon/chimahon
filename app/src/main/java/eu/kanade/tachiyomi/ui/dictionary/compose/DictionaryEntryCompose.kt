@@ -209,7 +209,7 @@ internal suspend fun prepareGlossaryBatch(profilingId: Long, nextWork: () -> Glo
         val stats = layout.createResources()
         val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
         NativeCoreCompiler(layout.density, layout.direction, layout.resolver, layout.secondary, layout.border, stats,
-            profilingId, planId, workerId).use { core ->
+            profilingId, planId, workerId, layout.fontFiles).use { core ->
             val documents = core.prepareBatch(pending.map { item ->
                 NativeDrawingInput(nativeCoreRaw(item.nodes), item.css.nativeSourceCss, item.width, item.nodes, item.css)
             }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })

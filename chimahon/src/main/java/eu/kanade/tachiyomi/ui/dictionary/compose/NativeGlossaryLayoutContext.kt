@@ -17,6 +17,7 @@ public class NativeGlossaryLayoutContext(
     val secondary: Color,
     val border: Color,
     val viewportWidth: Int,
+    val fontFiles: List<Pair<String, Int>> = emptyList(),
 ) {
     init { require(viewportWidth >= 0 && viewportWidth != Constraints.Infinity) }
 

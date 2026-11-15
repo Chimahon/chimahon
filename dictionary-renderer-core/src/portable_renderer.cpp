@@ -264,6 +264,8 @@ struct dc_portable_document {
     uint32_t configured_key = 0;
     float configured_size = 0;
     void configure(uint32_t i, const dc_drawing_font &font) {
+        faces[i]->load(); // hb_font_t is created here; shaping may pick a face metrics did not preload
+        require(faces[i]->hb != nullptr, "Cannot load portable font");
         const uint32_t key = (font.flags & 1) | (font.weight >= 600 ? 2 : 0);
         if (i == configured_face && key == configured_key && font.size == configured_size) return;
         hb_font_set_scale(faces[i]->hb, std::lround(font.size * 65536), std::lround(font.size * 65536));
