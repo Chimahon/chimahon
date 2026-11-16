@@ -9,6 +9,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 ### Fixed
 
 - Recursive dictionary popup crashing when it opened a child popup
+- Native dictionary renderer crashing on a lookup taken after the app had been idle
 - YouTube videos crashing when their stream data carried xtags entries
 
 ## [v2.5.1]
