@@ -1273,6 +1273,8 @@ struct SourceCompiler {
         append(lxb_dom_interface_node(body), lxb_dom_interface_node(root));
         auto* html = lxb_dom_document_element(lxb_dom_interface_document(doc.value));
         if(options.dark_mode) attribute(html,"data-theme","dark");
+        attribute(html,"data-compact-glossary",options.compact_glossary?"true":"false");
+        attribute(html,"data-glossary-layout-mode",options.compact_glossary?"compact":"default");
         attribute(html,"style","--font-size-no-units:"+std::to_string(options.font_size_px));
         elements.push_back({html,none,none,0,"html"});
         elements.push_back({body,0,none,0,"body"});

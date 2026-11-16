@@ -11,6 +11,7 @@ typedef struct dc_compile_options {
     float font_size_px;
     int dark_mode, expand_details;
     float minimum_font_size_px; /* CSS pixels; zero disables the host minimum. */
+    int compact_glossary;       /* base.css compact glossary layout on the root element. */
 } dc_compile_options;
 typedef struct dc_text_run {
     uint32_t text_offset, text_bytes, style, role, ruby, paragraph;

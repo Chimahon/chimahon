@@ -1030,13 +1030,13 @@ object SettingsDictionaryScreen : SearchableSettings {
                         title = stringResource(MR.strings.pref_dict_group_terms),
                         subtitle = stringResource(MR.strings.pref_dict_group_terms_summary),
                     ),
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = dictionaryPreferences.compactGlossary(),
+                        title = "Compact glossaries",
+                        subtitle = "Show all senses inline separated by · instead of a numbered list",
+                    ),
                     *if (renderer == DictionaryPreferences.RENDERER_WEBVIEW) {
                         arrayOf<Preference.PreferenceItem<out Any, out Any>>(
-                            Preference.PreferenceItem.SwitchPreference(
-                                preference = dictionaryPreferences.compactGlossary(),
-                                title = "Compact glossaries",
-                                subtitle = "Show all senses inline separated by · instead of a numbered list",
-                            ),
                             Preference.PreferenceItem.SwitchPreference(
                                 preference = dictionaryPreferences.showNavigationButtons(),
                                 title = stringResource(KMR.strings.pref_dict_show_navigation_buttons),

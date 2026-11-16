@@ -791,6 +791,7 @@ data object DictionaryTab : Tab {
                         tabs = buildTabs().map { GlossTab(it.label, it.active) },
                         wordAudioEnabled = wordAudioEnabled,
                         groupPitches = groupPitches,
+                        compactGlossary = compactGlossary,
                         onAnkiLookup = onAnkiLookup,
                         onRecursiveLookup = stableRecursiveLookup,
                         onTabSelect = stableTabSelect,

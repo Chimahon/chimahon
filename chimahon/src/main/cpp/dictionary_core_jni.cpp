@@ -68,6 +68,7 @@ template <class T> T &object(jlong handle) {
 extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBatch(JNIEnv *env, jobject,
                                                                                    jobjectArray css, jfloat font,
                                                                                    jboolean dark, jboolean expanded,
+                                                                                   jboolean compact,
                                                                                    jstring language) {
     try {
         if (!css)
@@ -97,7 +98,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
         // first portable batch would otherwise pay it on the plan's critical path.
         dictionary_system_fonts(result->language.c_str());
         // Match the unchanged Android WebView's default minimum text size.
-        result->options = {font, dark != 0, expanded != 0,8.f};
+        result->options = {font, dark != 0, expanded != 0, 8.f, compact != 0};
         dc_stylesheets *sheets = nullptr;
         dc_error error{};
         if (dc_stylesheets_create(sources.data(), sources.size(), &sheets, &error))
