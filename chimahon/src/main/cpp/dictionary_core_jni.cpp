@@ -40,11 +40,13 @@ template <class T, auto Destroy> using Owned = std::unique_ptr<T, decltype(Destr
 struct Context {
     Owned<dc_stylesheets, dc_stylesheets_destroy> sheets{nullptr, dc_stylesheets_destroy};
     dc_compile_options options;
+    std::string language = "ja";
 };
 struct Drawing {
     Owned<dc_prepared_document, dc_prepared_document_destroy> prepared{nullptr, dc_prepared_document_destroy};
     Owned<dc_drawing_plan, dc_drawing_plan_destroy> plan{nullptr, dc_drawing_plan_destroy};
     Owned<dc_portable_document, dc_portable_destroy> portable{nullptr, dc_portable_destroy};
+    std::string language = "ja";
     float parse_ms = 0, style_ms = 0, begin_ms = 0;
 };
 void failure(JNIEnv *env, const char *message) {
@@ -65,7 +67,8 @@ template <class T> T &object(jlong handle) {
 } // namespace
 extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBatch(JNIEnv *env, jobject,
                                                                                    jobjectArray css, jfloat font,
-                                                                                   jboolean dark, jboolean expanded) {
+                                                                                   jboolean dark, jboolean expanded,
+                                                                                   jstring language) {
     try {
         if (!css)
             throw std::invalid_argument("Null stylesheets");
@@ -88,9 +91,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
         for (const auto &s : strings)
             sources.push_back({s.data(), s.size()});
         auto result = std::make_unique<Context>();
+        result->language = language ? utf8(env, language) : "ja";
+        if (result->language.empty()) result->language = "ja";
         // Enumerate the system font catalog while the popup is still composing; the
         // first portable batch would otherwise pay it on the plan's critical path.
-        dictionary_system_fonts();
+        dictionary_system_fonts(result->language.c_str());
         // Match the unchanged Android WebView's default minimum text size.
         result->options = {font, dark != 0, expanded != 0,8.f};
         dc_stylesheets *sheets = nullptr;
@@ -168,6 +173,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
         const auto parsed_at = clock();
         Owned<dc_document, dc_document_destroy> raw(parsed, dc_document_destroy);
         auto result = std::make_unique<Drawing>();
+        result->language = c.language;
         dc_prepared_document *prepared = nullptr;
         if (dc_compile_styled_configured(parsed, c.sheets.get(), mapping.data(), mapping.size(), &c.options, &prepared,
                                          &error))
@@ -350,7 +356,7 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_measureP
         std::vector<dc_font_file> files;
         for (jsize i = 0; i < count; ++i) files.push_back({names[i].c_str(), static_cast<uint32_t>(collections[i])});
         // The selected app font comes first; system faces fill in missing glyphs.
-        for (const auto &system : dictionary_system_fonts()) {
+        for (const auto &system : dictionary_system_fonts(drawing.language.c_str())) {
             const bool present = std::any_of(files.begin(), files.end(), [&](const dc_font_file &file) {
                 return file.collection_index == system.collection_index && std::strcmp(file.path, system.path) == 0;
             });
@@ -359,7 +365,7 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_measureP
         const auto &fonts = files;
         dc_portable_document *document = nullptr;
         dc_error error{};
-        if (dc_portable_create(drawing.plan.get(), fonts.data(), fonts.size(), &document, &error))
+        if (dc_portable_create_language(drawing.plan.get(), fonts.data(), fonts.size(), drawing.language.c_str(), &document, &error))
             throw std::runtime_error(error.message);
         drawing.portable.reset(document);
         if (dc_portable_measure(document, scale, &error)) throw std::runtime_error(error.message);

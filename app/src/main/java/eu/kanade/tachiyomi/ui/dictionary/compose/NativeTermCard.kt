@@ -79,16 +79,44 @@ internal class NativeCardTheme(appearance: DictionaryRenderAppearance) {
     private val foreground: String = appearance.onBg.css()
     private val secondary: String = appearance.secondary.css()
     private val accent: String = appearance.accent.css()
-    val pitchColor: String = accent.take(7)
-    val css: ParsedCss = ParsedCss("body{margin:0;line-height:1.4;color:$foreground}rt{font-size:55%;line-height:1}" +
-        ".chip{font-size:.75em;background:${appearance.secondary.copy(alpha = .18f).css()};border-radius:4px;padding:2px 5px;margin-right:3px}" +
+    // The WebView draws the pitch graph with --pronunciation-annotation-color, i.e. the
+    // foreground, not the accent.
+    val pitchColor: String = foreground.take(7)
+    /* Card chrome is compiled without base.css, so it has no root font size of its own. The
+       engine stamps --font-size-no-units from the popup preference; without this line every
+       card part stayed at the 16px default and the font-size setting looked ignored. */
+    val css: ParsedCss = ParsedCss("body{margin:0;line-height:1.4;font-size:calc(1px * var(--font-size-no-units, 16));color:$foreground}rt{font-size:55%;line-height:1}" +
+        (if (appearance.eInk)
+            ".chip{font-size:.75em;background:transparent;border:1px solid $foreground;border-radius:0;padding:0 4px;margin-right:3px}"
+        else
+            ".chip{font-size:.75em;background:${appearance.secondary.copy(alpha = .18f).css()};border-radius:4px;padding:2px 5px;margin-right:3px}") +
+        ".freq-label{font-size:.75em;background:${appearance.secondary.copy(alpha = .10f).css()};color:$secondary;border-radius:3px 0 0 3px;padding:1px 5px;font-weight:600;white-space:nowrap}" +
+        ".freq-body{font-size:.75em;background:${appearance.secondary.copy(alpha = .15f).css()};color:$secondary;border-radius:0 3px 3px 0;padding:1px 5px;margin-left:1px;font-weight:600}" +
+        (if (appearance.eInk)
+            ".freq-label,.freq-body{background:transparent;border:1px solid $foreground;border-radius:0;color:$foreground}"
+        else "") +
         ".card-head{font-size:1.6em;font-weight:bold;white-space:nowrap;color:$foreground}" +
         ".card-popular{color:$accent}.card-rare{color:${appearance.secondary.copy(alpha = .7f).css()}}" +
         ".card-process{font-size:.8em;color:$secondary}" +
         ".card-process-step{padding:7px 10px;margin-bottom:6px;background:${appearance.hover.css()};border:1px solid ${appearance.border.css()};border-radius:8px;font-size:.88em}" +
-        ".card-pitch-name{font-size:10px;color:$secondary}.card-pitch-number{font-size:12px;color:$accent}" +
-        ".card-pitch-mora{font-size:11px;border-top:0}.card-pitch-high{border-top:1px solid $foreground}" +
-        ".card-pitch-drop{border-right:1px solid $foreground}" +
+        // The WebView lays sources out as a wrapping flex row (pronunciation-group-list).
+        // Real table cells give the same columns while the text has room; larger sizes fall
+        // back to the stacked list.
+        ".card-pitch-list{margin:2px 0 4px}" +
+        ".card-pitch-table{width:100%;border-collapse:collapse}" +
+        ".card-pitch-table td{border:none;padding:0 12px 4px 0;vertical-align:top}" +
+        ".card-pitch-entry{display:block;margin:2px 0}" +
+        ".card-pitch-name{display:block;color:$foreground}.card-pitch-number{color:$foreground}" +
+        ".card-pitch-row{display:inline}" +
+        // One source is compact in the WebView: its tag and pitch row share one line.
+        ".card-pitch-compact .card-pitch-entry{display:inline}" +
+        ".card-pitch-compact .card-pitch-name{display:inline;margin-right:.5em;white-space:nowrap}" +
+        ".card-pitch-mora{display:inline-block;position:relative;font-size:.9em;border-top:0;padding:0 1px}" +
+        ".card-pitch-high{border-top:1px solid $foreground}" +
+        // base.css gives the drop mark 0.4em at the top; a full-height right border on the
+        // whole mora made the downward mark much longer than the upward overline.
+        ".card-pitch-drop{padding-right:2px}" +
+        ".card-pitch-drop-bar{position:absolute;right:0;top:0;width:0;height:.4em;border-right:1px solid $foreground}" +
         ".card-group{font-size:.94em;font-weight:600;color:$secondary;padding:4px 0 4px 12px}")
 }
 
@@ -140,24 +168,62 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
     }
     val frequencies = buildFrequencyChips(card.frequencies, options.harmonic, options.average)
     if (frequencies.isNotEmpty()) add(before = 4) {
-        element("div") { frequencies.forEach { chip(listOfNotNull(it.label, it.body).joinToString(" ")) } }
+        element("div") { frequencies.forEach {
+            element("span", "freq-label") { text(it.label) }
+            if (!it.body.isNullOrBlank()) element("span", "freq-body") { text(it.body) }
+        } }
     }
     if (options.pitchDiagram || options.pitchNumber || options.pitchText) {
         val reading = card.reading.ifBlank { card.expression }
         val morae = if (reading.isNotBlank()) DictionaryCore.splitMorae(reading).toList() else emptyList()
         val pitches = if (options.groupPitches) listOf(card.pitches.joinToString(", ") { it.dictName } to
             card.pitches.flatMap { it.pitchPositions.toList() }.distinct()) else card.pitches.map { it.dictName to it.pitchPositions.toList().distinct() }
-        for ((name, positions) in pitches) for (position in positions) {
-            val high = DictionaryCore.moraHighFlags(reading, position)
-            add(before = 2) {
-                element("div") {
-                    element("span", "card-pitch-name") { text(name + " ") }
+        if (pitches.any { it.second.isNotEmpty() }) add(before = 2) {
+            val shown = pitches.count { it.second.isNotEmpty() }
+            val compact = shown == 1
+            val columns = shown == 2 && layout.style.fontSize.value <= 22f
+            fun NativeCardBuilder.pitchRow(position: Int) {
+                val high = DictionaryCore.moraHighFlags(reading, position)
+                element("span", "card-pitch-row") {
                     if (options.pitchDiagram && morae.isNotEmpty()) pitchImage(morae, high, theme.pitchColor)
                     if (options.pitchText) morae.forEachIndexed { i, mora ->
+                        val drop = high[i] && !high[i + 1]
                         element("span", "card-pitch-mora" + (if (high[i]) " card-pitch-high" else "") +
-                            (if (high[i] && !high[i + 1]) " card-pitch-drop" else "")) { text(mora) }
+                            (if (drop) " card-pitch-drop" else "")) {
+                            text(mora)
+                            if (drop) element("span", "card-pitch-drop-bar") {}
+                        }
                     }
                     if (options.pitchNumber) element("span", "card-pitch-number") { text(" [$position]") }
+                }
+            }
+            if (columns) {
+                element("table", "card-pitch-table") {
+                    element("tr") {
+                        for ((name, positions) in pitches) {
+                            if (positions.isEmpty()) continue
+                            element("td") {
+                                if (name.isNotBlank()) element("div", "card-pitch-name") { text(name) }
+                                positions.forEachIndexed { index, position ->
+                                    if (index > 0) element("br") {}
+                                    pitchRow(position)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                element("div", if (compact) "card-pitch-list card-pitch-compact" else "card-pitch-list") {
+                    for ((name, positions) in pitches) {
+                        if (positions.isEmpty()) continue
+                        element("span", "card-pitch-entry") {
+                            if (name.isNotBlank()) element("span", "card-pitch-name") { text(name) }
+                            positions.forEachIndexed { index, position ->
+                                if (index > 0) element("br") {}
+                                pitchRow(position)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -181,15 +247,40 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
 }
 
 private fun NativeCardBuilder.pitchImage(morae: List<String>, high: BooleanArray, color: String) {
-    val width = morae.size * 18
-    val points = morae.indices.map { i -> "${i * 18 + 9},${if (high[i]) 7.48 else 19.72}" }
-    val svg = "<svg xmlns='http://www.w3.org/2000/svg' width='$width' height='34'><g fill='$color' stroke='$color' stroke-width='1.19'>" +
-        "<polyline fill='none' points='${points.joinToString(" ")}'/>" + points.joinToString("") { point ->
-            val (x, y) = point.split(','); "<path opacity='.55' d='M$x 26.52 L$x $y'/><circle cx='$x' cy='$y' r='1.9'/>"
-        } + "</g></svg>"
+    val slots = morae.size
+    if (slots == 0) return
+    fun isHigh(i: Int) = high.getOrElse(i) { false }
+    val points = (0 until slots).joinToString(" L") { i ->
+        "${i * 50 + 25} ${if (isHigh(i)) 25 else 75}"
+    }
+    val tailX = slots * 50 + 25
+    val tailY = if (isHigh(slots)) 25 else 75
+    val lastX = (slots - 1) * 50 + 25
+    val lastY = if (isHigh(slots - 1)) 25 else 75
+    val dots = (0 until slots).joinToString("") { i ->
+        val x = i * 50 + 25
+        val y = if (isHigh(i)) 25 else 75
+        if (isHigh(i) && !isHigh(i + 1)) {
+            "<circle cx='$x' cy='$y' r='15' fill='none' stroke='$color' stroke-width='5'/>" +
+                "<circle cx='$x' cy='$y' r='5' fill='$color'/>"
+        } else {
+            "<circle cx='$x' cy='$y' r='15' fill='$color' stroke='$color' stroke-width='5'/>"
+        }
+    }
+    /* base.css sizes the WebView's inline SVG with height:1.2em and lets the 50*n viewBox
+       supply the width, so a 3-mora graph is 2.4em wide. The card chrome is compiled without
+       base.css, so the same 2.4em/1.2em box is requested here in em units; sizing it in px
+       made the graph resolve against the container default and fill the whole column. */
+    val svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${50 * (slots + 1)} 100'>" +
+        "<path d='M$points' fill='none' stroke='$color' stroke-width='5'/>" +
+        "<path d='M$lastX $lastY L$tailX $tailY' fill='none' stroke='$color' stroke-width='5'" +
+        " stroke-dasharray='5 5'/>" +
+        "<path d='M0 13 L15 -13 L-15 -13 Z' fill='none' stroke='$color' stroke-width='5'" +
+        " transform='translate($tailX,$tailY)'/>" +
+        dots + "</svg>"
     element("img") {
         property("path", "data:image/svg+xml;base64," + Base64.encodeToString(svg.toByteArray(), Base64.NO_WRAP))
-        property("width", width.toString()); property("height", "34"); property("sizeUnits", "px")
+        property("width", "2.4"); property("height", "1.2"); property("sizeUnits", "em")
         text("")
     }
 }
@@ -215,7 +306,8 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
             val preparedDocuments = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>().apply { putAll(snapshot) }
             val missing = model.pieces.filter { model.visible(it, wantedOpen, wantedDetails) && !preparedDocuments.containsKey(it.nodes) }
             if (missing.isNotEmpty()) NativeCoreCompiler(model.layout.density, model.layout.direction, model.layout.resolver,
-                model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles).use { core ->
+                model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles,
+                language = model.layout.language).use { core ->
                 val prepared = core.prepareBatch(missing.map { NativeDrawingInput(nativeCoreRaw(it.nodes), it.css.nativeSourceCss,
                     it.width, it.nodes, it.css) }, model.layout.style, dark = onBg.luminance() > .5f,
                     checkCancellation = { caller.ensureActive() })

@@ -12,6 +12,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import chimahon.DictionaryStyle
 import chimahon.LookupResult
 import chimahon.anki.AnkiProfile
@@ -40,6 +42,7 @@ internal data class DictionaryRenderAppearance(
     val colorScheme: ColorScheme, val isDark: Boolean, val isAmoled: Boolean,
     val seedColor: Int, val bg: Color, val onBg: Color, val accent: Color,
     val secondary: Color, val border: Color, val hover: Color, val variables: Map<String, String>,
+    val eInk: Boolean = false,
 )
 
 @Composable
@@ -64,7 +67,7 @@ internal fun rememberDictionaryRenderAppearance(eInkMode: Boolean): DictionaryRe
             fg, if (eInkMode) fg else colors.primary, if (eInkMode) fg else colors.onSurfaceVariant,
             if (eInkMode) fg else if (amoled && dark) Color.White.copy(alpha = 0.10f) else colors.outlineVariant,
             if (eInkMode) { if (dark) Color.Black else Color.White } else if (amoled && dark) Color.White.copy(alpha = 0.07f) else colors.surfaceVariant,
-            dictionaryThemeVars(colors, dark, amoled))
+            dictionaryThemeVars(colors, dark, amoled), eInkMode)
     }
 }
 
@@ -86,10 +89,14 @@ internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: 
             ?.takeIf { runCatching { Typeface.createFromFile(it) }.isSuccess }
     }
     val fontFiles = customFont?.let { listOf(it.absolutePath to 0) } ?: emptyList()
-    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont) {
+    val customFamily = remember(customFont) {
+        customFont?.let { runCatching { FontFamily(Font(it)) }.getOrNull() }
+    }
+    val language = nativeLanguageTag(profile.languageCode)
+    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont, customFamily) {
         DictionaryPlanBuilder(context, appearance,
-            NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, null), density, direction,
-                resolver, appearance.secondary, appearance.border, width, fontFiles), customCss, profile, groupTerms, cardOptions) { name ->
+            NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, customFamily), density, direction,
+                resolver, appearance.secondary, appearance.border, width, fontFiles, language, customFamily), customCss, profile, groupTerms, cardOptions) { name ->
             if (environment == null) getDictionaryTitle(context, name) else environment.dictionaryTitles[name] ?: name
         }
     }
@@ -164,6 +171,7 @@ internal class DictionaryPlanBuilder(
         if (layout.secondary != other.layout.secondary) add("secondaryColor")
         if (layout.border != other.layout.border) add("borderColor")
         if (layout.fontFiles != other.layout.fontFiles) add("fontFiles")
+        if (layout.language != other.layout.language) add("language")
     }
 
     fun compatible(other: DictionaryPlanBuilder): Boolean = context === other.context &&
@@ -171,7 +179,7 @@ internal class DictionaryPlanBuilder(
         layout.style == other.layout.style && layout.density == other.layout.density && layout.direction == other.layout.direction &&
         layout.resolver === other.layout.resolver && layout.viewportWidth == other.layout.viewportWidth &&
         layout.secondary == other.layout.secondary && layout.border == other.layout.border &&
-        layout.fontFiles == other.layout.fontFiles
+        layout.fontFiles == other.layout.fontFiles && layout.language == other.layout.language
 
     fun start(scope: CoroutineScope, results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
         cards: DictionaryCardPreparation?, entryJsons: List<String>?,

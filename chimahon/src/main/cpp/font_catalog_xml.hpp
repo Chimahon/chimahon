@@ -117,7 +117,8 @@ inline int weight_rank(const XmlFont &font) {
 }  // namespace font_catalog
 
 inline std::vector<FontCatalogFile> parse_fonts_xml(
-    std::string_view xml, std::string_view base = "/system/fonts/") {
+    std::string_view xml, std::string_view base = "/system/fonts/",
+    std::string_view language = "ja") {
     using namespace font_catalog;
     std::vector<XmlFamily> families;
     XmlFamily family;
@@ -234,10 +235,17 @@ inline std::vector<FontCatalogFile> parse_fonts_xml(
     }
     if (default_family == families.size() && !families.empty()) default_family = 0;
 
-    /* Match the NDK matcher's ja-JP locale: the default family first, then
-     * Japanese fallbacks, then emoji, then every remaining family in
+    /* Match the NDK matcher's locale: the default family first, then the
+     * requested language, then emoji, then every remaining family in
      * declaration order. Without this, fonts.xml declares zh-Hans before ja,
-     * so Japanese text would pick Simplified Chinese glyphs. */
+     * so Japanese text would pick Simplified Chinese glyphs (and vice versa). */
+    const auto language_rank = [&](const XmlFamily &family) -> int {
+        if (language.empty()) return 3;
+        if (has_token(family.lang, language)) return 0;
+        if (language.size() >= 2 && family.lang.rfind(language.substr(0, 2), 0) == 0) return 1;
+        if (language.rfind("zh-", 0) == 0 && family.lang.rfind("zh", 0) == 0) return 1;
+        return 3;
+    };
     std::vector<size_t> order;
     std::vector<bool> used(families.size(), false);
     const auto add_order = [&](size_t i) {
@@ -247,8 +255,10 @@ inline std::vector<FontCatalogFile> parse_fonts_xml(
         }
     };
     if (default_family < families.size()) add_order(default_family);
-    for (size_t i = 0; i < families.size(); ++i) {
-        if (has_token(families[i].lang, "ja")) add_order(i);
+    for (int rank = 0; rank <= 1; ++rank) {
+        for (size_t i = 0; i < families.size(); ++i) {
+            if (language_rank(families[i]) == rank) add_order(i);
+        }
     }
     for (size_t i = 0; i < families.size(); ++i) {
         if (families[i].lang.find("Zsye") != std::string::npos ||
