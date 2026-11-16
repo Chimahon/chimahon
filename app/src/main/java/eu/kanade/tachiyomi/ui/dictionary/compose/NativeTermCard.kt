@@ -19,9 +19,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
+import chimahon.GlossaryEntry
 import chimahon.anki.AnkiProfile
 import chimahon.diagnostics.LookupProfiler
 import chimahon.renderer.DictionaryCore
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -228,10 +232,19 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
             }
         }
     }
+    val compact = layout.compactGlossary
     card.dictGroups.forEachIndexed { groupIndex, group ->
         for (expanded in listOf(true, false)) add(group = groupIndex, expanded = expanded,
             before = if (groupIndex == 0) 2 else 4, action = "group:$groupIndex") {
             element("div", "card-group") { text((if (expanded) "\u25be  " else "\u25b8  ") + group.title) }
+        }
+        if (compact) {
+            val combined = compactGlossarySource(group.glosses)
+            if (combined != null) {
+                parts.add(NativeCardPiece(nativeCoreSource(combined), presentation.groups[groupIndex].css,
+                    layout.glossaryWidth(false), group.dictName, groupIndex, true, 0, px(3), px(3)))
+                return@forEachIndexed
+            }
         }
         group.glosses.forEachIndexed { glossIndex, _ ->
             val defTags = presentation.groups[groupIndex].definitionTags[glossIndex]
@@ -244,6 +257,47 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
         }
     }
     return parts
+}
+
+/**
+ * Compact mode in the WebView is one inline definition list per dictionary group. Native
+ * pieces are one document per glossary, so join a group's structured glossaries into one
+ * source with the same ` | ` separator. Only structured JSON or plain text is joined;
+ * HTML glossaries keep the per-gloss layout instead of losing their markup.
+ */
+private fun compactGlossarySource(glosses: List<GlossaryEntry>): String? {
+    if (glosses.isEmpty()) return null
+    val content = JSONArray()
+    for ((index, gloss) in glosses.withIndex()) {
+        val raw = gloss.glossary
+        val trimmed = raw.trimStart()
+        if (trimmed.startsWith("<")) return null
+        val parsed = runCatching { JSONTokener(raw).nextValue() }.getOrNull()
+        val items: List<Any?> = when (parsed) {
+            is JSONObject -> {
+                val inner = parsed.opt("content")
+                when (inner) {
+                    null -> listOf(parsed)
+                    is JSONArray -> List(inner.length()) { inner.opt(it) }
+                    else -> listOf(inner)
+                }
+            }
+            is JSONArray -> List(parsed.length()) { parsed.opt(it) }
+            null -> if (trimmed.isEmpty()) emptyList() else listOf(raw)
+            else -> listOf(parsed)
+        }
+        if (items.isEmpty()) continue
+        if (content.length() > 0) {
+            content.put(JSONObject().put("tag", "span")
+                .put("style", JSONObject().put("color", "var(--secondary)"))
+                .put("content", " | "))
+        }
+        val tags = gloss.definitionTags.split(cardTagWhitespace).filter { it.isNotBlank() }.take(8)
+        if (tags.isNotEmpty()) content.put(tags.joinToString(" ") + " ")
+        items.forEach { item -> if (item != null && item != JSONObject.NULL) content.put(item) }
+    }
+    if (content.length() == 0) return null
+    return JSONObject().put("type", "structured-content").put("content", content).toString()
 }
 
 private fun NativeCardBuilder.pitchImage(morae: List<String>, high: BooleanArray, color: String) {
@@ -307,7 +361,7 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
             val missing = model.pieces.filter { model.visible(it, wantedOpen, wantedDetails) && !preparedDocuments.containsKey(it.nodes) }
             if (missing.isNotEmpty()) NativeCoreCompiler(model.layout.density, model.layout.direction, model.layout.resolver,
                 model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles,
-                language = model.layout.language).use { core ->
+                language = model.layout.language, compactGlossary = model.layout.compactGlossary).use { core ->
                 val prepared = core.prepareBatch(missing.map { NativeDrawingInput(nativeCoreRaw(it.nodes), it.css.nativeSourceCss,
                     it.width, it.nodes, it.css) }, model.layout.style, dark = onBg.luminance() > .5f,
                     checkCancellation = { caller.ensureActive() })

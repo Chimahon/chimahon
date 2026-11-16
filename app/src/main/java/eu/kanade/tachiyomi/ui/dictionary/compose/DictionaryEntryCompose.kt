@@ -213,7 +213,7 @@ internal suspend fun prepareGlossaryBatch(profilingId: Long, nextWork: () -> Glo
         val stats = layout.createResources()
         val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
         NativeCoreCompiler(layout.density, layout.direction, layout.resolver, layout.secondary, layout.border, stats,
-            profilingId, planId, workerId, layout.fontFiles, layout.language).use { core ->
+            profilingId, planId, workerId, layout.fontFiles, layout.language, layout.compactGlossary).use { core ->
             val documents = core.prepareBatch(pending.map { item ->
                 NativeDrawingInput(nativeCoreRaw(item.nodes), item.css.nativeSourceCss, item.width, item.nodes, item.css)
             }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })
@@ -287,6 +287,7 @@ fun DictionaryEntryCompose(
     cardPreparation: DictionaryCardPreparation? = null,
     renderPreparation: DictionaryPlanPreparation? = null,
     planSlot: DictionaryPlanSlot? = null,
+    compactGlossary: Boolean = false,
 ) {
     val context = LocalContext.current
     val appearance = rememberDictionaryRenderAppearance(eInkMode)
@@ -311,7 +312,8 @@ fun DictionaryEntryCompose(
     val layoutDirection = LocalLayoutDirection.current
     val fontResolver = LocalFontFamilyResolver.current
     val builder = rememberDictionaryPlanBuilder(popupWidthPx, fontSize, eInkMode, customCss, activeProfile, groupTerms,
-        NativeCardOptions(showFrequencyHarmonic, showFrequencyAverage, showPitchDiagram, showPitchNumber, showPitchText, groupPitches), appearance)
+        NativeCardOptions(showFrequencyHarmonic, showFrequencyAverage, showPitchDiagram, showPitchNumber, showPitchText, groupPitches), appearance,
+        compactGlossary)
     val providedPlan = planSlot?.matching(builder, results, styles, entryJsons) ?: renderPreparation
     val suppliedPlan = providedPlan?.takeIf { resultsAreOrdered && it.matches(builder, results, styles, entryJsons) }
     // produceState retains its outgoing value when its keys change. A fresh state

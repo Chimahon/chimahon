@@ -14,7 +14,8 @@ object DictionaryCore {
     fun ensureLoaded() = Unit
 
     external fun closeContext(handle: Long)
-    external fun openBatch(css: Array<String>, fontSize: Float, dark: Boolean, expandDetails: Boolean, language: String): Long
+    external fun openBatch(css: Array<String>, fontSize: Float, dark: Boolean, expandDetails: Boolean,
+        compactGlossary: Boolean, language: String): Long
     external fun prepareDrawing(context: Long, sources: Array<String>, typedSources: Array<ByteBuffer?>, sheets: IntArray, widths: FloatArray,
         foreground: Int, border: Int): Long
     external fun profileBegin(id: Long)

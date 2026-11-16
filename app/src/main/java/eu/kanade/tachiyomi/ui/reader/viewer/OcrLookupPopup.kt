@@ -293,6 +293,7 @@ fun OcrLookupPopup(
     val popupHeightPref by dictionaryPreferences.popupHeight().collectAsState()
     val popupModePref by dictionaryPreferences.popupMode().collectAsState()
     val popupFontSizePref by dictionaryPreferences.fontSize().collectAsState()
+    val compactGlossary by dictionaryPreferences.compactGlossary().collectAsState()
     val eInkMode by dictionaryPreferences.eInkMode().collectAsState()
     val popupSwipeToDismissPref by dictionaryPreferences.popupSwipeToDismiss().collectAsState()
     val popupSwipeThresholdPref by dictionaryPreferences.popupSwipeThreshold().collectAsState()
@@ -1004,6 +1005,7 @@ fun OcrLookupPopup(
         with(density) { actualWidthDp.roundToPx() }, popupFontSizePref, eInkMode, customCss, activeProfile, groupTerms,
         eu.kanade.tachiyomi.ui.dictionary.compose.NativeCardOptions(showFreqHarmonic, showFreqAverage,
             showPitchDiagram, showPitchNumber, showPitchText, groupPitches),
+        compactGlossary = compactGlossary,
     ) else null
     nativePlanBuilder.set(configuredPlanBuilder)
 
@@ -1528,6 +1530,7 @@ fun OcrLookupPopup(
                             entryJsons = entryJsons,
                             customCss = customCss,
                             eInkMode = eInkMode,
+                            compactGlossary = compactGlossary,
                             recursiveNavMode = recursiveNavMode,
                             // Empty: RecursiveLookupChrome() above already renders the tab strip
                             // for every mode. Passing tabs here as well made the renderer draw a
