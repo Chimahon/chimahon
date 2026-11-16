@@ -4,6 +4,12 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- YouTube videos crashing when their stream data carried xtags entries
+
 ## [v2.5.1]
 
 ### Added
