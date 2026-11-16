@@ -468,13 +468,15 @@ class AnimeDownloader(
     }
 
     /**
-     * Fires the intent that hands [video] to an external downloader. 1DM and ADM get their
-     * package-specific extras (including the request headers, which most sources need), anything
-     * else gets a plain `ACTION_VIEW`.
+     * Fires the intent that hands [video] to an external downloader. Known packages get their
+     * expected extras (including the request headers, which most sources need), anything else
+     * gets a plain `ACTION_VIEW`.
      */
     private suspend fun startExternalDownload(download: AnimeDownload, video: Video) {
         val filename = DiskUtil.buildValidFilename(download.episode.name)
-        val pkgName = downloadPreferences.externalDownloaderSelection().get()
+        // A typed package wins over the list, so a downloader the list does not know can be used.
+        val pkgName = downloadPreferences.externalDownloaderCustomPackage().get().trim()
+            .ifEmpty { downloadPreferences.externalDownloaderSelection().get() }
         val headers = video.headers ?: download.source.headers
 
         val intent = if (pkgName.isNotEmpty()) {
@@ -484,6 +486,7 @@ class AnimeDownloader(
                     data = video.videoUrl.toUri()
                     putExtra("extra_filename", "$filename.mkv")
                     putExtra("extra_headers", headers.toBundle())
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
 
                 pkgName.startsWith(ADM_DOWNLOAD_MANAGER) -> Intent().apply {
@@ -493,6 +496,7 @@ class AnimeDownloader(
                         "${video.videoUrl.toUri()}<info>$filename.mkv",
                     )
                     putExtra("android.media.intent.extra.HTTP_HEADERS", headers.toAdmBundle())
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
 
                 else -> Intent(Intent.ACTION_VIEW).apply {
@@ -525,7 +529,7 @@ class AnimeDownloader(
         forEach { (name, value) -> putString(name, value) }
     }
 
-    // ADM expects the scheme obfuscated in its header bundle.
+    // The scheme is obfuscated in this header bundle by the receiving app's convention.
     private fun Headers?.toAdmBundle(): Bundle = Bundle().apply {
         this@toAdmBundle?.forEach { (name, value) ->
             putString(name, value.replace("http", "h_ttp"))

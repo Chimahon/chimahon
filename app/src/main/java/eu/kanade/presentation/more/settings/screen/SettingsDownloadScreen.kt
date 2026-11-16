@@ -279,6 +279,14 @@ object SettingsDownloadScreen : SearchableSettings {
                     entries = entries,
                     title = stringResource(AMR.strings.pref_external_downloader_selection),
                 ),
+                Preference.PreferenceItem.EditTextInfoPreference(
+                    preference = downloadPreferences.externalDownloaderCustomPackage(),
+                    dialogSubtitle = "Package name of an app that the list does not show. " +
+                        "It takes precedence over the selection.",
+                    title = "Downloader package",
+                    validate = { it.isBlank() || PACKAGE_NAME.matches(it.trim()) },
+                    errorMessage = { "Not a package name" },
+                ),
             ),
         )
     }
@@ -291,4 +299,7 @@ private val EXTERNAL_DOWNLOADERS = listOf(
     "idm.internet.download.manager.plus",
     "idm.internet.download.manager.adm.lite",
     "com.dv.adm",
+    "com.dv.adm.premium",
 )
+
+private val PACKAGE_NAME = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$""")
