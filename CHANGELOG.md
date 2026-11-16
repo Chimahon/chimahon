@@ -4,12 +4,26 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
-## [Unreleased]
+## [v2.5.1]
+
+### Added
+
+- Kanji entries in the native renderer: stroke-order glyph, numbered meanings, wrapping readings and the WebView's statistics columns
+- Native dictionary renderer on Android 8-10, so Native is offered on every supported release
+- CSS `font-family` support in the native renderer, including serif and monospace fallbacks
+
+### Changed
+
+- Native pitch diagrams now use the WebView's geometry, colours and per-source layout
+- Popup font size and system font scale now apply to native dictionary text
+- NewPipe Extractor updated to v0.27.1 for YouTube episodes
 
 ### Fixed
 
 - Native dictionary renderer crash when shaping text with a font face it had not preloaded
 - Native dictionary renderer ignoring the selected custom dictionary font
+- Native renderer using the wrong font for tag pills, frequency chips and recursive tab labels
+- External downloader never starting when a package was selected
 - Anki `{glossary-first}` exporting the selected dictionary instead of the first glossary
 
 ## [v2.5.0]
