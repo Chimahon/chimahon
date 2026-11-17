@@ -642,11 +642,17 @@ struct dc_drawing_plan {
                                                      : fonts[run.style].size / std::max(.01f, v.base_font_size_px);
                 const auto container=prop("container-style");
                 const auto sizing_style=container.empty()?run.style:static_cast<uint32_t>(number(container));
-                a.width = std::min(widths[paragraph.source], length(property(v, sizing_style, "width"), sizing_style,
+                const float image_width = std::min(widths[paragraph.source], length(property(v, sizing_style, "width"), sizing_style,
                                                                     widths[paragraph.source], natural_w * em));
+                // An inline image can sit inside a padded span (dictionary icons). Include that
+                // box spacing in the atom advance; otherwise the following text starts under the
+                // padding and its first glyph is clipped.
+                a.left = run_left[r];
+                a.right = run_right[r];
+                a.width = image_width + a.left + a.right;
                 a.above = container.empty()?length(property(v, run.style, "height"), run.style, 0,
-                                 a.width * natural_h / std::max(1.f, natural_w)):
-                    a.width * natural_h / std::max(1.f,natural_w);
+                                 image_width * natural_h / std::max(1.f, natural_w)):
+                    image_width * natural_h / std::max(1.f,natural_w);
                 a.legal = true;
                 p.atoms.push_back(a);
                 ++r;
@@ -886,8 +892,9 @@ struct dc_drawing_plan {
                 const auto start_over=i>from?overhang(p,a,p.atoms[i-1],true):0;
                 const auto end_over=i+1<visible?overhang(p,a,p.atoms[i+1],false):0;
                 if (a.image != none)
-                    p.commands.push_back({2, input.source, a.image, 0, 0, v.runs[v.images[a.image].run].style, x,
-                                          baseline - a.above, a.width, a.above + a.below, baseline, 0, 0, 0, 0, 0});
+                    p.commands.push_back({2, input.source, a.image, 0, 0, v.runs[v.images[a.image].run].style,
+                                          x + a.left, baseline - a.above,
+                                          a.width - a.left - a.right, a.above + a.below, baseline, 0, 0, 0, 0, 0});
                 else {
                     float content = a.width - a.left - a.right;
                     emit_group(p, a.first, a.count, x-start_over + a.left, content, baseline, input.source, input.cell == none,
