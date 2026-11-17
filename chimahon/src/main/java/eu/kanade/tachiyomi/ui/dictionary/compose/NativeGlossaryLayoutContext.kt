@@ -34,7 +34,8 @@ public class NativeGlossaryLayoutContext(
     init { require(viewportWidth >= 0 && viewportWidth != Constraints.Infinity) }
 
     private val singleWidth = with(density) {
-        (viewportWidth - 4.dp.roundToPx() - 12.dp.roundToPx() - 12.dp.roundToPx()).coerceAtLeast(1)
+        // LazyColumn already supplies the 4dp/12dp content padding.
+        (viewportWidth - 4.dp.roundToPx() - 12.dp.roundToPx()).coerceAtLeast(1)
     }
     private val multipleWidth = with(density) { (singleWidth - 16.dp.roundToPx()).coerceAtLeast(1) }
 
