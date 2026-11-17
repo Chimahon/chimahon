@@ -1210,6 +1210,7 @@ struct SourceCompiler {
             if(!collector.contains("text-decoration") && node.tag=="u")computed["text-decoration"]="underline";
             if(!computed.contains("display"))computed["display"]=default_display(node.tag);
             if(!collector.contains("list-style-type") && (node.tag=="ul" || node.tag=="ol"))computed["list-style-type"]=node.tag=="ol"?"decimal":"disc";
+            if(node.tag=="summary" && !collector.contains("list-style-type"))computed["list-style-type"]="disclosure-closed";
             if(node.tag=="summary" && !collector.contains("list-style-position"))computed["list-style-position"]="inside";
             for (auto& [name,value] : computed) if (!name.starts_with("--") && value.find("var(") != value.npos)
                 value = resolve_vars(value, computed, 0, output.unresolved);

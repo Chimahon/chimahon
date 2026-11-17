@@ -865,6 +865,7 @@ struct dc_drawing_plan {
             float x = line_indent + ((f.flags & 32)   ? (width - line_indent - used) / 2
                                      : (f.flags & 64) ? width - line_indent - used
                                                       : 0);
+            const float line_start = x;
             std::vector<size_t> visual;
             visual.reserve(visible - from);
             uint8_t highest = 0, lowest_odd = 255;
@@ -911,7 +912,8 @@ struct dc_drawing_plan {
                 float w = 0;
                 for (uint32_t j = r.start; j < r.start + r.count; ++j)
                     w += advances[j];
-                emit_text(p, {p.marker, r.start, r.count, w}, inside_marker?0:-w - 4, baseline, input.source, false);
+                emit_text(p, {p.marker, r.start, r.count, w}, line_start - w - (inside_marker ? 0 : 4),
+                          baseline, input.source, false);
             }
             y += above + below + leading * 2;
             ++line_count;
