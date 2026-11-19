@@ -308,8 +308,33 @@ struct dc_drawing_plan {
                                                               : 0) |
                       ((white == "pre" || white == "pre-wrap" || white == "break-spaces") ? 256 : 0) |
                       ((prop("display") == "inline" || prop("display") == "inline-block" || prop("display")=="inline-flex" || prop("display")=="flex") ? 512 : 0);
-            /* CSS text-decoration-color defaults to currentColor. */
-            decorations[i] = fade(color(prop("text-decoration-color"), f.color));
+            /* CSS text-decoration-color defaults to currentColor. The color may also arrive in the
+               text-decoration shorthand; only that one token is used, since the native line is solid. */
+            auto decoration_color = prop("text-decoration-color");
+            if (decoration_color.empty() && !decoration.empty()) {
+                std::string_view value = decoration;
+                size_t at = 0;
+                while (at < value.size()) {
+                    while (at < value.size() && (value[at] == ' ' || value[at] == '\t')) ++at;
+                    const auto first = at;
+                    unsigned depth = 0;
+                    while (at < value.size()) {
+                        if (value[at] == '(') ++depth;
+                        if (value[at] == ')' && depth) --depth;
+                        if (value[at] == ' ' && !depth) break;
+                        ++at;
+                    }
+                    auto token = value.substr(first, at - first);
+                    static constexpr std::string_view keywords[] = {
+                        "none", "underline", "overline", "line-through", "blink", "solid", "double",
+                        "dotted", "dashed", "wavy", "auto", "from-font"};
+                    bool keyword = false;
+                    for (auto k : keywords) if (token == k) keyword = true;
+                    if (!keyword && !token.empty() && color(token, 0)) { decoration_color = token; break; }
+                    ++at;
+                }
+            }
+            decorations[i] = fade(color(decoration_color, f.color));
             auto line = prop("line-height");
             f.line_height = length(line, i, 0);
             if (!line.empty() && line.find_first_not_of("0123456789.+-") == line.npos)
