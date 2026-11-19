@@ -1555,6 +1555,7 @@ fun OcrLookupPopup(
                             onContentReadyChange = composeContentReady,
                             onPlanReady = composePlanReady,
                             onNavigateReady = onNativeNavigateReady,
+                            requestFocusOnMount = true,
                             modifier = Modifier.fillMaxSize(),
                         )
                         }

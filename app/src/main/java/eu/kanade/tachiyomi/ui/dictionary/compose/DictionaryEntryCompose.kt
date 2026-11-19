@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
@@ -61,10 +62,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -100,6 +108,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -317,6 +327,8 @@ fun DictionaryEntryCompose(
     showNavigationButtons: Boolean = true,
     /** Receives the entry navigator so hosts can route volume keys like the WebView key listener. */
     onNavigateReady: (((Int) -> Unit)?) -> Unit = {},
+    /** Mirrors DictionaryEntryWebView's `requestFocusOnMount` (the popup WebView hosts set it). */
+    requestFocusOnMount: Boolean = false,
 ) {
     val context = LocalContext.current
     val appearance = rememberDictionaryRenderAppearance(eInkMode)
@@ -329,6 +341,7 @@ fun DictionaryEntryCompose(
     // The WebView's `window.innerHeight` is the whole renderer area, including its fixed tab bar,
     // while the native list viewport starts below RecursiveNavBar. Paging uses this outer height.
     var contentViewportHeightPx by remember { mutableIntStateOf(0) }
+    val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
 
     LaunchedEffect(results, isLoading) {
         onContentReadyChange?.invoke(!isLoading)
@@ -413,6 +426,11 @@ fun DictionaryEntryCompose(
         }
     }
     val effectivePlan = plan ?: RenderPlan.Empty
+    val listFocusRequester = remember { FocusRequester() }
+    val hasEntryList = effectivePlan.kanjiCards.isNotEmpty() || effectivePlan.nativeCards.isNotEmpty()
+    LaunchedEffect(requestFocusOnMount, hasEntryList, effectivePlan.kanjiCards.isNotEmpty()) {
+        if (requestFocusOnMount && hasEntryList) listFocusRequester.requestFocus()
+    }
     val diagnostics = remember { DictionaryPlanDiagnostics() }
     if (LookupProfiler.sink?.enabled == true) {
         remember(plan, profilingId) {
@@ -585,6 +603,22 @@ fun DictionaryEntryCompose(
                     }
                 }
         }
+        /* Mirrors DictionaryEntryWebView's setOnKeyListener: volume keys navigate when enabled. */
+        val volumeKeyModifier = Modifier
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.VolumeUp || event.key == Key.VolumeDown) &&
+                    dictionaryPreferences.volumeKeyNavigation().get()
+                ) {
+                    entryNavigator(if (event.key == Key.VolumeUp) -1 else 1)
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusRequester(listFocusRequester)
+            .focusable()
+        val listInputModifier = volumeKeyModifier.then(pagingModifier)
         // renderer.js shows the buttons when `results.length > 1`; kanji lookups carry their
         // entries in `entryJsons`, where each kanji card is one WebView entry.
         val navTargetCount = when {
@@ -602,7 +636,7 @@ fun DictionaryEntryCompose(
                 }
                 effectivePlan.kanjiCards.isNotEmpty() -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().then(pagingModifier),
+                        modifier = Modifier.fillMaxSize().then(listInputModifier),
                         state = popupListState,
                         userScrollEnabled = !paginatedScrolling,
                         contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
@@ -634,7 +668,7 @@ fun DictionaryEntryCompose(
                 }
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().then(pagingModifier),
+                        modifier = Modifier.fillMaxSize().then(listInputModifier),
                         state = popupListState,
                         userScrollEnabled = !paginatedScrolling,
                         contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),
