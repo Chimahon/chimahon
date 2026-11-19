@@ -181,9 +181,10 @@ struct Piece {
 struct Atom {
     uint32_t first = 0, count = 0, reading_first = 0, reading_count = 0, image = none;
     float width = 0, above = 0, below = 0, base_above = 0, unshifted_above = 0, left = 0, right = 0, reading_height = 0, reading_shift = 0;
+    float base_font_ascent = 0, base_font_descent = 0, reading_size = 0, reading_ascent = 0, compact_above = 0;
     float overhang_start=0,overhang_end=0;
     uint8_t level = 0;
-    bool legal = false, forced = false, space = false;
+    bool legal = false, forced = false, space = false, compact_ruby = false;
 };
 struct Paragraph {
     std::vector<Piece> pieces;
@@ -224,6 +225,7 @@ struct dc_drawing_plan {
     std::vector<float> run_left, run_right, request_shift;
     std::vector<std::vector<uint32_t>> paragraph_boxes;
     std::vector<Paragraph> paragraphs;
+    std::vector<float> block_padding;
     std::vector<dc_draw_command> commands;
     std::vector<dc_drawing_hit> hits;
     std::vector<dc_drawing_source> sources;
@@ -240,7 +242,7 @@ struct dc_drawing_plan {
     }
     explicit dc_drawing_plan(const dc_prepared_document *d, const float *w, size_t n, uint32_t fg, uint32_t border)
         : input(d), v(dc_prepared_document_view(d)), resolved(dictionary_core::resolved_styles(d)), widths(w, w + n), run_requests(v.run_count, none),
-          image_by_run(v.run_count, none), paragraphs(v.paragraph_count) {
+          image_by_run(v.run_count, none), paragraphs(v.paragraph_count), block_padding(v.paragraph_count) {
         if (n != v.source_count)
             throw std::invalid_argument("Drawing source widths mismatch");
         fonts.resize(v.style_count);
@@ -566,7 +568,8 @@ struct dc_drawing_plan {
     }
     void dimensions(Paragraph &p, Atom &a) {
         float base_width = 0, reading_width = 0, above = 0, below = 0, reading_height = 0;
-        float base_em_ascent=0,reading_em_descent=0;
+        float base_em_ascent=0,reading_em_descent=0,reading_size=0,reading_ascent=0;
+        float base_font_ascent=0,base_font_descent=0;
         for (uint32_t k = a.first; k < a.first + a.count; ++k) {
             const auto &piece = p.pieces[k];
             const auto &f = fonts[requests[piece.request].style];
@@ -577,18 +580,33 @@ struct dc_drawing_plan {
             a.unshifted_above=std::max(a.unshifted_above,-m.ascent+half+std::min(0.f,request_shift[piece.request]));
             below = std::max(below, m.descent + half - request_shift[piece.request]);
             base_em_ascent=std::max(base_em_ascent,m.em_ascent+request_shift[piece.request]);
+            base_font_ascent=std::max(base_font_ascent,-m.ascent);
+            base_font_descent=std::max(base_font_descent,m.descent);
         }
         for (uint32_t k = a.reading_first; k < a.reading_first + a.reading_count; ++k) {
             const auto &piece = p.pieces[k];
             const auto &f = fonts[requests[piece.request].style];
             const auto &m = metrics[piece.request];
             reading_width += piece.width;
+            reading_size = std::max(reading_size, f.size);
+            reading_ascent = std::max(reading_ascent, -m.ascent);
             reading_height = std::max(reading_height, m.em_ascent+m.em_descent);
             reading_em_descent=std::max(reading_em_descent,m.em_descent);
         }
         a.width = std::max(base_width, reading_width) + a.left + a.right;
-        a.above = a.reading_count ? std::max(above,base_em_ascent+reading_height) : above;
+        // WebView grows a 16px/1.4 ruby line in a padded block by a quarter of
+        // the reading size; the rest of the annotation borrows the space above.
+        const auto &base_font = fonts[requests[p.pieces[a.first].request].style];
+        const bool compact_ruby = a.reading_count && a.count && base_font.size >= 16.f &&
+            base_font.size < 17.f && base_font.line_height >= base_font.size * 1.35f;
+        a.above = a.reading_count ? std::max(above, base_em_ascent + reading_height) : above;
+        a.compact_ruby = compact_ruby;
+        a.compact_above = compact_ruby ? above + reading_size * .25f : a.above;
         a.base_above = above;
+        a.base_font_ascent=base_font_ascent;
+        a.base_font_descent=base_font_descent;
+        a.reading_size=reading_size;
+        a.reading_ascent=reading_ascent;
         a.below = below;
         a.reading_height = reading_height;
         a.reading_shift=base_em_ascent+reading_em_descent;
@@ -819,7 +837,8 @@ struct dc_drawing_plan {
         p.hits.clear();
         const auto &input = v.paragraphs[id];
         const auto &f = fonts[input.style];
-        float y = 0;
+        float y = 0, pending_extra = 0, previous_height = 0;
+        bool previous_ruby = false;
         uint32_t line_count = 0;
         size_t from = 0;
         float indent = length(property(v, input.style, "text-indent"), input.style, width);
@@ -855,7 +874,10 @@ struct dc_drawing_plan {
                 while (visible > from && p.atoms[visible - 1].space)
                     --visible;
             used = 0;
-            float above = f.size * .8f, below = f.size * .2f;
+            float above = f.size * .8f, above_without_ruby = f.size * .8f, below = f.size * .2f;
+            float ruby_advance = 0, ruby_overflow_line = 0;
+            bool line_ruby = false;
+            const bool compact_ruby_line = block_padding[id] > 0;
             for (size_t i = from; i < visible; ++i) {
                 used += p.atoms[i].width;
                 if(i>from)used-=overhang(p,p.atoms[i],p.atoms[i-1],true)+overhang(p,p.atoms[i-1],p.atoms[i],false);
@@ -869,9 +891,29 @@ struct dc_drawing_plan {
                 // may overhang that edge instead of translating the entire document.
                 const bool first_source_shift=input.cell==none && !line_count && !atom.reading_count && atom.image==none &&
                     first_source;
-                above = std::max(above, first_cell_ruby?atom.base_above:first_source_shift?atom.unshifted_above:atom.above);
+                const bool compact_atom = compact_ruby_line && atom.compact_ruby;
+                const float atom_above=first_cell_ruby?atom.base_above:first_source_shift?atom.unshifted_above:
+                    compact_atom?atom.compact_above:atom.above;
+                above = std::max(above, atom_above);
+                above_without_ruby = std::max(above_without_ruby,
+                    compact_atom ? std::min(atom_above, atom.base_above) : atom_above);
                 below = std::max(below, p.atoms[i].below);
+                line_ruby = line_ruby || compact_atom;
+                if (compact_atom) {
+                    ruby_advance = std::max(ruby_advance, std::ceil(atom.base_font_ascent) +
+                        std::ceil(atom.base_font_descent) + atom.reading_size * .25f);
+                    ruby_overflow_line = std::max(ruby_overflow_line,
+                        atom.reading_shift + atom.reading_ascent - atom.base_font_ascent);
+                }
             }
+            // A ruby annotation borrows block-start space from the line above.
+            const bool suppress_ruby = line_ruby && line_count > 0 && !previous_ruby;
+            if (suppress_ruby)
+                above = above_without_ruby;
+            if (line_count > 0 && line_ruby)
+                pending_extra = previous_ruby ? std::max(0.f, ruby_advance - previous_height) : ruby_overflow_line;
+            y += pending_extra;
+            pending_extra = 0;
             float leading = std::max(0.f, f.line_height - above - below) / 2;
             float baseline = y + leading + above;
             float x = line_indent + ((f.flags & 32)   ? (width - line_indent - used) / 2
@@ -927,7 +969,10 @@ struct dc_drawing_plan {
                 emit_text(p, {p.marker, r.start, r.count, w}, line_start - w - (inside_marker ? 0 : 4),
                           baseline, input.source, false);
             }
-            y += above + below + leading * 2;
+            float line_height = above + below + leading * 2;
+            y += line_height;
+            previous_height = line_height;
+            previous_ruby = line_ruby;
             ++line_count;
             if (end < p.atoms.size() && p.atoms[end].forced)
                 ++end;
@@ -958,6 +1003,11 @@ int wrap(void *ptr, uint64_t id, float width, dc_text_geometry *out, dc_error *e
     }
 }
 void release(void *, uint64_t) {}
+void block_padding(void *ptr, uint32_t id, float padding) {
+    auto &d = *static_cast<dc_drawing_plan *>(ptr);
+    if (id < d.block_padding.size())
+        d.block_padding[id] = padding;
+}
 } // namespace
 int dc_drawing_begin(const dc_prepared_document *input, const float *widths, size_t count, uint32_t fg, uint32_t border,
                      dc_drawing_plan **output, dc_error *error) {
@@ -1026,7 +1076,7 @@ int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
                 throw std::invalid_argument("Missing/invalid bulk text advances");
         for (uint32_t i = 0; i < d->paragraphs.size(); ++i)
             d->build_atoms(i);
-        dc_text_engine engine{d, prepare, wrap, release};
+        dc_text_engine engine{d, prepare, wrap, release, block_padding};
         dc_layout_document *raw = nullptr;
         if (dc_layout(d->input, &engine, d->widths.data(), d->widths.size(), &raw, error))
             return 1;

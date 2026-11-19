@@ -112,7 +112,7 @@ class Placement {
     }
     float place_flow(const Flow& flow,uint32_t source,float x,float y,float width,unsigned depth,bool crop_outer=false) {
         if(depth>128)throw std::runtime_error("Native layout nesting limit");
-        struct Frame{float x,width,bottom_padding,bottom_margin,content_x;uint32_t block,style;};std::vector<Frame> stack;
+        struct Frame{float x,width,bottom_padding,bottom_margin,content_x,top_padding;uint32_t block,style;};std::vector<Frame> stack;
         const float top=y;float pending_margin=0;bool at_start=crop_outer;
         for(size_t at=0;at<flow.size();++at) {
             const auto& f=flow[at];
@@ -135,7 +135,7 @@ class Placement {
                 const auto block=static_cast<uint32_t>(out.blocks.size());
                 out.blocks.push_back({f.index,source,f.cell,x+margin.left,y+(at_start?0:pending_margin),box_width,0});
                 if(padding.top!=0) {if(!at_start)y+=pending_margin;y+=padding.top;pending_margin=0;at_start=false;}
-                stack.push_back({x,width,padding.bottom,margin.bottom,x+margin.left+padding.left,block,f.index});
+                stack.push_back({x,width,padding.bottom,margin.bottom,x+margin.left+padding.left,padding.top,block,f.index});
                 x+=margin.left+padding.left;width=std::max(1.f,box_width-padding.left-padding.right);
             } else if(f.kind==3) {
                 if(stack.empty())throw std::runtime_error("Unbalanced native block flow");
@@ -153,6 +153,11 @@ class Placement {
                 if(!at_start)y+=pending_margin;pending_margin=0;at_start=false;
                 if(f.kind==0) {
                     dc_text_geometry geometry{};const auto& measured=out.measured.at(f.index);
+                    if(out.engine.block_padding) {
+                        const float block_padding=stack.size()>=2?stack[stack.size()-2].top_padding:
+                            stack.empty()?0.f:stack.back().top_padding;
+                        out.engine.block_padding(out.engine.context,f.index,block_padding);
+                    }
                     if(out.engine.wrap(out.engine.context,measured.handle,width,&geometry,error))throw std::runtime_error(error?error->message:"Text wrapping failed");
                     if(!std::isfinite(geometry.height) || geometry.height<0)throw std::runtime_error("Invalid text geometry");
                     float marker_x=x;

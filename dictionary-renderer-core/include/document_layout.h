@@ -15,6 +15,8 @@ typedef struct dc_text_engine {
     int (*prepare)(void*, const dc_prepared_view*, uint32_t paragraph, uint32_t needs_intrinsic, dc_text_measurement*, dc_error*);
     int (*wrap)(void*, uint64_t handle, float width, dc_text_geometry*, dc_error*);
     void (*release)(void*, uint64_t handle);
+    /* Optional: top padding above the paragraph's block (ruby annotation space). */
+    void (*block_padding)(void*, uint32_t paragraph, float padding);
 } dc_text_engine;
 typedef struct dc_paragraph_placement {
     uint32_t paragraph, source;
