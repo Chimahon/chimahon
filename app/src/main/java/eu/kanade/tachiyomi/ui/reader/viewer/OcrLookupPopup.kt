@@ -175,6 +175,8 @@ fun OcrLookupPopup(
     onContentReadyChange: ((Boolean) -> Unit)? = null,
     dismissOnOutsideTap: Boolean = false,
     isRecursiveChild: Boolean = false,
+    /** Registers the native entry navigator so hosts can route volume keys like the WebView key listener. */
+    onNativeNavigateReady: (((Int) -> Unit)?) -> Unit = {},
     modifier: Modifier = Modifier,
     titleId: String? = null,
 ) {
@@ -319,6 +321,10 @@ fun OcrLookupPopup(
     val wordAudioEnabled by dictionaryPreferences.wordAudioEnabled().collectAsState()
     val wordAudioAutoplay by dictionaryPreferences.wordAudioAutoplay().collectAsState()
     val groupPitches by dictionaryPreferences.groupPitches().collectAsState()
+    val paginatedScrolling by dictionaryPreferences.paginatedScrolling().collectAsState()
+    val paginatedScrollStepSize by dictionaryPreferences.paginatedScrollStepSize().collectAsState()
+    val scrollBehavior by dictionaryPreferences.scrollBehavior().collectAsState()
+    val showNavigationButtons by dictionaryPreferences.showNavigationButtons().collectAsState()
 
     val systemIsDark = isSystemInDarkTheme()
     val themeMode by dictionaryPreferences.themeMode().collectAsState()
@@ -1536,6 +1542,10 @@ fun OcrLookupPopup(
                             wordAudioEnabled = wordAudioEnabled,
                             wordAudioAutoplayOverride = if (visible) wordAudioAutoplay else false,
                             groupPitches = groupPitches,
+                            paginatedScrolling = paginatedScrolling,
+                            paginatedScrollStep = paginatedScrollStepSize,
+                            scrollBehavior = scrollBehavior,
+                            showNavigationButtons = showNavigationButtons,
                             onAnkiLookup = onAnkiLookup,
                             onRecursiveLookup = onRecursiveLookup,
                             onTabSelect = onTabSelect,
@@ -1544,6 +1554,7 @@ fun OcrLookupPopup(
                             resultsAreOrdered = true,
                             onContentReadyChange = composeContentReady,
                             onPlanReady = composePlanReady,
+                            onNavigateReady = onNativeNavigateReady,
                             modifier = Modifier.fillMaxSize(),
                         )
                         }

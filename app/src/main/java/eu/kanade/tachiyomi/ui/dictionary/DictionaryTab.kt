@@ -272,6 +272,10 @@ data object DictionaryTab : Tab {
         val wordAudioEnabled by dictionaryPreferences.wordAudioEnabled().collectAsState()
         val autoKanaConversion by dictionaryPreferences.autoKanaConversion().collectAsState()
         val groupPitches by dictionaryPreferences.groupPitches().collectAsState()
+        val paginatedScrolling by dictionaryPreferences.paginatedScrolling().collectAsState()
+        val paginatedScrollStepSize by dictionaryPreferences.paginatedScrollStepSize().collectAsState()
+        val scrollBehavior by dictionaryPreferences.scrollBehavior().collectAsState()
+        val showNavigationButtons by dictionaryPreferences.showNavigationButtons().collectAsState()
         // ── Lookup history stack ──────────────────────────────────────────────
         val lookupStack = remember { mutableStateListOf<TabLookupFrame>() }
         var activeTabIndex by remember { mutableIntStateOf(0) }
@@ -792,6 +796,10 @@ data object DictionaryTab : Tab {
                         wordAudioEnabled = wordAudioEnabled,
                         groupPitches = groupPitches,
                         compactGlossary = compactGlossary,
+                        paginatedScrolling = paginatedScrolling,
+                        paginatedScrollStep = paginatedScrollStepSize,
+                        scrollBehavior = scrollBehavior,
+                        showNavigationButtons = showNavigationButtons,
                         onAnkiLookup = onAnkiLookup,
                         onRecursiveLookup = stableRecursiveLookup,
                         onTabSelect = stableTabSelect,
