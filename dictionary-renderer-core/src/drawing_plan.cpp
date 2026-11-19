@@ -690,7 +690,12 @@ struct dc_drawing_plan {
             }
             uint32_t first = index(p.pieces.size());
             pieces_for(p, r);
-            for (uint32_t k = first; k < p.pieces.size(); ++k) {
+            const uint32_t run_end = index(p.pieces.size());
+            // Physical left/right padding and margins belong to the run's visual
+            // edges. An RTL run starts at the right edge, so its physical left
+            // side is the logical end of the run.
+            const bool rtl_run = first < run_end && (levels[p.pieces[first].start] & 1) != 0;
+            for (uint32_t k = first; k < run_end; ++k) {
                 const auto &piece = p.pieces[k];
                 Atom a;
                 a.first = k;
@@ -699,10 +704,17 @@ struct dc_drawing_plan {
                 a.forced = text[piece.start] == '\n' || text[piece.start] == '\r';
                 a.space = text[piece.start] == ' ' || text[piece.start] == '\t';
                 const auto &f = fonts[run.style];
-                if (k == first)
-                    a.left = run_left[r];
-                if (k + 1 == p.pieces.size())
-                    a.right = run_right[r];
+                if (rtl_run) {
+                    if (k + 1 == run_end)
+                        a.left = run_left[r];
+                    if (k == first)
+                        a.right = run_right[r];
+                } else {
+                    if (k == first)
+                        a.left = run_left[r];
+                    if (k + 1 == p.pieces.size())
+                        a.right = run_right[r];
+                }
                 dimensions(p, a);
                 p.atoms.push_back(a);
             }
