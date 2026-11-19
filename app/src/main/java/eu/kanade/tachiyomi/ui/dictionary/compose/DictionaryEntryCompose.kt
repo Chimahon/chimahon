@@ -49,6 +49,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,6 +67,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -324,6 +326,9 @@ fun DictionaryEntryCompose(
     val secondary = appearance.secondary
     val border = appearance.border
     val hoverBg = appearance.hover
+    // The WebView's `window.innerHeight` is the whole renderer area, including its fixed tab bar,
+    // while the native list viewport starts below RecursiveNavBar. Paging uses this outer height.
+    var contentViewportHeightPx by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(results, isLoading) {
         onContentReadyChange?.invoke(!isLoading)
@@ -462,7 +467,7 @@ fun DictionaryEntryCompose(
         // of TermCardView's parameters changed.
         LocalExistingExpressions provides existingExpressions,
     ) {
-    Column(modifier = Modifier.background(bgColor)) {
+    Column(modifier = Modifier.background(bgColor).onSizeChanged { contentViewportHeightPx = it.height }) {
         if (showTabStrip || showBackChip) {
             RecursiveNavBar(
                 tabs = tabs,
@@ -496,9 +501,12 @@ fun DictionaryEntryCompose(
            clamped to the scrollable range by the list itself. */
         val scrollScope = rememberCoroutineScope()
         val pageStepPercent = paginatedScrollStep.coerceIn(50, 100)
-        val scrollByPage: (Int) -> Unit = remember(popupListState, scrollScope, pageStepPercent) {
+        val outerViewportHeight = rememberUpdatedState(contentViewportHeightPx)
+        val scrollByPage: (Int) -> Unit = remember(popupListState, scrollScope, pageStepPercent, outerViewportHeight) {
             { direction ->
-                val viewportHeight = popupListState.layoutInfo.viewportSize.height
+                val viewportHeight = outerViewportHeight.value
+                    .takeIf { it > 0 }
+                    ?: popupListState.layoutInfo.viewportSize.height
                 if (viewportHeight > 0) {
                     val overlap = (viewportHeight * (1f - pageStepPercent / 100f)).roundToInt()
                     val step = viewportHeight - overlap
