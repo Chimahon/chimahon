@@ -94,6 +94,9 @@ public fun NativeDocumentContent(document: NativeGlossaryDocument, dictionary: S
         })
         document.images.forEach { image ->
             val props = image.source.attributes.properties
+            /* Presentation only on touch: renderer.js ignores Yomitan's `collapsible`/
+               `collapsed` fields and keeps `title` as HTML metadata, which Android has no
+               touch tooltip for. Do not add a tap or long-press target here. */
             AsyncImage(model = resolveMediaUri2(props["cardDictionary"] ?: dictionary, props["path"].orEmpty(), media),
                 contentDescription = props["title"])
         }

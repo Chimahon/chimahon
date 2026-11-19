@@ -74,6 +74,9 @@ public class NativeGlossaryDocument(
         } }.joinToString("\n")
     }
     fun hit(x: Float, y: Float): NativeGlossaryHit? {
+        /* Images stay inert. The WebView skips `.gloss-sc-a` in its tap handler and never
+           sets the collapsible/collapsed data attributes that base.css reveals on
+           :hover/:focus, so the shipping renderer has no image reveal target to mirror. */
         for (item in items.asReversed()) {
             if (x < item.x || y < item.y || x >= item.x + item.width || y >= item.y + item.height) continue
             if (item is NativeGlossaryDisclosure) return NativeGlossaryHit(disclosure = item.source)
