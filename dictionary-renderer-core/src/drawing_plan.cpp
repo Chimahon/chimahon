@@ -292,12 +292,14 @@ struct dc_drawing_plan {
             const auto align = prop("text-align"), white = prop("white-space"),
                        decoration = prop("text-decoration-line").empty() ? prop("text-decoration")
                                                                          : prop("text-decoration-line");
+            // start/end resolve against this element's direction; left/right stay physical.
+            const bool rtl = prop("direction") == "rtl";
             f.flags = ((prop("font-style") == "italic" || prop("font-style") == "oblique") ? 1 : 0) |
                       (decoration.find("underline") != decoration.npos ? 2 : 0) |
                       (decoration.find("line-through") != decoration.npos ? 4 : 0) |
-                      (prop("direction") == "rtl" ? 8 : 0) | ((white == "nowrap" || white == "pre") ? 16 : 0) |
+                      (rtl ? 8 : 0) | ((white == "nowrap" || white == "pre") ? 16 : 0) |
                       (align == "center"                      ? 32
-                       : (align == "right" || align == "end") ? 64
+                       : (align == "right" || (rtl ? align == "start" : align == "end")) ? 64
                        : align == "justify"                   ? 128
                                                               : 0) |
                       ((white == "pre" || white == "pre-wrap" || white == "break-spaces") ? 256 : 0) |

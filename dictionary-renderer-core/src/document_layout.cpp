@@ -110,7 +110,7 @@ class Placement {
         for(auto x:lo)b.min+=x;for(auto x:hi)b.max+=x;
         measured_tables[id]=1;return table_bounds[id]=b;
     }
-    float place_flow(const Flow& flow,uint32_t source,float x,float y,float width,unsigned depth,bool crop_outer=false) {
+    float place_flow(const Flow& flow,uint32_t source,float x,float y,float width,unsigned depth,bool crop_outer=false,uint32_t containing_style=none) {
         if(depth>128)throw std::runtime_error("Native layout nesting limit");
         struct Frame{float x,width,bottom_padding,bottom_margin,content_x,top_padding;uint32_t block,style;};std::vector<Frame> stack;
         const float top=y;float pending_margin=0;bool at_start=crop_outer;
@@ -121,7 +121,8 @@ class Placement {
                 const auto b=border_edges(f.index);
                 padding.top+=b.top;padding.right+=b.right;padding.bottom+=b.bottom;padding.left+=b.left;
                 pending_margin=collapse(pending_margin,margin.top);
-                float box_width=std::max(1.f,width-margin.left-margin.right);
+                const float available=std::max(1.f,width-margin.left-margin.right);
+                float box_width=available;
                 if(resolved.box(f.index).shrink_to_fit) {
                     size_t end=at+1;unsigned nesting=1;
                     for(;end<flow.size();++end) {
@@ -132,11 +133,17 @@ class Placement {
                     const float horizontal=padding.left+padding.right;
                     box_width=std::min(std::max(bounds.min+horizontal,box_width),bounds.max+horizontal);
                 }
+                // CSS 2.1 10.3.3 resolves an over-constrained block box against the
+                // containing block's direction: with rtl the inline-start (left)
+                // margin is the free one, so the border box sits on the inline-end
+                // edge. Margins stay physical.
+                const auto parent_style=stack.empty()?(containing_style==none?f.index:containing_style):stack.back().style;
+                const float block_x=x+margin.left+(property(parent_style,"direction")=="rtl"?available-box_width:0);
                 const auto block=static_cast<uint32_t>(out.blocks.size());
-                out.blocks.push_back({f.index,source,f.cell,x+margin.left,y+(at_start?0:pending_margin),box_width,0});
+                out.blocks.push_back({f.index,source,f.cell,block_x,y+(at_start?0:pending_margin),box_width,0});
                 if(padding.top!=0) {if(!at_start)y+=pending_margin;y+=padding.top;pending_margin=0;at_start=false;}
-                stack.push_back({x,width,padding.bottom,margin.bottom,x+margin.left+padding.left,padding.top,block,f.index});
-                x+=margin.left+padding.left;width=std::max(1.f,box_width-padding.left-padding.right);
+                stack.push_back({x,width,padding.bottom,margin.bottom,block_x+padding.left,padding.top,block,f.index});
+                x=block_x+padding.left;width=std::max(1.f,box_width-padding.left-padding.right);
             } else if(f.kind==3) {
                 if(stack.empty())throw std::runtime_error("Unbalanced native block flow");
                 const auto frame=stack.back();stack.pop_back();
@@ -168,8 +175,10 @@ class Placement {
                 } else if(f.kind==1) {
                     const auto style=v.tables[f.index].style;
                     const auto margin=edges(style,EdgeKind::margin,width);
+                    const auto parent_style=stack.empty()?(containing_style==none?style:containing_style):stack.back().style;
                     y+=margin.top;
-                    y+=place_table(f.index,source,x+margin.left,y,std::max(1.f,width-margin.left-margin.right),depth+1);
+                    y+=place_table(f.index,source,x+margin.left,y,std::max(1.f,width-margin.left-margin.right),depth+1,
+                        property(parent_style,"direction")=="rtl");
                     pending_margin=margin.bottom;
                 }
             }
@@ -177,7 +186,7 @@ class Placement {
         if(!stack.empty())throw std::runtime_error("Unclosed native block flow");
         return y+(crop_outer?0:pending_margin)-top;
     }
-    float place_table(uint32_t id,uint32_t source,float x,float y,float width,unsigned depth) {
+    float place_table(uint32_t id,uint32_t source,float x,float y,float width,unsigned depth,bool rtl=false) {
         const auto& grid=grids[id];if(!grid.columns || !grid.rows)return 0;
         std::vector<float> lo,hi;column_bounds(id,lo,hi,depth);
         float min=0,max=0;for(auto a:lo)min+=a;for(auto a:hi)max+=a;
@@ -191,19 +200,23 @@ class Placement {
         const auto &box=resolved.box(style);
         const float target=fractional?std::max(1.f,box.width.evaluate(width,out.unresolved,width)-padding.left-padding.right):
             std::max(min,box.width.evaluate(width,out.unresolved,std::min(width,max)));
-        x+=padding.left;y+=padding.top;
         const float fraction=max>min?std::clamp((target-min)/(max-min),0.f,1.f):0;
         std::vector<float> columns(grid.columns+1,0),row_heights(grid.rows,0),cell_heights(grid.cells.size(),0);
         float total_fraction=0;for(auto f:grid.fractions)total_fraction+=f;
         for(uint32_t i=0;i<grid.columns;++i)columns[i+1]=columns[i]+(fractional?
             target*grid.fractions[i]/total_fraction:lo[i]+(hi[i]-lo[i])*fraction);
+        // A resolved table box narrower than its containing block follows the same
+        // over-constrained rule as a block box: rtl places it on the inline-end edge.
+        const float outer=columns.back()+(fractional?padding.left+padding.right:0);
+        if(rtl && outer<width)x+=width-outer;
+        x+=padding.left;y+=padding.top;
         struct Range{size_t paragraphs,cells,blocks;};std::vector<Range> starts;
         for(const auto& c:grid.cells) {
             starts.push_back({out.paragraphs.size(),out.cells.size(),out.blocks.size()});
             const float cell_width=columns[c.column+c.columns]-columns[c.column];
             const auto padding=cell_padding(c.cell,cell_width);
             const float height=padding.top+place_flow(cell_flows[c.cell],source,x+columns[c.column]+padding.left,y+padding.top,
-                std::max(1.f,cell_width-padding.left-padding.right),depth+1)+padding.bottom;
+                std::max(1.f,cell_width-padding.left-padding.right),depth+1,false,v.cells[c.cell].style)+padding.bottom;
             cell_heights[starts.size()-1]=height;
             if(c.rows==1)row_heights[c.row]=std::max(row_heights[c.row],height);
         }
