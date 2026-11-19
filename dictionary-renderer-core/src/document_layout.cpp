@@ -210,12 +210,20 @@ class Placement {
         const float outer=columns.back()+(fractional?padding.left+padding.right:0);
         if(rtl && outer<width)x+=width-outer;
         x+=padding.left;y+=padding.top;
+        // A table element's own direction orders its columns (CSS 2.1 17.1): with
+        // rtl the first column is the rightmost track. Only the inline axis
+        // mirrors; rows and vertical alignment are unchanged.
+        const float grid_width=columns.back();
+        const bool table_rtl=property(v.tables[id].style,"direction")=="rtl";
+        const auto track_left=[&](const GridCell& c) {
+            return table_rtl?grid_width-columns[c.column+c.columns]:columns[c.column];
+        };
         struct Range{size_t paragraphs,cells,blocks;};std::vector<Range> starts;
         for(const auto& c:grid.cells) {
             starts.push_back({out.paragraphs.size(),out.cells.size(),out.blocks.size()});
             const float cell_width=columns[c.column+c.columns]-columns[c.column];
             const auto padding=cell_padding(c.cell,cell_width);
-            const float height=padding.top+place_flow(cell_flows[c.cell],source,x+columns[c.column]+padding.left,y+padding.top,
+            const float height=padding.top+place_flow(cell_flows[c.cell],source,x+track_left(c)+padding.left,y+padding.top,
                 std::max(1.f,cell_width-padding.left-padding.right),depth+1,false,v.cells[c.cell].style)+padding.bottom;
             cell_heights[starts.size()-1]=height;
             if(c.rows==1)row_heights[c.row]=std::max(row_heights[c.row],height);
@@ -238,7 +246,7 @@ class Placement {
             for(auto k=starts[i].cells;k<c_end;++k)out.cells[k].y+=shift;
             for(auto k=starts[i].blocks;k<b_end;++k)out.blocks[k].y+=shift;
         }
-        for(const auto& c:grid.cells)out.cells.push_back({c.cell,x+columns[c.column],y+rows[c.row],columns[c.column+c.columns]-columns[c.column],rows[c.row+c.rows]-rows[c.row]});
+        for(const auto& c:grid.cells)out.cells.push_back({c.cell,x+track_left(c),y+rows[c.row],columns[c.column+c.columns]-columns[c.column],rows[c.row+c.rows]-rows[c.row]});
         return rows.back()+padding.top+padding.bottom;
     }
 public:
