@@ -84,6 +84,7 @@ internal fun AnimeLibraryComfortableGrid(
                     null
                 },
                 usePanoramaCover = usePanoramaCover,
+                fitToPanoramaCover = true,
             )
         }
     }
