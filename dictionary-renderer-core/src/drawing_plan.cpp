@@ -907,7 +907,22 @@ struct dc_drawing_plan {
                 while (visible > from && p.atoms[visible - 1].space)
                     --visible;
             used = 0;
+            // The line box starts from the block's strut. Its ascent and descent
+            // are the font's, distributed around the resolved line-height by
+            // half-leading (CSS 2.1 10.8), so a line-height below the font's
+            // natural height shrinks both sides instead of pinning the descent to
+            // a 0.2em floor, which added ~0.5px to every 1.2-line-height table
+            // cell line. The em box stands in only when no line-height resolved.
             float above = f.size * .8f, above_without_ruby = f.size * .8f, below = f.size * .2f;
+            if (f.line_height > 0 && input.style < style_fonts.size()) {
+                const auto &strut = font_metrics[style_fonts[input.style]];
+                if (std::isfinite(strut.ascent) && std::isfinite(strut.descent) &&
+                    strut.descent > strut.ascent) {
+                    const float half = (f.line_height - (strut.descent - strut.ascent)) / 2;
+                    above = above_without_ruby = -strut.ascent + half;
+                    below = strut.descent + half;
+                }
+            }
             float ruby_advance = 0, ruby_overflow_line = 0;
             bool line_ruby = false;
             const bool compact_ruby_line = block_padding[id] > 0;
