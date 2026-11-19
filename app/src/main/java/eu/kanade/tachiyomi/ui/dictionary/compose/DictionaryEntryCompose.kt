@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -726,14 +727,19 @@ private fun FloatingNavButton(
     val shape = if (eInkMode) RectangleShape else CircleShape
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.95f else 1f, tween(durationMillis = 100), label = "floatingNavScale")
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val animatedScale by animateFloatAsState(if (pressed) 0.95f else 1f, tween(durationMillis = 100), label = "floatingNavScale")
+    val animatedAlpha by animateFloatAsState(if (hovered) 0.9f else 0.4f, tween(durationMillis = 200), label = "floatingNavAlpha")
+    // base.css disables all transitions and :active transforms in E-Ink mode.
+    val scale = if (eInkMode) 1f else animatedScale
+    val alpha = if (eInkMode) { if (hovered) 0.9f else 0.4f } else animatedAlpha
     Box(
         modifier = Modifier
             .size(40.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                alpha = 0.4f
+                this.alpha = alpha
             }
             .then(
                 if (eInkMode) {
