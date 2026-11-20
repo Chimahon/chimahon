@@ -64,6 +64,8 @@ class ChimaReaderActivity : NovelReaderActivity() {
 
     private val readerPreferences: eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences by uy.kohesive.injekt.injectLazy()
     private var popupWebView: WebView? = null
+    /** Entry navigator published by the native dictionary popup, for volume-key parity. */
+    private var popupNativeNavigate: ((Int) -> Unit)? = null
     private val novelReaderSettings by lazy { chimahon.novel.data.NovelReaderSettings(this, getSettingsNamespace()) }
 
     private var cachedActiveProfile: chimahon.anki.AnkiProfile? = null
@@ -226,19 +228,25 @@ class ChimaReaderActivity : NovelReaderActivity() {
     }
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (isPopupActive && Injekt.get<DictionaryPreferences>().renderer().get() == DictionaryPreferences.RENDERER_WEBVIEW) {
-            popupWebView?.let { webView ->
-                if (event.action == android.view.KeyEvent.ACTION_DOWN) {
-                    when (event.keyCode) {
-                        android.view.KeyEvent.KEYCODE_VOLUME_UP -> {
-                            webView.evaluateJavascript("window.DictionaryRenderer?.navigate(-1);", null)
-                            return true
-                        }
-                        android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                            webView.evaluateJavascript("window.DictionaryRenderer?.navigate(1);", null)
-                            return true
-                        }
+        if (isPopupActive && event.action == android.view.KeyEvent.ACTION_DOWN) {
+            val webViewRenderer = Injekt.get<DictionaryPreferences>().renderer().get() ==
+                DictionaryPreferences.RENDERER_WEBVIEW
+            when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_VOLUME_UP -> {
+                    if (webViewRenderer) {
+                        popupWebView?.evaluateJavascript("window.DictionaryRenderer?.navigate(-1);", null)
+                    } else {
+                        popupNativeNavigate?.invoke(-1)
                     }
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    if (webViewRenderer) {
+                        popupWebView?.evaluateJavascript("window.DictionaryRenderer?.navigate(1);", null)
+                    } else {
+                        popupNativeNavigate?.invoke(1)
+                    }
+                    return true
                 }
             }
         }
@@ -527,6 +535,7 @@ class ChimaReaderActivity : NovelReaderActivity() {
                     // The novel SSIV owns outside-tap routing so another OCR word can be
                     // selected while this popup is already visible.
                     dismissOnOutsideTap = false,
+                    onNativeNavigateReady = { popupNativeNavigate = it },
                     modifier = Modifier,
                     titleId = bookMetadata?.id,
                 )

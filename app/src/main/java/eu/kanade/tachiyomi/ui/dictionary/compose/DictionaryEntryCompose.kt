@@ -2,9 +2,18 @@ package eu.kanade.tachiyomi.ui.dictionary.compose
 
 import android.content.Context
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +30,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.MenuBook
@@ -35,9 +47,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,9 +62,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -71,6 +97,7 @@ import chimahon.LookupResult
 import chimahon.PitchEntry
 import chimahon.anki.AnkiProfile
 import chimahon.diagnostics.LookupProfiler
+import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
@@ -82,6 +109,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val WHITESPACE_REGEX = Regex("\\s+")
@@ -288,6 +318,18 @@ fun DictionaryEntryCompose(
     renderPreparation: DictionaryPlanPreparation? = null,
     planSlot: DictionaryPlanSlot? = null,
     compactGlossary: Boolean = false,
+    /** Mirrors the WebView's `data-chima-paginated-scrolling` gate. */
+    paginatedScrolling: Boolean = false,
+    /** Page step as a percentage of the viewport height, clamped to 50..100 like the WebView. */
+    paginatedScrollStep: Int = 90,
+    /** `smooth` or `instant`, matching the WebView's `data-chima-scroll-behavior`. */
+    scrollBehavior: String = DictionaryPreferences.SCROLL_SMOOTH,
+    /** Mirrors the WebView's `showNavigationButtons` payload gate. */
+    showNavigationButtons: Boolean = true,
+    /** Receives the entry navigator so hosts can route volume keys like the WebView key listener. */
+    onNavigateReady: (((Int) -> Unit)?) -> Unit = {},
+    /** Mirrors DictionaryEntryWebView's `requestFocusOnMount` (the popup WebView hosts set it). */
+    requestFocusOnMount: Boolean = false,
 ) {
     val context = LocalContext.current
     val appearance = rememberDictionaryRenderAppearance(eInkMode)
@@ -297,6 +339,10 @@ fun DictionaryEntryCompose(
     val secondary = appearance.secondary
     val border = appearance.border
     val hoverBg = appearance.hover
+    // The WebView's `window.innerHeight` is the whole renderer area, including its fixed tab bar,
+    // while the native list viewport starts below RecursiveNavBar. Paging uses this outer height.
+    var contentViewportHeightPx by remember { mutableIntStateOf(0) }
+    val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
 
     LaunchedEffect(results, isLoading) {
         onContentReadyChange?.invoke(!isLoading)
@@ -381,6 +427,11 @@ fun DictionaryEntryCompose(
         }
     }
     val effectivePlan = plan ?: RenderPlan.Empty
+    val listFocusRequester = remember { FocusRequester() }
+    val hasEntryList = effectivePlan.kanjiCards.isNotEmpty() || effectivePlan.nativeCards.isNotEmpty()
+    LaunchedEffect(requestFocusOnMount, hasEntryList, effectivePlan.kanjiCards.isNotEmpty()) {
+        if (requestFocusOnMount && hasEntryList) listFocusRequester.requestFocus()
+    }
     val diagnostics = remember { DictionaryPlanDiagnostics() }
     if (LookupProfiler.sink?.enabled == true) {
         remember(plan, profilingId) {
@@ -435,7 +486,7 @@ fun DictionaryEntryCompose(
         // of TermCardView's parameters changed.
         LocalExistingExpressions provides existingExpressions,
     ) {
-    Column(modifier = Modifier.background(bgColor)) {
+    Column(modifier = Modifier.background(bgColor).onSizeChanged { contentViewportHeightPx = it.height }) {
         if (showTabStrip || showBackChip) {
             RecursiveNavBar(
                 tabs = tabs,
@@ -464,6 +515,119 @@ fun DictionaryEntryCompose(
                 }
             }
         }
+
+        /* Mirrors renderer.js `_scrollByPopupHeight`: step = viewport - round(viewport * (1 - pct)),
+           clamped to the scrollable range by the list itself. */
+        val scrollScope = rememberCoroutineScope()
+        val pageStepPercent = paginatedScrollStep.coerceIn(50, 100)
+        val outerViewportHeight = rememberUpdatedState(contentViewportHeightPx)
+        val scrollByPage: (Int) -> Unit = remember(popupListState, scrollScope, pageStepPercent, outerViewportHeight) {
+            { direction ->
+                val viewportHeight = outerViewportHeight.value
+                    .takeIf { it > 0 }
+                    ?: popupListState.layoutInfo.viewportSize.height
+                if (viewportHeight > 0) {
+                    val overlap = (viewportHeight * (1f - pageStepPercent / 100f)).roundToInt()
+                    val step = viewportHeight - overlap
+                    if (step > 0) scrollScope.launch { popupListState.scrollBy(step * direction.toFloat()) }
+                }
+            }
+        }
+        /* Mirrors `DictionaryRenderer.navigate`: the entry closest to the viewport top is current,
+           then the target entry is aligned to the viewport start with the configured behavior. */
+        val entryNavigator: (Int) -> Unit = remember(popupListState, scrollScope, scrollBehavior) {
+            { delta ->
+                scrollScope.launch {
+                    val info = popupListState.layoutInfo
+                    if (info.visibleItemsInfo.isNotEmpty() && info.totalItemsCount > 0) {
+                        var current = info.visibleItemsInfo.first().index
+                        var closest = Int.MAX_VALUE
+                        for (item in info.visibleItemsInfo) {
+                            val distance = abs(item.offset)
+                            if (distance < closest) {
+                                closest = distance
+                                current = item.index
+                            }
+                        }
+                        val target = (current + delta).coerceIn(0, info.totalItemsCount - 1)
+                        if (scrollBehavior == DictionaryPreferences.SCROLL_INSTANT) {
+                            popupListState.scrollToItem(target)
+                        } else {
+                            popupListState.animateScrollToItem(target)
+                        }
+                    }
+                }
+            }
+        }
+        DisposableEffect(entryNavigator, onNavigateReady) {
+            onNavigateReady(entryNavigator)
+            onDispose { onNavigateReady(null) }
+        }
+        /* renderer.js: while paginated, touchmove is cancelled (no free drag) and wheel events
+           turn one page each; a swipe shorter than 15px is a tap and does nothing. */
+        val pagingModifier = if (!paginatedScrolling) {
+            Modifier
+        } else {
+            Modifier
+                .pointerInput(scrollByPage) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Scroll) {
+                                val delta = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                                event.changes.forEach { it.consume() }
+                                scrollByPage(if (delta > 0f) 1 else -1)
+                            }
+                        }
+                    }
+                }
+                .pointerInput(scrollByPage) {
+                    val pageTurnThreshold = 15.dp.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startY = down.position.y
+                        var endY = startY
+                        var multiTouch = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.changes.count { it.pressed } > 1) multiTouch = true
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            endY = change.position.y
+                            if (!change.pressed) break
+                            if (abs(endY - startY) >= pageTurnThreshold) {
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                        if (multiTouch) return@awaitEachGesture
+                        val delta = startY - endY
+                        if (abs(delta) >= pageTurnThreshold) scrollByPage(if (delta > 0f) 1 else -1)
+                    }
+                }
+        }
+        /* Mirrors DictionaryEntryWebView's setOnKeyListener: volume keys navigate when enabled. */
+        val volumeKeyModifier = Modifier
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.VolumeUp || event.key == Key.VolumeDown) &&
+                    dictionaryPreferences.volumeKeyNavigation().get()
+                ) {
+                    entryNavigator(if (event.key == Key.VolumeUp) -1 else 1)
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusRequester(listFocusRequester)
+            .focusable()
+        val listInputModifier = volumeKeyModifier.then(pagingModifier)
+        // renderer.js shows the buttons when `results.length > 1`; kanji lookups carry their
+        // entries in `entryJsons`, where each kanji card is one WebView entry.
+        val navTargetCount = when {
+            effectivePlan.kanjiCards.isNotEmpty() -> effectivePlan.kanjiCards.size
+            effectivePlan.nativeCards.isNotEmpty() -> results.size
+            else -> 0
+        }
+        val showNavButtons = showNavigationButtons && !isLoading && navTargetCount > 1
         Box(Modifier.fillMaxSize()) {
             when {
                 isLoading || effectivePlan == RenderPlan.Empty -> {
@@ -473,8 +637,9 @@ fun DictionaryEntryCompose(
                 }
                 effectivePlan.kanjiCards.isNotEmpty() -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().then(listInputModifier),
                         state = popupListState,
+                        userScrollEnabled = !paginatedScrolling,
                         contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
                     ) {
                         itemsIndexed(effectivePlan.kanjiCards, key = { i, kanji -> "kanji-${kanji.character}-$i" }, contentType = { _, _ -> "kanji" }) { i, kanji ->
@@ -504,8 +669,9 @@ fun DictionaryEntryCompose(
                 }
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().then(listInputModifier),
                         state = popupListState,
+                        userScrollEnabled = !paginatedScrolling,
                         contentPadding = PaddingValues(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),
                     ) {
                         items(count = effectivePlan.nativeCards.size, key = { "native-card-$it" },
@@ -517,6 +683,22 @@ fun DictionaryEntryCompose(
                     }
                 }
         }
+            // renderer.js `renderFloatingNav`: fixed bottom-right, 40dp circles 12dp apart.
+            if (showNavButtons) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    FloatingNavButton(up = true, bgColor = bgColor, contentColor = onBg, eInkMode = eInkMode) {
+                        entryNavigator(-1)
+                    }
+                    FloatingNavButton(up = false, bgColor = bgColor, contentColor = onBg, eInkMode = eInkMode) {
+                        entryNavigator(1)
+                    }
+                }
+            }
         }
     }
     }
@@ -530,6 +712,62 @@ private fun DictionaryViewport(modifier: Modifier, widthPx: Int?, content: @Comp
         Box(modifier) { content(widthPx) }
     } else {
         BoxWithConstraints(modifier) { content(constraints.maxWidth) }
+    }
+}
+
+/** One WebView floating navigation button: 40dp, opacity .4, 24dp arrow, no ripple. */
+@Composable
+private fun FloatingNavButton(
+    up: Boolean,
+    bgColor: Color,
+    contentColor: Color,
+    eInkMode: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = if (eInkMode) RectangleShape else CircleShape
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val animatedScale by animateFloatAsState(if (pressed) 0.95f else 1f, tween(durationMillis = 100), label = "floatingNavScale")
+    val animatedAlpha by animateFloatAsState(if (hovered) 0.9f else 0.4f, tween(durationMillis = 200), label = "floatingNavAlpha")
+    // base.css disables all transitions and :active transforms in E-Ink mode.
+    val scale = if (eInkMode) 1f else animatedScale
+    val alpha = if (eInkMode) { if (hovered) 0.9f else 0.4f } else animatedAlpha
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                this.alpha = alpha
+            }
+            .then(
+                if (eInkMode) {
+                    Modifier
+                } else {
+                    Modifier.shadow(
+                        elevation = 4.dp,
+                        shape = shape,
+                        ambientColor = Color.Black.copy(alpha = 0.15f),
+                        spotColor = Color.Black.copy(alpha = 0.15f),
+                    )
+                },
+            )
+            .clip(shape)
+            .background(bgColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (up) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(24.dp),
+        )
     }
 }
 
