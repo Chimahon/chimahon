@@ -1048,7 +1048,17 @@ object SettingsDictionaryScreen : SearchableSettings {
                     ),
                 ),
             ),
-
+            Preference.PreferenceGroup(
+                title = "AI Content",
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.CustomPreference(
+                        title = "Custom AI Dictionary Popup",
+                        content = {
+                            chimahon.ai.AiPopupSettingsSection()
+                        },
+                    ),
+                ),
+            ),               
         )
     }
 
