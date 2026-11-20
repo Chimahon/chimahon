@@ -807,7 +807,7 @@ struct dc_portable_document {
                 if (font.flags & 6) {
                     const float y = c.baseline + (font.flags & 2 ? font.size * .1f : -font.size * .3f);
                     agg::rounded_rect line(c.x, y, c.x + c.width, y + std::max(.5f, font.size / 16), 0);
-                    fill(line, text_color ? *text_color : c.color);
+                    fill(line, text_color ? *text_color : c.border ? c.border : c.color);
                 }
             } else if (c.kind == 1) {
                 agg::rounded_rect outer(c.x, c.y, c.x + c.width, c.y + c.height, c.radius);
