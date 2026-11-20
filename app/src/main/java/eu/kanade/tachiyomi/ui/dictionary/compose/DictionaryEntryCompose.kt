@@ -737,7 +737,6 @@ private val LocalExistingExpressions = compositionLocalOf { emptySet<String>() }
 internal fun TermCardAnkiActions(
     index: Int,
     expression: String,
-    firstDictTitle: String?,
     selectedDict: String?,
     dupAction: String,
     onAnkiLookup: (Int, Int?, String?, String?, Boolean) -> Unit,
@@ -745,9 +744,8 @@ internal fun TermCardAnkiActions(
 ) {
     val alreadyAdded = expression in LocalExistingExpressions.current
     val showAdd = !alreadyAdded || dupAction != "prevent"
-    val targetDict = selectedDict ?: firstDictTitle
-    val addAction = rememberUpdatedState { onAnkiLookup(index, null, targetDict, null, false) }
-    val openAction = rememberUpdatedState { onAnkiLookup(index, null, targetDict, null, true) }
+    val addAction = rememberUpdatedState { onAnkiLookup(index, null, selectedDict, null, false) }
+    val openAction = rememberUpdatedState { onAnkiLookup(index, null, selectedDict, null, true) }
     val onAdd = remember { { addAction.value() } }
     val onOpen = remember { { openAction.value() } }
     if (showAdd) {

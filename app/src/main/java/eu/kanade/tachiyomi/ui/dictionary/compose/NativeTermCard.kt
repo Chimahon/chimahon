@@ -400,7 +400,7 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
         if (chrome) Row(Modifier.align(Alignment.TopEnd).offset(y = 10.dp + (headHeight - 28.dp) / 2)) {
             if (audioEnabled) WordAudioButton(model.card.expression, model.card.reading, accent, onBg, autoplay, Modifier.size(28.dp))
             if (onAnkiLookup != null) TermCardAnkiActions(index, model.card.expression,
-                model.card.dictGroups.firstOrNull()?.title, selected, profile.ankiDupAction, onAnkiLookup, onBg)
+                selected, profile.ankiDupAction, onAnkiLookup, onBg)
         }
     }
 }
