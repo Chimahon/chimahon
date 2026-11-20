@@ -2027,11 +2027,11 @@ private fun CosmicVioletBody(
             ),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 1. Custom Top Header Bar ("Chimahon AI" + "Powered by GROQ" + Refresh/Close)
+            // 1. Custom Top Header Bar ("Chimahon AI" + "Powered by GROQ" + Images/Save/Close)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (canGoBack) {
@@ -2051,42 +2051,52 @@ private fun CosmicVioletBody(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                 }
 
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = null,
-                    tint = violetAccent,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(7.dp))
-                Text(
-                    text = "Chimahon AI",
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    color = textPrimary,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFF231B3D),
-                    border = BorderStroke(0.75.dp, violetBright.copy(alpha = 0.4f)),
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "Powered by GROQ",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Medium,
-                        ),
-                        color = Color(0xFFC4B5FD),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        tint = violetAccent,
+                        modifier = Modifier.size(18.dp),
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Chimahon AI",
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = textPrimary,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF231B3D),
+                        border = BorderStroke(0.75.dp, violetBright.copy(alpha = 0.4f)),
+                    ) {
+                        Text(
+                            text = "Powered by GROQ",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Medium,
+                            ),
+                            color = Color(0xFFC4B5FD),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        )
+                    }
                 }
-
-                Spacer(modifier = Modifier.weight(1f))
 
                 Surface(
                     onClick = onOpenImages,
@@ -2124,23 +2134,6 @@ private fun CosmicVioletBody(
                             contentDescription = "Save to Collection",
                             tint = if (isSaved) violetAccent else textPrimary,
                             modifier = Modifier.size(15.dp),
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                Surface(
-                    onClick = onRefresh,
-                    shape = CircleShape,
-                    color = pillBg,
-                    border = BorderStroke(0.75.dp, borderSubtle),
-                    modifier = Modifier.size(30.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = "Refresh",
-                            tint = textPrimary,
-                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
