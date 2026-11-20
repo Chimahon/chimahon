@@ -64,6 +64,7 @@ class DictionaryPreferences(
 
     fun groupTerms() = preferenceStore.getBoolean("pref_dict_group_terms", true)
     fun compactGlossary() = preferenceStore.getBoolean("pref_dict_compact_glossary", false)
+    fun compactTags() = preferenceStore.getBoolean("pref_dict_compact_tags", false)
     fun showPitchDiagram() = preferenceStore.getBoolean("pref_dict_show_pitch_diagram", true)
     fun showPitchNumber() = preferenceStore.getBoolean("pref_dict_show_pitch_number", true)
     fun showPitchText() = preferenceStore.getBoolean("pref_dict_show_pitch_text", true)

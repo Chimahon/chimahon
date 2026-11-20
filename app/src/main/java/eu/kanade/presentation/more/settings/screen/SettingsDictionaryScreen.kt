@@ -1028,6 +1028,11 @@ object SettingsDictionaryScreen : SearchableSettings {
                         subtitle = "Show all senses inline separated by · instead of a numbered list",
                     ),
                     Preference.PreferenceItem.SwitchPreference(
+                        preference = dictionaryPreferences.compactTags(),
+                        title = "Compact tags",
+                        subtitle = "Show repeated grammar and usage tags only once per dictionary",
+                    ),
+                    Preference.PreferenceItem.SwitchPreference(
                         preference = dictionaryPreferences.showNavigationButtons(),
                         title = stringResource(KMR.strings.pref_dict_show_navigation_buttons),
                         subtitle = stringResource(KMR.strings.pref_dict_show_navigation_buttons_summary),

@@ -42,6 +42,8 @@ internal data class DictionaryRenderSignature(
     val showNavigationButtons: Boolean,
     val groupPitches: Boolean,
     val dictionaryDisplayNames: String,
+    val compactGlossary: Boolean = false,
+    val compactTags: Boolean = false,
 )
 
 private fun buildResultEntryJson(result: LookupResult, index: Int, priorityMap: Map<String, Int>, groupPitches: Boolean): JsonObject {
@@ -182,6 +184,7 @@ internal fun buildConfigPayload(
     showNavigationButtons: Boolean = true,
     groupPitches: Boolean = false,
     compactGlossary: Boolean = false,
+    compactTags: Boolean = false,
 ): JsonObject = buildJsonObject {
     val orderedTitles = activeProfile.dictionaryOrder.map { getDictionarySourceTitle(context, it) }
     val displayModesByTitle = activeProfile.dictionaryDisplayModes.mapKeys { (dirName, _) -> getDictionarySourceTitle(context, dirName) }
@@ -218,6 +221,7 @@ internal fun buildConfigPayload(
     put("renderRecursiveChrome", renderRecursiveChrome)
     put("showNavigationButtons", showNavigationButtons)
     put("compactGlossary", compactGlossary)
+    put("compactTags", compactTags)
     putJsonArray("tabs") {
         for (tab in tabs) add(buildJsonObject { put("label", tab.label); put("active", tab.active) })
     }

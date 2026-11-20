@@ -265,6 +265,7 @@ data object DictionaryTab : Tab {
         val showPitchText by dictionaryPreferences.showPitchText().collectAsState()
         val groupTerms by dictionaryPreferences.groupTerms().collectAsState()
         val compactGlossary by dictionaryPreferences.compactGlossary().collectAsState()
+        val compactTags by dictionaryPreferences.compactTags().collectAsState()
         val recursiveNavMode by dictionaryPreferences.recursiveLookupMode().collectAsState()
     val eInkMode by dictionaryPreferences.eInkMode().collectAsState()
         val popupFontSizePref by dictionaryPreferences.fontSize().collectAsState()
@@ -796,6 +797,7 @@ data object DictionaryTab : Tab {
                         wordAudioEnabled = wordAudioEnabled,
                         groupPitches = groupPitches,
                         compactGlossary = compactGlossary,
+                        compactTags = compactTags,
                         paginatedScrolling = paginatedScrolling,
                         paginatedScrollStep = paginatedScrollStepSize,
                         scrollBehavior = scrollBehavior,

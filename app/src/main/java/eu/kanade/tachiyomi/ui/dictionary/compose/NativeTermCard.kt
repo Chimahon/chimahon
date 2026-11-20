@@ -239,7 +239,7 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
             element("div", "card-group") { text((if (expanded) "\u25be  " else "\u25b8  ") + group.title) }
         }
         if (compact) {
-            val combined = compactGlossarySource(group.glosses)
+            val combined = compactGlossarySource(group.glosses, layout.compactTags)
             if (combined != null) {
                 parts.add(NativeCardPiece(nativeCoreSource(combined), presentation.groups[groupIndex].css,
                     layout.glossaryWidth(false), group.dictName, groupIndex, true, 0, px(3), px(3)))
@@ -265,9 +265,10 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
  * source with the same ` | ` separator. Only structured JSON or plain text is joined;
  * HTML glossaries keep the per-gloss layout instead of losing their markup.
  */
-private fun compactGlossarySource(glosses: List<GlossaryEntry>): String? {
+private fun compactGlossarySource(glosses: List<GlossaryEntry>, compactTags: Boolean): String? {
     if (glosses.isEmpty()) return null
     val content = JSONArray()
+    val seenTags = if (compactTags) HashSet<String>() else null
     for ((index, gloss) in glosses.withIndex()) {
         val raw = gloss.glossary
         val trimmed = raw.trimStart()
@@ -292,8 +293,17 @@ private fun compactGlossarySource(glosses: List<GlossaryEntry>): String? {
                 .put("style", JSONObject().put("color", "var(--secondary)"))
                 .put("content", " | "))
         }
-        val tags = gloss.definitionTags.split(cardTagWhitespace).filter { it.isNotBlank() }.take(8)
-        if (tags.isNotEmpty()) content.put(tags.joinToString(" ") + " ")
+        val tags = gloss.definitionTags.split(cardTagWhitespace).filter { it.isNotBlank() }
+        val shownTags = if (seenTags == null) {
+            tags.take(8)
+        } else {
+            // Inline compact mode joins the group into one line, so only the first
+            // occurrence of each tag needs to be printed.
+            val shown = tags.distinct().filter { it !in seenTags }.take(8)
+            seenTags.addAll(shown)
+            shown
+        }
+        if (shownTags.isNotEmpty()) content.put(shownTags.joinToString(" ") + " ")
         items.forEach { item -> if (item != null && item != JSONObject.NULL) content.put(item) }
     }
     if (content.length() == 0) return null

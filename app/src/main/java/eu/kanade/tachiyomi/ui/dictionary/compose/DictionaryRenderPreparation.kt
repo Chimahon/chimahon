@@ -76,7 +76,8 @@ internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: 
     customCss: String, profile: AnkiProfile, groupTerms: Boolean,
     cardOptions: NativeCardOptions = NativeCardOptions(),
     suppliedAppearance: DictionaryRenderAppearance? = null,
-    compactGlossary: Boolean = false): DictionaryPlanBuilder {
+    compactGlossary: Boolean = false,
+    compactTags: Boolean = false): DictionaryPlanBuilder {
     val context = LocalContext.current
     val environment = LocalDictionaryRenderEnvironment.current
     val appearance = suppliedAppearance ?: rememberDictionaryRenderAppearance(eInkMode)
@@ -94,11 +95,11 @@ internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: 
         customFont?.let { runCatching { FontFamily(Font(it)) }.getOrNull() }
     }
     val language = nativeLanguageTag(profile.languageCode)
-    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont, customFamily, compactGlossary) {
+    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont, customFamily, compactGlossary, compactTags) {
         DictionaryPlanBuilder(context, appearance,
             NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, customFamily), density, direction,
                 resolver, appearance.secondary, appearance.border, width, fontFiles, language, customFamily,
-                compactGlossary), customCss, profile, groupTerms, cardOptions) { name ->
+                compactGlossary, compactTags), customCss, profile, groupTerms, cardOptions) { name ->
             if (environment == null) getDictionaryTitle(context, name) else environment.dictionaryTitles[name] ?: name
         }
     }
@@ -175,6 +176,7 @@ internal class DictionaryPlanBuilder(
         if (layout.fontFiles != other.layout.fontFiles) add("fontFiles")
         if (layout.language != other.layout.language) add("language")
         if (layout.compactGlossary != other.layout.compactGlossary) add("compactGlossary")
+        if (layout.compactTags != other.layout.compactTags) add("compactTags")
     }
 
     fun compatible(other: DictionaryPlanBuilder): Boolean = context === other.context &&
@@ -183,7 +185,7 @@ internal class DictionaryPlanBuilder(
         layout.resolver === other.layout.resolver && layout.viewportWidth == other.layout.viewportWidth &&
         layout.secondary == other.layout.secondary && layout.border == other.layout.border &&
         layout.fontFiles == other.layout.fontFiles && layout.language == other.layout.language &&
-        layout.compactGlossary == other.layout.compactGlossary
+        layout.compactGlossary == other.layout.compactGlossary && layout.compactTags == other.layout.compactTags
 
     fun start(scope: CoroutineScope, results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
         cards: DictionaryCardPreparation?, entryJsons: List<String>?,
@@ -206,7 +208,7 @@ internal class DictionaryPlanBuilder(
         cards: DictionaryCardPreparation?, entryJsons: List<String>?, planId: Long = NativeRenderDiagnostics.nextPlanId(),
         onPartial: (RenderPlan) -> Unit = {},
         firstFrame: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(0)): RenderPlan {
-        NativeRenderDiagnostics.mark(id, planId, "plan.config", "schema=native-cpp-draw-v1 widthPolicy=assigned tablePolicy=allocated-grid rubyLookup=base-only workerLimit=$glossaryWorkerCount popupWidth=${layout.viewportWidth} fontSize=${layout.style.fontSize.value} density=${layout.density.density} fontScale=${layout.density.fontScale} direction=${layout.direction} compact=${layout.compactGlossary} results=${results.size}")
+        NativeRenderDiagnostics.mark(id, planId, "plan.config", "schema=native-cpp-draw-v1 widthPolicy=assigned tablePolicy=allocated-grid rubyLookup=base-only workerLimit=$glossaryWorkerCount popupWidth=${layout.viewportWidth} fontSize=${layout.style.fontSize.value} density=${layout.density.density} fontScale=${layout.density.fontScale} direction=${layout.direction} compact=${layout.compactGlossary} compactTags=${layout.compactTags} results=${results.size}")
         val plan = NativeRenderDiagnostics.elapsed(id, planId, "plan.prepare") {
             val (cssMap, planCards) = NativeRenderDiagnostics.elapsed(id, planId, "plan.inputs.await") {
                 coroutineScope {
@@ -335,9 +337,19 @@ private fun buildCard(card: TermCard, cssMap: Map<String, ParsedCss>,
         val expanded = dictionaryInitiallyExpanded(group, groupIndex, profile.dictionaryCollapseMode, customOpen)
         val css = cssMap[group.dictName] ?: cssMap[group.dictName.lowercase()] ?: cssMap[""] ?: ParsedCss.EMPTY
         val width = layout.glossaryWidth(group.glosses.size != 1)
-        groups.add(GlossaryPresentation(css, width, expanded, group.glosses.map { gloss ->
-            gloss.definitionTags.split(definitionTagWhitespace).filter { it.isNotBlank() }.take(8)
-        }))
+        val seenTags = if (layout.compactTags) HashSet<String>() else null
+        val definitionTags = group.glosses.map { gloss ->
+            val tags = gloss.definitionTags.split(definitionTagWhitespace).filter { it.isNotBlank() }
+            if (seenTags == null) {
+                tags.take(8)
+            } else {
+                // Keep the first occurrence of a repeated tag within this dictionary group.
+                val shown = tags.distinct().filter { it !in seenTags }.take(8)
+                seenTags.addAll(shown)
+                shown
+            }
+        }
+        groups.add(GlossaryPresentation(css, width, expanded, definitionTags))
     }
     val shown = TermCardPresentation(customOpen, groups)
     return BuiltCard(shown, groups, nativeCardPieces(card, shown, layout, cardTheme, cardOptions))

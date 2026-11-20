@@ -1285,6 +1285,27 @@
     return span;
   }
 
+  function compactTagsEnabled() {
+    return document.documentElement.dataset.compactTags === 'true';
+  }
+
+  function resolveDefinitionTags(gloss) {
+    return Array.isArray(gloss.definitionTagList)
+      ? gloss.definitionTagList
+      : (gloss.definitionTags ? gloss.definitionTags.split(/\s+/).filter(Boolean) : []);
+  }
+
+  /** Keep the first occurrence of each definition tag in a dictionary's tag stream. */
+  function compactTagList(tags, seen) {
+    const result = [];
+    for (const tag of tags) {
+      if (!tag || seen.has(tag)) continue;
+      seen.add(tag);
+      result.push(tag);
+    }
+    return result;
+  }
+
   function buildGlossaryNode(rawGlossary, dictName, mediaMap) {
     const parsed = parseMaybeJson(rawGlossary);
     if (parsed === null) {
@@ -2130,6 +2151,9 @@
       ol.className = 'definition-list';
       ol.dataset.count = String(dictGlossaries.length);
 
+      const compactDefinitionTags = compactTagsEnabled();
+      const seenDefinitionTags = compactDefinitionTags ? new Set() : null;
+
       dictGlossaries.forEach((gloss) => {
         const li = document.createElement('li');
         li.className = 'definition-item';
@@ -2138,9 +2162,10 @@
         const content = document.createElement('div');
         content.className = 'definition-item-content';
         
-        const definitionTags = Array.isArray(gloss.definitionTagList)
-          ? gloss.definitionTagList
-          : (gloss.definitionTags ? gloss.definitionTags.split(/\s+/).filter(Boolean) : []);
+        let definitionTags = resolveDefinitionTags(gloss);
+        if (compactDefinitionTags) {
+          definitionTags = compactTagList(definitionTags, seenDefinitionTags);
+        }
         if (definitionTags.length > 0) {
           const tagList = document.createElement('div');
           tagList.className = 'definition-tag-list';
@@ -2749,10 +2774,30 @@
       return [renderEntry(result, mediaMap, showFrequencyHarmonic, showFrequencyAverage, existingExpressions, ankiEnabled, showPitchDiagram, showPitchNumber, showPitchText, false, ankiDupAction, collapseConfig)];
     }
 
+    const compactTags = compactTagsEnabled();
+    const seenTagsByDictionary = compactTags ? new Map() : null;
+
     return glossaries.map((gloss) => {
+      let displayGloss = gloss;
+      if (compactTags) {
+        const dictName = gloss.dictName || 'Unknown';
+        let seen = seenTagsByDictionary.get(dictName);
+        if (!seen) {
+          seen = new Set();
+          seenTagsByDictionary.set(dictName, seen);
+        }
+        const tags = resolveDefinitionTags(gloss);
+        const compacted = compactTagList(tags, seen);
+        if (compacted.length !== tags.length) {
+          displayGloss = Object.assign({}, gloss, {
+            definitionTagList: compacted,
+            definitionTags: compacted.join(' '),
+          });
+        }
+      }
       const splitResult = Object.assign({}, result, {
         term: Object.assign({}, result.term, {
-          glossaries: [gloss]
+          glossaries: [displayGloss]
         })
       });
       return renderEntry(splitResult, mediaMap, showFrequencyHarmonic, showFrequencyAverage, existingExpressions, ankiEnabled, showPitchDiagram, showPitchNumber, showPitchText, false, ankiDupAction, collapseConfig);
@@ -2817,6 +2862,7 @@
       }
       root.dataset.compactGlossary = String(payload.compactGlossary === true);
       root.dataset.glossaryLayoutMode = payload.compactGlossary === true ? 'compact' : 'default';
+      root.dataset.compactTags = String(payload.compactTags === true);
 
       debugLog('render.start', {
         isDark: !!payload.isDark,

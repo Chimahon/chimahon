@@ -69,6 +69,7 @@ fun DictionaryEntryWebView(
     val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
     val themeMode by dictionaryPreferences.themeMode().collectAsState()
     val compactGlossary by dictionaryPreferences.compactGlossary().collectAsState()
+    val compactTags by dictionaryPreferences.compactTags().collectAsState()
     val customColor by dictionaryPreferences.customColor().collectAsState()
 
     val prefs = remember { Injekt.get<DictionaryPreferences>() }
@@ -128,7 +129,7 @@ fun DictionaryEntryWebView(
         showPitchDiagram, showPitchNumber, showPitchText,
         activeProfile, tabs, recursiveNavMode, wordAudioEnabled,
         effectiveWordAudioAutoplay, showNavigationButtons, groupPitches,
-        renderRecursiveChrome, entryJsons, compactGlossary, dictionaryDisplayNames,
+        renderRecursiveChrome, entryJsons, compactGlossary, compactTags, dictionaryDisplayNames,
     ) {
         DictionaryRenderSignature(
             results = results, styles = styles, placeholder = placeholder, isDark = isDark,
@@ -142,6 +143,7 @@ fun DictionaryEntryWebView(
             wordAudioAutoplay = effectiveWordAudioAutoplay,
             showNavigationButtons = showNavigationButtons, groupPitches = groupPitches,
             dictionaryDisplayNames = dictionaryDisplayNames,
+            compactGlossary = compactGlossary, compactTags = compactTags,
         )
     }
 
@@ -162,6 +164,7 @@ fun DictionaryEntryWebView(
                 showNavigationButtons = showNavigationButtons,
                 groupPitches = groupPitches,
                 compactGlossary = compactGlossary,
+                compactTags = compactTags,
             )
             val entries = entryJsons ?: buildResultEntryJsonStrings(results, activeProfile, context, groupPitches)
             config.toString() to entries
@@ -174,12 +177,12 @@ fun DictionaryEntryWebView(
         entryJsonsPair = builtEntryJsons to renderSignature
     }
 
-    val bootstrapHtml = remember(context, isDark, isAmoled, seedColor, colorScheme, fontFamily, eInkMode, paginatedScrolling, paginatedScrollStepSize, scrollBehavior, activeProfile.languageCode, compactGlossary) {
+    val bootstrapHtml = remember(context, isDark, isAmoled, seedColor, colorScheme, fontFamily, eInkMode, paginatedScrolling, paginatedScrollStepSize, scrollBehavior, activeProfile.languageCode, compactGlossary, compactTags) {
         getDictionaryBootstrapHtml(
             context = context, colorScheme = colorScheme, isDark = isDark,
             isAmoled = isAmoled, seedColor = seedColor, fontFamily = fontFamily,
             eInkMode = eInkMode, paginatedScrolling = paginatedScrolling, paginatedScrollStepSize = paginatedScrollStepSize, scrollBehavior = scrollBehavior, languageCode = activeProfile.languageCode,
-            compactGlossary = compactGlossary,
+            compactGlossary = compactGlossary, compactTags = compactTags,
         )
     }
 

@@ -318,6 +318,8 @@ fun DictionaryEntryCompose(
     renderPreparation: DictionaryPlanPreparation? = null,
     planSlot: DictionaryPlanSlot? = null,
     compactGlossary: Boolean = false,
+    /** Show repeated grammar and usage tags once per dictionary, like Yomitan's compact tags. */
+    compactTags: Boolean = false,
     /** Mirrors the WebView's `data-chima-paginated-scrolling` gate. */
     paginatedScrolling: Boolean = false,
     /** Page step as a percentage of the viewport height, clamped to 50..100 like the WebView. */
@@ -359,7 +361,7 @@ fun DictionaryEntryCompose(
     val fontResolver = LocalFontFamilyResolver.current
     val builder = rememberDictionaryPlanBuilder(popupWidthPx, fontSize, eInkMode, customCss, activeProfile, groupTerms,
         NativeCardOptions(showFrequencyHarmonic, showFrequencyAverage, showPitchDiagram, showPitchNumber, showPitchText, groupPitches), appearance,
-        compactGlossary)
+        compactGlossary, compactTags)
     val providedPlan = planSlot?.matching(builder, results, styles, entryJsons) ?: renderPreparation
     val suppliedPlan = providedPlan?.takeIf { resultsAreOrdered && it.matches(builder, results, styles, entryJsons) }
     // produceState retains its outgoing value when its keys change. A fresh state

@@ -28,6 +28,7 @@ internal fun getDictionaryBootstrapHtml(
     scrollBehavior: String = "smooth",
     languageCode: String = "",
     compactGlossary: Boolean = false,
+    compactTags: Boolean = false,
 ): String {
     val css = dictionaryBaseCss.getOrPut(Unit) {
         readTextAsset(context.applicationContext, "dictionary/base.css")
@@ -107,10 +108,11 @@ internal fun getDictionaryBootstrapHtml(
     val langAttr = if (languageCode.isNotEmpty()) """lang="$languageCode" """ else ""
     val compactGlossaryAttr = if (compactGlossary) "true" else "false"
     val glossaryLayoutModeAttr = if (compactGlossary) "compact" else "default"
+    val compactTagsAttr = if (compactTags) "true" else "false"
 
     return """
         <!doctype html>
-        <html $langAttr data-theme="$themeAttr" data-chima-eink-mode="$eInkAttr" data-chima-paginated-scrolling="$paginatedScrollingAttr" data-chima-paginated-step="$paginatedStepAttr" data-chima-scroll-behavior="$scrollBehaviorAttr" data-compact-glossary="$compactGlossaryAttr" data-glossary-layout-mode="$glossaryLayoutModeAttr">
+        <html $langAttr data-theme="$themeAttr" data-chima-eink-mode="$eInkAttr" data-chima-paginated-scrolling="$paginatedScrollingAttr" data-chima-paginated-step="$paginatedStepAttr" data-chima-scroll-behavior="$scrollBehaviorAttr" data-compact-glossary="$compactGlossaryAttr" data-glossary-layout-mode="$glossaryLayoutModeAttr" data-compact-tags="$compactTagsAttr">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">

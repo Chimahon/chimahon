@@ -30,6 +30,8 @@ public class NativeGlossaryLayoutContext(
     val fontFamily: FontFamily? = null,
     /** Show senses inline with compact separators, mirroring the WebView layout mode. */
     val compactGlossary: Boolean = false,
+    /** Show each definition tag once per dictionary, mirroring the WebView compact tags mode. */
+    val compactTags: Boolean = false,
 ) {
     init { require(viewportWidth >= 0 && viewportWidth != Constraints.Infinity) }
 
