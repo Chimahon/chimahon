@@ -250,6 +250,8 @@ class ReaderActivity : BaseActivity() {
 
     private var ocrPopupState by mutableStateOf<OcrPopupState?>(null)
     private var ocrPopupVisible by mutableStateOf(false)
+    /** Entry navigator published by the native dictionary popup, for volume-key parity. */
+    private var ocrNativeNavigate: ((Int) -> Unit)? = null
     private var ocrSelectionPanelState by mutableStateOf<OcrSelectionPanelState?>(null)
     private var ocrRegionSelecting by mutableStateOf(false)
     private var ocrRegionScanning by mutableStateOf(false)
@@ -806,6 +808,7 @@ class ReaderActivity : BaseActivity() {
                 },
                 initialLookupDeferred = if (ocrPopupVisible) popupState?.deferredLookup else null,
                 usePopup = false,
+                onNativeNavigateReady = { ocrNativeNavigate = it },
                 activeProfile = popupState?.activeProfile ?: defaultProfile,
                 onTermMatched = { charCount, _ ->
                     val viewer = viewModel.state.value.viewer
@@ -1392,16 +1395,25 @@ class ReaderActivity : BaseActivity() {
         if (ocrPopupVisible) {
             ocrPopupState?.let {
                 if (event.action == KeyEvent.ACTION_DOWN &&
-                    Injekt.get<DictionaryPreferences>().volumeKeyNavigation().get() &&
-                    Injekt.get<DictionaryPreferences>().renderer().get() == DictionaryPreferences.RENDERER_WEBVIEW
+                    Injekt.get<DictionaryPreferences>().volumeKeyNavigation().get()
                 ) {
+                    val webViewRenderer = Injekt.get<DictionaryPreferences>().renderer().get() ==
+                        DictionaryPreferences.RENDERER_WEBVIEW
                     when (event.keyCode) {
                         KeyEvent.KEYCODE_VOLUME_UP -> {
-                            ocrWebView?.evaluateJavascript("window.DictionaryRenderer?.navigate(-1);", null)
+                            if (webViewRenderer) {
+                                ocrWebView?.evaluateJavascript("window.DictionaryRenderer?.navigate(-1);", null)
+                            } else {
+                                ocrNativeNavigate?.invoke(-1)
+                            }
                             return true
                         }
                         KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                            ocrWebView?.evaluateJavascript("window.DictionaryRenderer?.navigate(1);", null)
+                            if (webViewRenderer) {
+                                ocrWebView?.evaluateJavascript("window.DictionaryRenderer?.navigate(1);", null)
+                            } else {
+                                ocrNativeNavigate?.invoke(1)
+                            }
                             return true
                         }
                     }
