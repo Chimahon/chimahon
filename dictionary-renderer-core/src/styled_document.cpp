@@ -174,10 +174,21 @@ void copy_attributes(const Storage& s, uint32_t object, lxb_dom_element_t* targe
             for (size_t i = 0; i + 1 < name.size(); ++i)
                 if (name[i] == '-' && name[i+1] >= 'a' && name[i+1] <= 'z') valid = false;
             if (valid && s.tokens[at].kind != Kind::null_value) {
+                const auto raw = scalar(s, at);
+                // renderer.js applyDataAttributes() adds data.class values to the element's class
+                // list as well as data-sc-class; base.css styles these (.tag, .tag-label, ...).
+                if (name == "class") {
+                    size_t existing = 0;
+                    const auto* current = lxb_dom_element_get_attribute(target, bytes("class"), 5, &existing);
+                    std::string merged = current ? std::string(reinterpret_cast<const char*>(current), existing) : std::string();
+                    if (!merged.empty() && !raw.empty()) merged += ' ';
+                    merged += raw;
+                    if (!merged.empty()) attribute(target, "class", merged);
+                }
                 std::string mapped = "data-sc";
                 if (!name.empty() && name.front() >= 'a' && name.front() <= 'z') mapped += '-';
                 mapped += kebab(name);
-                attribute(target, mapped, scalar(s, at));
+                attribute(target, mapped, raw);
             }
             at = s.tokens[at].end;
         }
@@ -394,6 +405,75 @@ std::string default_display(std::string_view tag) {
     if (tag == "div" || tag == "p" || tag == "ul" || tag == "ol" || tag == "details" || tag == "summary" || tag == "section") return "block";
     if (tag == "rp") return "none";
     return "inline";
+}
+/* CSS text-transform. ASCII and Latin-1 are mapped one-to-one except U+00DF, whose uppercase is
+   the two-character "SS" in Chromium; other scripts pass through unchanged. capitalize() follows
+   CSS word boundaries over ASCII/Latin-1 letters and digits. */
+std::string transform_text(std::string_view text, std::string_view transform) {
+    if (text.empty() || transform.empty() || transform == "none") return std::string(text);
+    auto decode = [&](size_t& at) -> uint32_t {
+        const auto lead = static_cast<unsigned char>(text[at]);
+        if (lead < 0x80) { ++at; return lead; }
+        unsigned extra = lead < 0xE0 ? 1 : lead < 0xF0 ? 2 : 3;
+        uint32_t cp = lead & (0x3F >> extra);
+        for (unsigned i = 0; i < extra && at + 1 < text.size(); ++i)
+            cp = (cp << 6) | (static_cast<unsigned char>(text[++at]) & 0x3F);
+        ++at;
+        return cp;
+    };
+    auto append = [](std::string& out, uint32_t cp) {
+        if (cp < 0x80) out.push_back(static_cast<char>(cp));
+        else if (cp < 0x800) {
+            out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else if (cp < 0x10000) {
+            out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        } else {
+            out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+        }
+    };
+    auto upper = [](uint32_t cp) -> uint32_t {
+        if (cp >= 'a' && cp <= 'z') return cp - 32;
+        if (cp >= 0xE0 && cp <= 0xFE && cp != 0xF7) return cp - 32;
+        return cp;
+    };
+    auto lower_cp = [](uint32_t cp) -> uint32_t {
+        if (cp >= 'A' && cp <= 'Z') return cp + 32;
+        if (cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) return cp + 32;
+        return cp;
+    };
+    std::string out;
+    out.reserve(text.size() + 8);
+    const bool capitalize = transform == "capitalize";
+    bool word_start = true;
+    for (size_t at = 0; at < text.size();) {
+        uint32_t cp = decode(at);
+        if (capitalize) {
+            const bool word = (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') ||
+                (cp >= '0' && cp <= '9') || (cp >= 0xC0 && cp <= 0xFF && cp != 0xD7 && cp != 0xF7);
+            if (word) {
+                append(out, word_start ? upper(cp) : cp);
+                word_start = false;
+            } else {
+                append(out, cp);
+                // Apostrophes stay inside the word ("don't" -> "Don't"); other punctuation
+                // starts a new one, which matches Chromium for the common cases.
+                word_start = cp != '\'' && cp != 0x2019;
+            }
+            continue;
+        }
+        if (transform == "uppercase") {
+            if (cp == 0xDF) { out += "SS"; continue; }
+            append(out, upper(cp));
+        } else if (transform == "lowercase") append(out, lower_cp(cp));
+        else append(out, cp);
+    }
+    return out;
 }
 }
 
@@ -684,7 +764,7 @@ ParsedSheet* parse_sheet(const dc_css_source& source) {
     return parsed.release();
 }
 struct StyleInfo {
-    std::string_view display, white_space, list_style_type;
+    std::string_view display, white_space, list_style_type, text_transform;
     int8_t box_extra = -1; /* -1 unknown, 0 none, 1 non-zero box property */
 };
 struct dc_prepared_document {
@@ -756,7 +836,8 @@ struct dc_prepared_document {
         styles.push_back({first,checked_index(this->properties.size())-first,size});
         font_sizes.push_back(computed_size);
         computed.push_back(std::move(properties));
-        info.push_back({property(computed.back(),"display"),property(computed.back(),"white-space"),property(computed.back(),"list-style-type"),-1});
+        info.push_back({property(computed.back(),"display"),property(computed.back(),"white-space"),property(computed.back(),"list-style-type"),
+            property(computed.back(),"text-transform"),-1});
         interned.emplace(key, index);
         return index;
     }
@@ -1089,6 +1170,9 @@ struct SourceCompiler {
             }
         }
         if (normalized.empty()) return;
+        if (!output.info[style].text_transform.empty())
+            normalized = transform_text(normalized, output.info[style].text_transform);
+        if (normalized.empty()) return;
         if (paragraph == none) {
             paragraph = checked_index(output.paragraphs.size());
             uint32_t marker_offset=0,marker_bytes=0,marker_style=block_style;
@@ -1267,20 +1351,67 @@ struct SourceCompiler {
         dc_profile::close(doc_create);
         dc_profile::add("doc.create", doc_create.total);
         auto* body = lxb_dom_interface_element(lxb_html_document_body_element(doc.value));
-        attribute(body,"id","entries");
+        // DictionaryWebViewState.injectFontSize writes this inline style before results flush, so an
+        // author rule on body loses to it in the WebView. Mirror it here for the same cascade.
+        // font-family:inherit keeps native face selection host-driven: base.css's stack is a list of
+        // desktop families, while the portable renderer receives the configured face list instead.
+        // #entries and any rule naming an element still select a family normally.
+        attribute(body,"style","font-size:"+std::to_string(options.font_size_px)+"px;font-family:inherit !important");
+        // Mirror the WebView ancestry of one glossary so custom CSS written against
+        // .gloss-content / .definition-item and their inherited properties resolves the same way.
+        // These wrappers exist for selector matching and inheritance only; the native flow starts at
+        // the structured-content root, so they add no layout box of their own.
+        auto* entries = element(doc, "main");
+        attribute(entries,"id","entries");
+        attribute(entries,"class","entries");
+        auto* article = element(doc, "article");
+        attribute(article,"class","entry");
+        auto* entry_body = element(doc, "div");
+        attribute(entry_body,"class","entry-body");
+        auto* dictionary_group = element(doc, "div");
+        attribute(dictionary_group,"class","dictionary-group");
+        auto* definition_list = element(doc, "ol");
+        attribute(definition_list,"class","definition-list");
+        attribute(definition_list,"data-count","1");
+        auto* definition_item = element(doc, "li");
+        attribute(definition_item,"class","definition-item");
+        auto* definition_content = element(doc, "div");
+        attribute(definition_content,"class","definition-item-content");
+        auto* gloss_content = element(doc, "div");
+        attribute(gloss_content,"class","gloss-content");
         auto* root = element(doc, "span");
-        attribute(root, "class", "structured-content");
+        // buildGlossaryNode() emits span.gloss-plain-text for a JSON-less glossary and
+        // span.structured-content for structured content; selectors on either name must match.
+        attribute(root, "class", range.json ? "structured-content" : "gloss-plain-text");
         if(!range.json)attribute(root,"style","white-space:pre-wrap");
-        append(lxb_dom_interface_node(body), lxb_dom_interface_node(root));
+        append(lxb_dom_interface_node(body), lxb_dom_interface_node(entries));
+        append(lxb_dom_interface_node(entries), lxb_dom_interface_node(article));
+        append(lxb_dom_interface_node(article), lxb_dom_interface_node(entry_body));
+        append(lxb_dom_interface_node(entry_body), lxb_dom_interface_node(dictionary_group));
+        append(lxb_dom_interface_node(dictionary_group), lxb_dom_interface_node(definition_list));
+        append(lxb_dom_interface_node(definition_list), lxb_dom_interface_node(definition_item));
+        append(lxb_dom_interface_node(definition_item), lxb_dom_interface_node(definition_content));
+        append(lxb_dom_interface_node(definition_content), lxb_dom_interface_node(gloss_content));
+        append(lxb_dom_interface_node(gloss_content), lxb_dom_interface_node(root));
         auto* html = lxb_dom_document_element(lxb_dom_interface_document(doc.value));
         if(options.dark_mode) attribute(html,"data-theme","dark");
+        else attribute(html,"data-theme","light");
         attribute(html,"data-compact-glossary",options.compact_glossary?"true":"false");
         attribute(html,"data-glossary-layout-mode",options.compact_glossary?"compact":"default");
         attribute(html,"style","--font-size-no-units:"+std::to_string(options.font_size_px));
         elements.push_back({html,none,none,0,"html"});
         elements.push_back({body,0,none,0,"body"});
-        elements.push_back({root,1,none,0,"span"});
-        std::vector<uint32_t> stack{2};
+        elements.push_back({entries,1,none,0,"main"});
+        elements.push_back({article,2,none,0,"article"});
+        elements.push_back({entry_body,3,none,0,"div"});
+        elements.push_back({dictionary_group,4,none,0,"div"});
+        elements.push_back({definition_list,5,none,0,"ol"});
+        elements.push_back({definition_item,6,none,0,"li"});
+        elements.push_back({definition_content,7,none,0,"div"});
+        elements.push_back({gloss_content,8,none,0,"div"});
+        elements.push_back({root,9,none,0,"span"});
+        static constexpr uint32_t kRootElement = 10;
+        std::vector<uint32_t> stack{kRootElement};
         const size_t first = range.first_operation, last = range.end_operation;
         operation_elements.reserve(last - first);
         elements.reserve(last - first + 8);
@@ -1562,7 +1693,7 @@ struct SourceCompiler {
         }
         dc_profile::close(styled_hidden);
         dc_profile::add("styled.hidden", styled_hidden.total);
-        block_style = elements[2].style;
+        block_style = elements[kRootElement].style;
         output.flow.push_back({2,block_style,source,none});
         dc_profile::open(styled_flow);
         struct Owners { uint32_t cell,row,table,ruby,block_style,marker_owner,first_run; bool block,inline_box; };
@@ -1687,7 +1818,7 @@ struct SourceCompiler {
             }
         }
         flush();
-        output.flow.push_back({3,elements[2].style,source,none});
+        output.flow.push_back({3,elements[kRootElement].style,source,none});
         dc_profile::close(styled_flow);
         dc_profile::add("styled.flow", styled_flow.total);
     }

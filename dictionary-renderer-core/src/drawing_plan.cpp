@@ -201,6 +201,9 @@ struct dc_drawing_plan {
     const dictionary_core::ResolvedStyles &resolved;
     std::vector<float> widths;
     std::vector<dc_drawing_font> fonts;
+    /* Underline/strike color per style. Text commands carry it in `border`, which text commands
+       otherwise leave zero, so the public font/command layout stays unchanged. */
+    std::vector<uint32_t> decorations;
     struct TextSpacing { bool space_all = false, custom_features = false; };
     std::vector<TextSpacing> text_spacing;
     struct Border {std::array<float,4> widths{};std::array<uint32_t,4> colors{};};
@@ -246,6 +249,7 @@ struct dc_drawing_plan {
         if (n != v.source_count)
             throw std::invalid_argument("Drawing source widths mismatch");
         fonts.resize(v.style_count);
+        decorations.resize(v.style_count);
         text_spacing.resize(v.style_count);
         borders.resize(v.style_count);
         gradients.resize(v.style_count);
@@ -304,6 +308,33 @@ struct dc_drawing_plan {
                                                               : 0) |
                       ((white == "pre" || white == "pre-wrap" || white == "break-spaces") ? 256 : 0) |
                       ((prop("display") == "inline" || prop("display") == "inline-block" || prop("display")=="inline-flex" || prop("display")=="flex") ? 512 : 0);
+            /* CSS text-decoration-color defaults to currentColor. The color may also arrive in the
+               text-decoration shorthand; only that one token is used, since the native line is solid. */
+            auto decoration_color = prop("text-decoration-color");
+            if (decoration_color.empty() && !decoration.empty()) {
+                std::string_view value = decoration;
+                size_t at = 0;
+                while (at < value.size()) {
+                    while (at < value.size() && (value[at] == ' ' || value[at] == '\t')) ++at;
+                    const auto first = at;
+                    unsigned depth = 0;
+                    while (at < value.size()) {
+                        if (value[at] == '(') ++depth;
+                        if (value[at] == ')' && depth) --depth;
+                        if (value[at] == ' ' && !depth) break;
+                        ++at;
+                    }
+                    auto token = value.substr(first, at - first);
+                    static constexpr std::string_view keywords[] = {
+                        "none", "underline", "overline", "line-through", "blink", "solid", "double",
+                        "dotted", "dashed", "wavy", "auto", "from-font"};
+                    bool keyword = false;
+                    for (auto k : keywords) if (token == k) keyword = true;
+                    if (!keyword && !token.empty() && color(token, 0)) { decoration_color = token; break; }
+                    ++at;
+                }
+            }
+            decorations[i] = fade(color(decoration_color, f.color));
             auto line = prop("line-height");
             f.line_height = length(line, i, 0);
             if (!line.empty() && line.find_first_not_of("0123456789.+-") == line.npos)
@@ -802,7 +833,7 @@ struct dc_drawing_plan {
                                 m.descent - m.ascent,
                                 baseline,
                                 font.color,
-                                0,
+                                decorations[request.style],
                                 0,
                                 0,
                                 static_cast<uint32_t>(levels[piece.start] & 1) | category | (interactive ? 0u : 4u) | (piece.trimmed?16u:0u)};
@@ -810,7 +841,7 @@ struct dc_drawing_plan {
             auto &previous = p.commands.back();
             if (previous.kind == 0 && previous.resource == command.resource &&
                 previous.start + previous.count == command.start && std::abs(previous.x + previous.width - x) < .01f &&
-                previous.baseline == baseline && previous.flags == command.flags) {
+                previous.baseline == baseline && previous.flags == command.flags && previous.border == command.border) {
                 previous.count += piece.count;
                 previous.width += piece.width;
             } else
