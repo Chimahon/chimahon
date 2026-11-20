@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
-import eu.kanade.tachiyomi.torrentServer.TorrentServerUtils
 import eu.kanade.tachiyomi.util.storage.toFFmpegReadString
 import `is`.xyz.mpv.MPVLib
 import logcat.LogPriority
@@ -21,6 +20,7 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.net.URI
 import java.util.Locale
 
 /**
@@ -73,8 +73,8 @@ internal class MediaCaptureService(
             ?.takeIf { it.isNotBlank() }
             ?: video.videoUrl
         val input = when {
-            video.videoUrl.startsWith("content://") -> Uri.parse(video.videoUrl).toFFmpegReadString(context)
-            rawInput.startsWith("file://") -> Uri.parse(rawInput).path ?: rawInput
+            rawInput.startsWith("content://", ignoreCase = true) -> Uri.parse(rawInput).toFFmpegReadString(context)
+            rawInput.startsWith("file:", ignoreCase = true) -> Uri.parse(rawInput).path ?: rawInput
             else -> rawInput
         }
         val source = getSource() as? AnimeHttpSource
@@ -156,24 +156,12 @@ internal class MediaCaptureService(
     private fun createSentenceAudioMediaRequest(startSeconds: Double?, endSeconds: Double?): AnkiMediaRequest {
         val video = getVideo()
         val mpv = readMpvSnapshot()
-        val source = getSource() as? AnimeHttpSource
-        val snapshot = video?.let {
-            SentenceAudioInputSnapshot(
-                originalVideoValue = it.videoUrl,
-                playableValue = mpv.playableValue,
-                headers = (it.headers ?: source?.headers)?.toList().orEmpty(),
-                ffmpegStreamArgs = it.ffmpegStreamArgs.orEmpty(),
-                ffmpegVideoArgs = it.ffmpegVideoArgs.orEmpty(),
-                seekable = resolveSeekability(mpv.seekable, it.videoUrl),
-                selectedAudioId = mpv.selectedAudioId,
-                audioTrackCount = mpv.audioTrackCount,
-                selectedAudioFfmpegIndex = mpv.selectedAudioFfmpegIndex,
-                selectedAudioIsExternal = mpv.selectedAudioIsExternal,
-                selectedExternalAudioValue = mpv.selectedExternalAudioValue,
-                torrentPlayback = isTorrentPlayback(it.videoUrl),
-            )
-        }
-        val frozen = SentenceAudioCaptureRequest(snapshot, startSeconds, endSeconds)
+        val activeInput = video?.let { activeSentenceAudioInput(it, mpv) }
+        val frozen = SentenceAudioCaptureRequest(
+            input = activeInput,
+            startSeconds = startSeconds,
+            endSeconds = endSeconds,
+        )
         return AnkiMediaRequest(
             LazyAnkiSentenceAudioProvider {
                 prepareSentenceAudioOverride?.invoke(frozen) ?: sentenceAudioCaptureService.prepare(frozen)
@@ -182,22 +170,51 @@ internal class MediaCaptureService(
     }
 
     /**
-     * Torrent playback starts from a magnet/.torrent value that is re-opened as a local
-     * TorrServer HTTP stream, so the original value can't be handed to FFmpeg for sentence audio.
-     * The playable value mpv is reading is used instead.
+     * Mining reads the stream mpv is already playing, including signed HLS URLs and
+     * extension localhost proxies. The extension's original URL is only a fallback.
      */
-    private fun isTorrentPlayback(videoUrl: String): Boolean {
-        if (videoUrl.startsWith("magnet:", ignoreCase = true) ||
-            videoUrl.substringBefore('?').endsWith(".torrent", ignoreCase = true)
-        ) {
-            return true
+    private fun activeSentenceAudioInput(
+        video: Video,
+        mpv: SentenceAudioMpvSnapshot,
+    ): SentenceAudioInputSpec? {
+        val headers = (video.headers ?: (getSource() as? AnimeHttpSource)?.headers)?.toList().orEmpty()
+        val forceMpegTs = video.ffmpegStreamArgs.orEmpty().any { (name, value) ->
+            name == "force_mpegts" && value == "1"
         }
-        val torrentHost = torrentHostPrefix
-        return torrentHost != null && videoUrl.startsWith(torrentHost)
-    }
-
-    private val torrentHostPrefix: String? by lazy {
-        runCatching { TorrentServerUtils.hostUrl }.getOrNull()
+        val external = mpv.selectedExternalAudioValue?.takeIf { it.isNotBlank() }
+        val candidates = buildList {
+            if (external != null) add(external to true)
+            mpv.playableValue?.takeIf { it.isNotBlank() }?.let { add(it to false) }
+            video.videoUrl.takeIf { it.isNotBlank() }?.let { add(it to false) }
+        }
+        for ((raw, isExternal) in candidates) {
+            val normalized = when {
+                raw.startsWith("content://", ignoreCase = true) ->
+                    raw to SentenceAudioInputKind.CONTENT_URI
+                raw.startsWith("http://", ignoreCase = true) ||
+                    raw.startsWith("https://", ignoreCase = true) ->
+                    raw to SentenceAudioInputKind.REMOTE_HTTP
+                raw.startsWith("file:", ignoreCase = true) ->
+                    runCatching { File(URI(raw)).absolutePath }.getOrNull()
+                        ?.let { it to SentenceAudioInputKind.LOCAL_FILE }
+                raw.startsWith("/") || File(raw).isAbsolute ->
+                    raw to SentenceAudioInputKind.LOCAL_FILE
+                else -> null
+            } ?: continue
+            return SentenceAudioInputSpec(
+                value = normalized.first,
+                kind = normalized.second,
+                headers = if (normalized.second == SentenceAudioInputKind.REMOTE_HTTP) headers else emptyList(),
+                audioStreamIndex = if (isExternal) null else mpv.selectedAudioFfmpegIndex,
+                origin = if (isExternal) {
+                    SentenceAudioInputOrigin.EXTERNAL_AUDIO
+                } else {
+                    SentenceAudioInputOrigin.PLAYABLE_VIDEO
+                },
+                forceMpegTs = forceMpegTs && !isExternal,
+            )
+        }
+        return null
     }
 
     /**

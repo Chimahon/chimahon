@@ -370,7 +370,6 @@ class PlayerViewModel @JvmOverloads constructor(
             SentenceAudioMpvSnapshotReader(object : SentenceAudioMpvPropertyReader {
                 override fun string(name: String): String? = MPVLib.getPropertyString(name)
                 override fun int(name: String): Int? = MPVLib.getPropertyInt(name)
-                override fun boolean(name: String): Boolean? = MPVLib.getPropertyBoolean(name)
             }).read()
         },
     )

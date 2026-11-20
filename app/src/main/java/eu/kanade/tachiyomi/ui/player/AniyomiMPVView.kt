@@ -167,6 +167,9 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         MPVLib.setPropertyBoolean("pause", true)
         MPVLib.setOptionString("profile", "fast")
         MPVLib.setOptionString("hwdec", if (decoderPreferences.tryHWDecoding().get()) "auto" else "no")
+        // The app resolves streams itself; the bundled player has no yt-dlp, and the
+        // ytdl hook can abort on sources mpv does not recognize.
+        MPVLib.setOptionString("ytdl", "no")
         when (decoderPreferences.videoDebanding().get()) {
             Debanding.None -> {}
             Debanding.CPU -> MPVLib.setOptionString("vf", "gradfun=radius=12")

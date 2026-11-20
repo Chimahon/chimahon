@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.ui.player.mining
 
 import com.arthenica.ffmpegkit.FFmpegKitConfig
 import com.arthenica.ffmpegkit.FFmpegSession
-import com.arthenica.ffmpegkit.FFprobeSession
 import com.arthenica.ffmpegkit.LogCallback
 import com.arthenica.ffmpegkit.LogRedirectionStrategy
 import com.arthenica.ffmpegkit.ReturnCode
@@ -45,7 +44,7 @@ internal fun isHlsLikeInput(value: String): Boolean {
 }
 
 /**
- * Shared suspend runner for bundled ffmpeg/ffprobe jobs. Logs are never printed to the Android
+ * Shared suspend runner for bundled ffmpeg jobs. Logs are never printed to the Android
  * console; every session is stored so it can be cancelled and its output inspected.
  */
 internal object FfmpegRunner {
@@ -57,21 +56,6 @@ internal object FfmpegRunner {
             resultFor = { session ->
                 if (ReturnCode.isSuccess(session.getReturnCode())) {
                     FfmpegCommandResult.Success(ffmpegOutput(session))
-                } else {
-                    failed(session.getReturnCode(), session.getFailStackTrace(), session.getAllLogsAsString(failureLogWaitMillis))
-                }
-            },
-            onNativeFinished = onNativeFinished,
-        )
-
-    suspend fun ffprobe(arguments: Array<String>, onNativeFinished: () -> Unit = {}): FfmpegCommandResult =
-        execute(
-            createSession = { FFprobeSession.create(arguments, {}, discardLogCallback, LogRedirectionStrategy.NEVER_PRINT_LOGS) },
-            runSession = FFmpegKitConfig::ffprobeExecute,
-            cancelSession = FFprobeSession::cancel,
-            resultFor = { session ->
-                if (ReturnCode.isSuccess(session.getReturnCode())) {
-                    FfmpegCommandResult.Success(session.getOutput()?.trim() ?: "")
                 } else {
                     failed(session.getReturnCode(), session.getFailStackTrace(), session.getAllLogsAsString(failureLogWaitMillis))
                 }

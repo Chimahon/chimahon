@@ -318,7 +318,8 @@ class PlayerActivity : BaseActivity() {
             viewModel.updateIsLoadingHosters(true)
 
             val initResult = viewModel.init(animeId, episodeId, hostList, hostIndex, vidIndex)
-            if (!initResult.second.getOrDefault(false)) {
+            val initialized = initResult.second.getOrDefault(false)
+            if (!initialized) {
                 val exception = initResult.second.exceptionOrNull() ?: IllegalStateException(
                     "Unknown error",
                 )
@@ -329,13 +330,15 @@ class PlayerActivity : BaseActivity() {
 
             viewModel.updateIsLoadingHosters(false)
 
-            lifecycleScope.launch {
-                viewModel.loadHosters(
-                    source = viewModel.currentSource.value!!,
-                    hosterList = initResult.first.hosterList ?: emptyList(),
-                    hosterIndex = initResult.first.videoIndex.first,
-                    videoIndex = initResult.first.videoIndex.second,
-                )
+            if (initialized) {
+                lifecycleScope.launch {
+                    viewModel.loadHosters(
+                        source = viewModel.currentSource.value!!,
+                        hosterList = initResult.first.hosterList ?: emptyList(),
+                        hosterIndex = initResult.first.videoIndex.first,
+                        videoIndex = initResult.first.videoIndex.second,
+                    )
+                }
             }
         }
 
