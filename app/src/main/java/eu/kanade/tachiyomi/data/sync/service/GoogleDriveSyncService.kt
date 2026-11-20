@@ -9,7 +9,7 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest
 import com.google.api.client.googleapis.auth.oauth2.GoogleClientSecrets
 import com.google.api.client.googleapis.auth.oauth2.GoogleCredential
-import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse
+import com.google.api.client.http.GenericUrl
 import com.google.api.client.http.InputStreamContent
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
@@ -246,6 +246,9 @@ class GoogleDriveService(private val context: Context) {
     var driveService: Drive? = null
     companion object {
         const val REDIRECT_URI = "app.chimahon.google.oauth:/oauth2redirect"
+
+        private const val TOKEN_SERVER_URL = "https://oauth2.googleapis.com/token"
+        private const val FALLBACK_TOKEN_SERVER_URL = "https://www.googleapis.com/oauth2/v4/token"
     }
     private val syncPreferences = Injekt.get<SyncPreferences>()
 
@@ -319,20 +322,21 @@ class GoogleDriveService(private val context: Context) {
             context.assets.open("client_secrets.json").reader(),
         )
 
-        val credential = GoogleCredential.Builder()
-            .setJsonFactory(jsonFactory)
-            .setTransport(NetHttpTransport())
-            .setClientSecrets(secrets)
-            .build()
-
         if (refreshToken == "") {
             throw Exception(context.stringResource(SYMR.strings.google_drive_not_signed_in))
         }
 
-        credential.refreshToken = refreshToken
-
         try {
-            credential.refreshToken()
+            val credential = withTokenServerFallback { tokenServerUrl ->
+                GoogleCredential.Builder()
+                    .setJsonFactory(jsonFactory)
+                    .setTransport(NetHttpTransport())
+                    .setClientSecrets(secrets)
+                    .apply { this.tokenServerUrl = GenericUrl(tokenServerUrl) }
+                    .build()
+                    .apply { this.refreshToken = refreshToken }
+                    .also { it.refreshToken() }
+            }
             val newAccessToken = credential.accessToken
             // Save the new access token
             syncPreferences.googleDriveAccessToken().set(newAccessToken)
@@ -403,22 +407,27 @@ class GoogleDriveService(private val context: Context) {
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit,
     ) {
-        val jsonFactory: GsonFactory = GsonFactory.getDefaultInstance()
-        val secrets = GoogleClientSecrets.load(
-            jsonFactory,
-            context.assets.open("client_secrets.json").reader(),
-        )
-
-        val tokenResponse: GoogleTokenResponse = GoogleAuthorizationCodeTokenRequest(
-            NetHttpTransport(),
-            jsonFactory,
-            secrets.installed.clientId,
-            secrets.installed.clientSecret,
-            authorizationCode,
-            REDIRECT_URI,
-        ).setGrantType("authorization_code").execute()
-
         try {
+            val jsonFactory: GsonFactory = GsonFactory.getDefaultInstance()
+            val secrets = GoogleClientSecrets.load(
+                jsonFactory,
+                context.assets.open("client_secrets.json").reader(),
+            )
+
+            val tokenResponse = withTokenServerFallback { tokenServerUrl ->
+                GoogleAuthorizationCodeTokenRequest(
+                    NetHttpTransport(),
+                    jsonFactory,
+                    secrets.installed.clientId,
+                    secrets.installed.clientSecret,
+                    authorizationCode,
+                    REDIRECT_URI,
+                ).apply {
+                    grantType = "authorization_code"
+                    this.tokenServerUrl = GenericUrl(tokenServerUrl)
+                }.execute()
+            }
+
             // Save the access token and refresh token
             val accessToken = tokenResponse.accessToken
             val refreshToken = tokenResponse.refreshToken
@@ -438,6 +447,18 @@ class GoogleDriveService(private val context: Context) {
             activity.runOnUiThread {
                 onFailure(e.localizedMessage ?: "Unknown error")
             }
+        }
+    }
+
+    private inline fun <T> withTokenServerFallback(block: (String) -> T): T {
+        return try {
+            block(TOKEN_SERVER_URL)
+        } catch (e: IOException) {
+            if (e is TokenResponseException) throw e
+            logcat(LogPriority.WARN, throwable = e) {
+                "Token request to $TOKEN_SERVER_URL failed, retrying with $FALLBACK_TOKEN_SERVER_URL"
+            }
+            block(FALLBACK_TOKEN_SERVER_URL)
         }
     }
 }

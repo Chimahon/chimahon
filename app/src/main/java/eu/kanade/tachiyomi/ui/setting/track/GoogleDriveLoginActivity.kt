@@ -4,6 +4,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import eu.kanade.tachiyomi.data.sync.service.GoogleDriveService
+import kotlinx.coroutines.CancellationException
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.i18n.sy.SYMR
@@ -17,27 +18,43 @@ class GoogleDriveLoginActivity : BaseOAuthLoginActivity() {
         val error = uri.getQueryParameter("error")
         if (code != null) {
             lifecycleScope.launchIO {
-                googleDriveService.handleAuthorizationCode(
-                    code,
-                    this@GoogleDriveLoginActivity,
-                    onSuccess = {
-                        Toast.makeText(
-                            this@GoogleDriveLoginActivity,
-                            stringResource(SYMR.strings.google_drive_login_success),
-                            Toast.LENGTH_LONG,
-                        ).show()
+                try {
+                    googleDriveService.handleAuthorizationCode(
+                        code,
+                        this@GoogleDriveLoginActivity,
+                        onSuccess = {
+                            Toast.makeText(
+                                this@GoogleDriveLoginActivity,
+                                stringResource(SYMR.strings.google_drive_login_success),
+                                Toast.LENGTH_LONG,
+                            ).show()
 
-                        returnToSettings()
-                    },
-                    onFailure = { error ->
+                            returnToSettings()
+                        },
+                        onFailure = { error ->
+                            Toast.makeText(
+                                this@GoogleDriveLoginActivity,
+                                stringResource(SYMR.strings.google_drive_login_failed, error),
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            returnToSettings()
+                        },
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    runOnUiThread {
                         Toast.makeText(
                             this@GoogleDriveLoginActivity,
-                            stringResource(SYMR.strings.google_drive_login_failed, error),
+                            stringResource(
+                                SYMR.strings.google_drive_login_failed,
+                                e.localizedMessage ?: "Unknown error",
+                            ),
                             Toast.LENGTH_LONG,
                         ).show()
                         returnToSettings()
-                    },
-                )
+                    }
+                }
             }
         } else if (error != null) {
             Toast.makeText(
