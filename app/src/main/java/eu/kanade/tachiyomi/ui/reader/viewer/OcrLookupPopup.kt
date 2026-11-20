@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.util.Log
 import android.webkit.WebView
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -18,14 +21,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -52,11 +53,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.text.style.TextOverflow
 import eu.kanade.domain.ui.UiPreferences
 import chimahon.DictionaryRepository
-import chimahon.KanjiEntry
-import chimahon.KanjiResult
 import chimahon.LookupResult
 import chimahon.MediaInfo
+import chimahon.ai.*
 import chimahon.anki.AnkiCardCreator
+import chimahon.anki.AnkiDroidBridge
 import chimahon.anki.AnkiMediaRequest
 import chimahon.anki.AnkiMediaWarning
 import chimahon.anki.AnkiProfile
@@ -166,7 +167,8 @@ fun OcrLookupPopup(
         mutableStateOf(initialLookupDeferred?.isCompleted != true)
     }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
+    val aiPrefs = remember(context) { AiPreferences(context) }
+    val hostView = LocalView.current
     // ── Lookup history stack (single state to batch updates) ──────────────
     data class LookupStackState(
         val stack: List<LookupFrame> = emptyList(),
@@ -243,7 +245,6 @@ fun OcrLookupPopup(
     val ankiTags = activeProfile.ankiTags
     val cropMode = activeProfile.ankiCropMode
     val ankiSyncOnCreate = activeProfile.ankiSyncOnCreate
-
     val showFreqHarmonic by dictionaryPreferences.showFrequencyHarmonic().collectAsState()
     val showFreqAverage by dictionaryPreferences.showFrequencyAverage().collectAsState()
     val groupTerms by dictionaryPreferences.groupTerms().collectAsState()
@@ -508,12 +509,28 @@ fun OcrLookupPopup(
             anchorY - with(density) { 12.dp.toPx() },
             screenHeightPx - anchorY - anchorHeight - with(density) { 12.dp.toPx() },
         ).toDp().coerceAtLeast(120.dp)
-        Pair(
-            if (isRecursiveChild) popupWidthPref.dp.coerceAtMost(childMaxWidth).coerceAtLeast(120.dp)
-            else popupWidthPref.dp.coerceAtLeast(280.dp).coerceAtMost(sw * 0.9f),
-            if (isRecursiveChild) popupHeightPref.dp.coerceAtMost(childMaxHeight).coerceAtLeast(120.dp)
-            else popupHeightPref.dp.coerceAtLeast(200.dp).coerceAtMost(sh * 0.8f),
-        )
+
+        if (!isRecursiveChild && aiPrefs.useCustomAiPopup) {
+            val isExpandedScreen = sw >= 600.dp
+            val targetW = if (isExpandedScreen) {
+                (sw * 0.58f).coerceIn(460.dp, 580.dp).coerceAtMost(sw - 24.dp)
+            } else {
+                (sw * 0.90f).coerceIn(290.dp, 400.dp).coerceAtMost(sw - 16.dp)
+            }
+            val targetH = if (isExpandedScreen) {
+                (sh * 0.70f).coerceIn(380.dp, 680.dp).coerceAtMost(sh - 24.dp)
+            } else {
+                (sh * 0.58f).coerceIn(320.dp, 540.dp).coerceAtMost(sh - 24.dp)
+            }
+            Pair(targetW, targetH)
+        } else {
+            Pair(
+                if (isRecursiveChild) popupWidthPref.dp.coerceAtMost(childMaxWidth).coerceAtLeast(120.dp)
+                else popupWidthPref.dp.coerceAtLeast(280.dp).coerceAtMost(sw * 0.9f),
+                if (isRecursiveChild) popupHeightPref.dp.coerceAtMost(childMaxHeight).coerceAtLeast(120.dp)
+                else popupHeightPref.dp.coerceAtLeast(200.dp).coerceAtMost(sh * 0.8f),
+            )
+        }
     }
 
     val popupWidthPx = with(density) { maxWidthDp.toPx() }
@@ -755,7 +772,7 @@ fun OcrLookupPopup(
     val layoutResult = remember(
         anchorX, anchorY, anchorWidth, anchorHeight,
         screenWidthPx, screenHeightPx, popupWidthPx, popupHeightPx, isVertical, popupModePref,
-        isRecursiveChild,
+        isRecursiveChild, aiPrefs.useCustomAiPopup,
     ) {
         val w: Float
         val h: Float
@@ -1176,32 +1193,61 @@ fun OcrLookupPopup(
             }
         }
     }
-
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var aiPopupNeedsKeyboard by remember { mutableStateOf(false) }
+    var hideInlineForScreenshot by remember { mutableStateOf(false) }
+    LaunchedEffect(lookupGeneration, visible) {
+        dragOffsetX = 0f
+        dragOffsetY = 0f
+    }
     @Composable
     fun PopupContent() {
         val swipeThreshold = with(density) { popupSwipeThresholdPref.dp.toPx() }
+        LaunchedEffect(aiPrefs.useCustomAiPopup, visible) {
+            if (aiPrefs.useCustomAiPopup && visible) {
+                contentReady = true
+            }
+        }
         Surface(
             modifier = modifier
                 .width(actualWidthDp)
                 .height(actualHeightDp)
-                .alpha(if (contentReady || isLoading || errorMessage != null) 1f else 0f)
-                .pointerInput(Unit) {
-                    if (!popupSwipeToDismissPref) return@pointerInput
+                .alpha(if (contentReady || isLoading || errorMessage != null || aiPrefs.useCustomAiPopup) 1f else 0f)
+                .pointerInput(aiPrefs.useCustomAiPopup, popupSwipeToDismissPref, layoutResult) {
+                    if (aiPrefs.useCustomAiPopup) return@pointerInput
+                    val dragHandleHeight = with(density) { 48.dp.toPx() }
+                    val touchSlop = viewConfiguration.touchSlop
                     awaitPointerEventScope {
                         while (true) {
                             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            val ignoreHeight = with(density) { 48.dp.toPx() }
-                            if (down.position.y < ignoreHeight) continue
+                            val isHeaderDrag = down.position.y < dragHandleHeight
+                            if (!isHeaderDrag && !popupSwipeToDismissPref) continue
 
                             var totalDragX = 0f
                             var totalDragY = 0f
+                            var draggingHeader = false
                             try {
                                 drag(down.id) { change ->
                                     val delta = change.positionChange()
                                     totalDragX += delta.x
                                     totalDragY += delta.y
-                                    // If horizontal swipe is dominant and exceeds threshold, dismiss
-                                    if (kotlin.math.abs(totalDragX) > swipeThreshold &&
+
+                                    if (isHeaderDrag) {
+                                        if (!draggingHeader &&
+                                            (kotlin.math.abs(totalDragX) > touchSlop || kotlin.math.abs(totalDragY) > touchSlop)
+                                        ) {
+                                            draggingHeader = true
+                                        }
+                                        if (draggingHeader) {
+                                            change.consume()
+                                            val maxX = (screenWidthPx - layoutResult.widthPx - paddingPx).coerceAtLeast(paddingPx)
+                                            val maxY = (screenHeightPx - layoutResult.heightPx - paddingPx).coerceAtLeast(paddingPx)
+                                            dragOffsetX = (layoutResult.x + dragOffsetX + delta.x).coerceIn(paddingPx, maxX) - layoutResult.x
+                                            dragOffsetY = (layoutResult.y + dragOffsetY + delta.y).coerceIn(paddingPx, maxY) - layoutResult.y
+                                        }
+                                    } else if (
+                                        kotlin.math.abs(totalDragX) > swipeThreshold &&
                                         kotlin.math.abs(totalDragX) > kotlin.math.abs(totalDragY) * 1.75f
                                     ) {
                                         dismissPopup()
@@ -1225,7 +1271,49 @@ fun OcrLookupPopup(
             color = BgColor,
             tonalElevation = 0.dp,
             shadowElevation = if (eInkMode) 0.dp else 6.dp,
-        ) {
+             ) {
+            if (aiPrefs.useCustomAiPopup) {
+                val captureScreenLambda: (suspend () -> Bitmap?)? =
+                    if (onRequestScreenshot != null || screenshot != null) {
+                        {
+                            if (!usePopup) {
+                                hideInlineForScreenshot = true
+                                kotlinx.coroutines.delay(48L)
+                            }
+                            try {
+                                captureFullScreenBitmap(hostView, context)
+                                    ?: onRequestScreenshot?.invoke()
+                                    ?: screenshot
+                            } finally {
+                                if (!usePopup) {
+                                    hideInlineForScreenshot = false
+                                }
+                            }
+                        }
+                    } else {
+                        null
+                    }
+                CustomAiPopup(
+                    visible = visible,
+                    initialWord = lookupString,
+                    initialSentence = fullText,
+                    charOffset = charOffset,
+                    matchedTerm = currentFrame?.results?.firstOrNull()?.matched,
+                    activeProfile = activeProfile,
+                    mediaInfo = mediaInfo,
+                    mediaType = type,
+                    titleId = titleId,
+                    onCaptureScreen = captureScreenLambda,
+                    onDismiss = { dismissPopup() },
+                    onDrag = { dx, dy ->
+                        val maxX = (screenWidthPx - layoutResult.widthPx - paddingPx).coerceAtLeast(paddingPx)
+                        val maxY = (screenHeightPx - layoutResult.heightPx - paddingPx).coerceAtLeast(paddingPx)
+                        dragOffsetX = (layoutResult.x + dragOffsetX + dx).coerceIn(paddingPx, maxX) - layoutResult.x
+                        dragOffsetY = (layoutResult.y + dragOffsetY + dy).coerceIn(paddingPx, maxY) - layoutResult.y
+                    },
+                    onTextInputActiveChange = { aiPopupNeedsKeyboard = it },
+                )
+            } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 RecursiveLookupChrome()
                 if (recursiveNavMode == "popup" && dismissOnOutsideTap) {
@@ -1298,20 +1386,27 @@ fun OcrLookupPopup(
             }
         }
     }
+}
 
     // Warm shell: when not visible, render offscreen with alpha=0.
     // The WebView stays in composition, pageReady stays true.
     val hideOffset = (-10_000).dp
 
+    val activeDragX = dragOffsetX
+    val activeDragY = dragOffsetY
+    
     if (usePopup) {
         if (visible) {
             Popup(
-                offset = IntOffset(layoutResult.x.roundToInt(), layoutResult.y.roundToInt()),
+                offset = IntOffset(
+                    x = (layoutResult.x + activeDragX).roundToInt(),
+                    y = (layoutResult.y + activeDragY).roundToInt(),
+                ),
                 onDismissRequest = { dismissPopup() },
                 properties = PopupProperties(
-                    focusable = dismissOnOutsideTap,
-                    dismissOnClickOutside = dismissOnOutsideTap,
-                ),
+                focusable = dismissOnOutsideTap || aiPopupNeedsKeyboard,
+                dismissOnClickOutside = dismissOnOutsideTap,
+            ),
             ) {
                 PopupContent()
             }
@@ -1325,10 +1420,10 @@ fun OcrLookupPopup(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .alpha(if (visible && (contentReady || isLoading || errorMessage != null)) 1f else 0f)
+                .alpha(if (visible && !hideInlineForScreenshot && (contentReady || isLoading || errorMessage != null || aiPrefs.useCustomAiPopup)) 1f else 0f)
                 .offset(
-                    x = with(LocalDensity.current) { if (visible) layoutResult.x.toDp() else hideOffset },
-                    y = with(LocalDensity.current) { if (visible) layoutResult.y.toDp() else hideOffset },
+                    x = with(LocalDensity.current) { if (visible) (layoutResult.x + activeDragX).toDp() else hideOffset },
+                    y = with(LocalDensity.current) { if (visible) (layoutResult.y + activeDragY).toDp() else hideOffset },
                 )
         ) {
             if (dismissOnOutsideTap) {
@@ -1427,4 +1522,49 @@ private fun lookupWithSearchResolution(
         result = lookupOne(current)
     }
     return result
+}
+
+private suspend fun captureFullScreenBitmap(
+    hostView: android.view.View,
+    context: android.content.Context,
+): Bitmap? = withContext(Dispatchers.Main) {
+    val rootView = hostView.rootView ?: return@withContext null
+    val w = rootView.width
+    val h = rootView.height
+    if (w <= 1 || h <= 1) return@withContext null
+
+    tailrec fun unwrapActivity(ctx: android.content.Context?): android.app.Activity? = when (ctx) {
+        is android.app.Activity -> ctx
+        is android.content.ContextWrapper -> unwrapActivity(ctx.baseContext)
+        else -> null
+    }
+
+    val window = unwrapActivity(rootView.context)?.window
+        ?: unwrapActivity(context)?.window
+        ?: return@withContext null
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val bmp = runCatching { Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }.getOrNull()
+            ?: return@withContext null
+        val ok = kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+            kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                try {
+                    android.view.PixelCopy.request(
+                        window,
+                        android.graphics.Rect(0, 0, w, h),
+                        bmp,
+                        { res ->
+                            if (cont.isActive) cont.resume(res == android.view.PixelCopy.SUCCESS) {}
+                        },
+                        android.os.Handler(android.os.Looper.getMainLooper()),
+                    )
+                } catch (_: Exception) {
+                    if (cont.isActive) cont.resume(false) {}
+                }
+            }
+        } ?: false
+        if (ok) return@withContext bmp
+        runCatching { bmp.recycle() }
+    }
+    null
 }

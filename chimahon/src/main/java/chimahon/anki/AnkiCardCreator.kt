@@ -1,6 +1,9 @@
 package chimahon.anki
 
 import android.content.Context
+import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import chimahon.Cloze
 import chimahon.DictionaryRepository
 import chimahon.HoshiDicts
@@ -9,16 +12,24 @@ import chimahon.GlossaryEntry
 import chimahon.LookupResult
 import chimahon.MediaInfo
 import chimahon.PitchEntry
-import chimahon.audio.WordAudioResult
+import chimahon.ai.AiPreferences
+import chimahon.ai.AiTtsLocaleHelper
+import chimahon.ai.CustomAiDictionaryEntry
+import chimahon.ai.SavedWordItem
+import chimahon.ai.WordCollectionRepository
 import chimahon.audio.WordAudioService
 import eu.kanade.tachiyomi.network.NetworkHelper
-import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.util.UUID
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
 
 // =============================================================================
@@ -104,6 +115,13 @@ object Marker {
     const val MEDIA_NAME = "media-name"
     const val WORD_AUDIO = "word-audio"
     const val SENTENCE_AUDIO = "sentence-audio"
+    const val AI_NOTES = "ai-notes"
+    const val AI_MEANING = "ai-meaning"
+    const val AI_NUANCE = "ai-nuance"
+    const val AI_GRAMMAR = "ai-grammar"
+    const val AI_BREAKDOWN = "ai-breakdown"
+    const val AI_ALTERNATIVES = "ai-alternatives"
+    const val AI_EXAMPLES = "ai-examples"
 
     val ALL: List<String> = listOf(
         // Core/Common
@@ -136,6 +154,7 @@ object Marker {
 
         // Other
         SENTENCE_AUDIO, POPUP_SELECTION_TEXT,
+        AI_NOTES, AI_MEANING, AI_NUANCE, AI_GRAMMAR, AI_BREAKDOWN, AI_ALTERNATIVES, AI_EXAMPLES,
     )
 
     val ALL_WITH_TODO: List<String> = ALL
@@ -173,6 +192,13 @@ object Marker {
         CHAPTER to listOf("chapter", "episode"),
         MEDIA to listOf("media", "source", "context"),
         SENTENCE_AUDIO to listOf("sentence-audio", "sentenceaudio", "sentence-sound", "sentence_sound"),
+        AI_NOTES to listOf("ai-notes", "ainotes", "ai_notes", "notes", "ai-breakdown"),
+        AI_MEANING to listOf("ai-meaning", "aimeaning", "contextual-meaning"),
+        AI_NUANCE to listOf("ai-nuance", "ainuance", "nuance"),
+        AI_GRAMMAR to listOf("ai-grammar", "aigrammar", "grammar", "grammar-breakdown"),
+        AI_BREAKDOWN to listOf("sentence-breakdown", "sentencebreakdown"),
+        AI_ALTERNATIVES to listOf("ai-alternatives", "alternatives", "synonyms"),
+        AI_EXAMPLES to listOf("ai-examples", "examples", "example-sentences"),
     )
 
     fun autoDetect(fieldName: String, fieldIndex: Int, entryType: String = "term"): String? {
@@ -209,6 +235,17 @@ sealed class AnkiResult {
     data object NotConfigured : AnkiResult()
 }
 
+data class BatchAnkiExportResult(
+    val total: Int,
+    val added: Int,
+    val updated: Int,
+    val skippedDuplicates: Int,
+    val failed: Int,
+    val exportedItemIds: Set<String> = emptySet(),
+    val permissionDenied: Boolean = false,
+    val notConfigured: Boolean = false,
+    val firstErrorMessage: String? = null,
+)
 // =============================================================================
 // Field map parsing
 // =============================================================================
@@ -464,14 +501,622 @@ object AnkiCardCreator {
         }
     }
 
-    private fun filterToSingleGlossary(result: LookupResult, glossaryIndex: Int): LookupResult {
-        val glossary = result.term.glossaries.getOrNull(glossaryIndex) ?: return result
-        val filteredGlossaries = arrayOf(glossary)
-        return result.copy(
-            term = result.term.copy(
-                glossaries = filteredGlossaries,
-            ),
-        )
+    suspend fun addCollectionToAnki(
+        context: Context,
+        items: List<SavedWordItem>,
+        deck: String,
+        model: String,
+        fieldMapJson: String,
+        tags: String,
+        dupCheck: Boolean,
+        dupScope: String,
+        dupAction: String,
+        media: MediaInfo? = null,
+        type: String? = null,
+        syncOnCreate: Boolean = false,
+        profileId: String = "",
+        titleId: String? = null,
+    ): BatchAnkiExportResult = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) {
+            return@withContext BatchAnkiExportResult(
+                total = 0,
+                added = 0,
+                updated = 0,
+                skippedDuplicates = 0,
+                failed = 0,
+            )
+        }
+
+        val bridge = bridgeFactory(context)
+        if (!bridge.hasPermission()) {
+            return@withContext BatchAnkiExportResult(
+                total = items.size,
+                added = 0,
+                updated = 0,
+                skippedDuplicates = 0,
+                failed = 0,
+                permissionDenied = true,
+            )
+        }
+
+        try {
+            val effectiveDeck = deck.ifBlank { bridge.ensureDefaultDeckName() }
+            val effectiveModel = if (model.isBlank()) {
+                bridge.ensureLapisModelName()
+            } else {
+                model
+            }
+            val effectiveFieldMapJson = if (
+                LapisPreset.isBundledModelName(effectiveModel) &&
+                LapisPreset.isBlankFieldMap(fieldMapJson)
+            ) {
+                LapisPreset.defaultFieldMapJson
+            } else {
+                fieldMapJson
+            }
+
+            if (effectiveDeck.isBlank() || effectiveModel.isBlank()) {
+                return@withContext BatchAnkiExportResult(
+                    total = items.size,
+                    added = 0,
+                    updated = 0,
+                    skippedDuplicates = 0,
+                    failed = 0,
+                    notConfigured = true,
+                )
+            }
+
+            val fieldMap = fieldMapParser(effectiveFieldMapJson)
+            if (fieldMap.isEmpty()) {
+                return@withContext BatchAnkiExportResult(
+                    total = items.size,
+                    added = 0,
+                    updated = 0,
+                    skippedDuplicates = 0,
+                    failed = 0,
+                    notConfigured = true,
+                )
+            }
+
+            val targetDeckId = if (dupScope == "deck" && effectiveDeck.isNotBlank()) {
+                try {
+                    bridge.getDeckId(effectiveDeck)
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+
+            val hasWordAudioMarker = fieldMap.values.any {
+                it.contains("{${Marker.WORD_AUDIO}}") || it.contains("{${Marker.AUDIO}}")
+            }
+            val hasSentenceAudioMarker = fieldMap.values.any {
+                it.contains("{${Marker.SENTENCE_AUDIO}}")
+            }
+            val hasScreenshotMarker = fieldMap.values.any {
+                it.contains("{${Marker.SCREENSHOT}}")
+            }
+            val needsTtsAudio = hasWordAudioMarker || hasSentenceAudioMarker
+            val languageMode = AiPreferences(context).languageMode
+            val ttsSynthesizer = if (needsTtsAudio) {
+                LocalAiTtsSynthesizer.create(context, languageMode)
+            } else {
+                null
+            }
+
+            var added = 0
+            var updated = 0
+            var skippedDuplicates = 0
+            var failed = 0
+            var firstError: String? = null
+            val exportedIds = linkedSetOf<String>()
+
+            try {
+            // Export oldest-first so the most recently saved words appear at the top of the deck
+            for (item in items.asReversed()) {
+                try {
+                    val existingNotes = if (dupCheck) {
+                        bridge.findNotes(item.word, null, targetDeckId)
+                    } else {
+                        emptyList()
+                    }
+
+                    if (existingNotes.isNotEmpty() && dupAction != "overwrite") {
+                        skippedDuplicates++
+                        continue
+                    }
+
+                    val cloze = if (item.sentence.isNotEmpty()) {
+                        val matchIdx = item.sentence.indexOf(item.word, ignoreCase = true)
+                        if (matchIdx >= 0) {
+                            buildCloze(
+                                sentence = item.sentence,
+                                offset = matchIdx,
+                                expression = item.word,
+                                reading = item.reading,
+                                matched = item.sentence.substring(matchIdx, matchIdx + item.word.length),
+                            )
+                        } else {
+                            Cloze(
+                                sentence = item.sentence,
+                                prefix = "",
+                                body = item.word,
+                                bodyKana = item.reading,
+                                suffix = "",
+                            )
+                        }
+                    } else {
+                        null
+                    }
+
+                    val wordAudioFilename = if (hasWordAudioMarker && ttsSynthesizer != null) {
+                        ttsSynthesizer.synthesizeAndStore(
+                            text = item.word,
+                            prefix = "chimahon_ai_word",
+                            storeMedia = bridge::storeMedia,
+                        )
+                    } else {
+                        null
+                    }
+                    val sentenceAudioFilename = if (hasSentenceAudioMarker && ttsSynthesizer != null) {
+                        ttsSynthesizer.synthesizeAndStore(
+                            text = item.sentence,
+                            prefix = "chimahon_ai_sentence",
+                            storeMedia = bridge::storeMedia,
+                        )
+                    } else {
+                        null
+                    }
+
+                    val screenshotFilename = if (hasScreenshotMarker && !item.imageFileName.isNullOrBlank()) {
+                        val imageFile = WordCollectionRepository.getWordImageFile(context, item.imageFileName)
+                        if (imageFile != null) {
+                            runCatching {
+                                val bytes = imageFile.readBytes()
+                                if (bytes.isNotEmpty()) {
+                                    val hash = try {
+                                        val digest = java.security.MessageDigest.getInstance("SHA-1").digest(bytes)
+                                        digest.joinToString("") { "%02x".format(it) }.take(12)
+                                    } catch (_: Exception) {
+                                        item.id.take(12)
+                                    }
+                                    bridge.storeMedia("chimahon_ai_img_$hash.jpg", bytes)
+                                } else {
+                                    null
+                                }
+                            }.getOrNull()
+                        } else {
+                            null
+                        }
+                    } else {
+                        null
+                    }
+
+                    val fields = buildAiFields(
+                        item = item,
+                        fieldMap = fieldMap,
+                        cloze = cloze,
+                        media = media,
+                        screenshotFilename = screenshotFilename,
+                        wordAudioFilename = wordAudioFilename,
+                        sentenceAudioFilename = sentenceAudioFilename,
+                    )
+                    val tagList = tags.split(",")
+                        .map { template ->
+                            formatAiField(
+                                template = template,
+                                item = item,
+                                cloze = cloze,
+                                media = media,
+                                screenshotFilename = screenshotFilename,
+                                wordAudioFilename = wordAudioFilename,
+                                sentenceAudioFilename = sentenceAudioFilename,
+                            )
+                        }
+                        .mapNotNull(::normalizeAnkiTag)
+
+                    if (existingNotes.isNotEmpty() && dupAction == "overwrite") {
+                        bridge.updateNoteFields(existingNotes.first(), fields)
+                        updated++
+                        exportedIds.add(item.id)
+                    } else {
+                        bridge.addNote(
+                            deckName = effectiveDeck,
+                            modelName = effectiveModel,
+                            fields = fields,
+                            tags = tagList,
+                        )
+                        com.canopus.chimareader.data.AnkiStatsStorage.addCard(
+                            context,
+                            type,
+                            profileId = profileId,
+                            titleId = titleId,
+                        )
+                        added++
+                        exportedIds.add(item.id)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    failed++
+                    if (firstError == null) {
+                        firstError = e.message ?: "Failed to export ${item.word}"
+                    }
+                    android.util.Log.w(TAG, "addCollectionToAnki: failed on word=${item.word}", e)
+                }
+            }
+            } finally {
+                ttsSynthesizer?.shutdown()
+            }
+
+            if (syncOnCreate && (added > 0 || updated > 0)) {
+                bridge.triggerSync()
+            }
+
+            BatchAnkiExportResult(
+                total = items.size,
+                added = added,
+                updated = updated,
+                skippedDuplicates = skippedDuplicates,
+                failed = failed,
+                exportedItemIds = exportedIds,
+                firstErrorMessage = firstError,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SecurityException) {
+            BatchAnkiExportResult(
+                total = items.size,
+                added = 0,
+                updated = 0,
+                skippedDuplicates = 0,
+                failed = items.size,
+                permissionDenied = true,
+            )
+        } catch (e: Exception) {
+            BatchAnkiExportResult(
+                total = items.size,
+                added = 0,
+                updated = 0,
+                skippedDuplicates = 0,
+                failed = items.size,
+                firstErrorMessage = e.message ?: "Unknown error",
+            )
+        }
+    }
+
+    private class LocalAiTtsSynthesizer private constructor(
+        private val cacheDir: File,
+        private val tts: TextToSpeech,
+        private val languageMode: String,
+    ) {
+        suspend fun synthesizeAndStore(
+            text: String,
+            prefix: String,
+            storeMedia: suspend (filename: String, bytes: ByteArray) -> String?,
+        ): String? {
+            val clean = text.trim()
+            if (clean.isEmpty()) return null
+
+            val targetLocale = AiTtsLocaleHelper.resolveLocale(clean, languageMode)
+            val langResult = tts.setLanguage(targetLocale)
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                return null
+            }
+
+            val utteranceId = "chimahon_tts_${UUID.randomUUID()}"
+            val tempFile = File(cacheDir, "$utteranceId.wav")
+            return try {
+                val synthesized = withTimeoutOrNull(8_000L) {
+                    suspendCancellableCoroutine<Boolean> { cont ->
+                        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                            override fun onStart(id: String?) {}
+                            override fun onDone(id: String?) {
+                                if (id == utteranceId && cont.isActive) cont.resume(true)
+                            }
+                            @Deprecated("Deprecated in Java")
+                            override fun onError(id: String?) {
+                                if (id == utteranceId && cont.isActive) cont.resume(false)
+                            }
+                            override fun onError(id: String?, errorCode: Int) {
+                                if (id == utteranceId && cont.isActive) cont.resume(false)
+                            }
+                        })
+                        val params = Bundle()
+                        val enqueueStatus = tts.synthesizeToFile(clean, params, tempFile, utteranceId)
+                        if (enqueueStatus != TextToSpeech.SUCCESS && cont.isActive) {
+                            cont.resume(false)
+                        }
+                    }
+                } ?: false
+
+                if (!synthesized || !tempFile.exists() || tempFile.length() == 0L) {
+                    return null
+                }
+
+                val bytes = tempFile.readBytes()
+                val hash = try {
+                    val digest = java.security.MessageDigest.getInstance("SHA-1").digest(bytes)
+                    digest.joinToString("") { "%02x".format(it) }.take(12)
+                } catch (_: Exception) {
+                    System.currentTimeMillis().toString()
+                }
+                storeMedia("${prefix}_$hash.wav", bytes)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "LocalAiTtsSynthesizer: failed to synthesize audio", e)
+                null
+            } finally {
+                runCatching { tempFile.delete() }
+            }
+        }
+
+        fun shutdown() {
+            runCatching {
+                tts.stop()
+                tts.shutdown()
+            }
+        }
+
+        companion object {
+            suspend fun create(context: Context, languageMode: String): LocalAiTtsSynthesizer? {
+                val appContext = context.applicationContext
+                var engineRef: TextToSpeech? = null
+                val ready = withTimeoutOrNull(4_000L) {
+                    suspendCancellableCoroutine<Boolean> { cont ->
+                        val engine = TextToSpeech(appContext) { status ->
+                            val hasEngines = runCatching { engineRef?.engines?.isNotEmpty() == true }.getOrDefault(false)
+                            if (cont.isActive) cont.resume(status == TextToSpeech.SUCCESS && hasEngines)
+                        }
+                        engineRef = engine
+                        if (runCatching { engine.engines.isEmpty() }.getOrDefault(false) && cont.isActive) {
+                            cont.resume(false)
+                        }
+                        cont.invokeOnCancellation {
+                            runCatching {
+                                engine.stop()
+                                engine.shutdown()
+                            }
+                        }
+                    }
+                } ?: false
+
+                val engine = engineRef ?: return null
+                if (!ready) {
+                    runCatching { engine.shutdown() }
+                    return null
+                }
+                return LocalAiTtsSynthesizer(appContext.cacheDir, engine, languageMode)
+            }
+        }
+    }
+
+    private fun buildAiFields(
+        item: SavedWordItem,
+        fieldMap: Map<String, String>,
+        cloze: Cloze?,
+        media: MediaInfo?,
+        screenshotFilename: String? = null,
+        wordAudioFilename: String? = null,
+        sentenceAudioFilename: String? = null,
+    ): Map<String, String> = fieldMap.mapValues { (_, template) ->
+        formatAiField(template, item, cloze, media, screenshotFilename, wordAudioFilename, sentenceAudioFilename)
+    }
+
+    private fun formatAiField(
+        template: String,
+        item: SavedWordItem,
+        cloze: Cloze?,
+        media: MediaInfo?,
+        screenshotFilename: String? = null,
+        wordAudioFilename: String? = null,
+        sentenceAudioFilename: String? = null,
+    ): String {
+        if (template.isBlank()) return ""
+        return MARKER_PATTERN.replace(template) { match ->
+            renderAiMarker(match.groupValues[1], item, cloze, media, screenshotFilename, wordAudioFilename, sentenceAudioFilename)
+        }
+    }
+
+    private fun renderAiMarker(
+        marker: String,
+        item: SavedWordItem,
+        cloze: Cloze?,
+        media: MediaInfo?,
+        screenshotFilename: String? = null,
+        wordAudioFilename: String? = null,
+        sentenceAudioFilename: String? = null,
+    ): String {
+        val entry = item.entry
+        val meaning = item.contextualMeaning.ifBlank { entry?.contextualMeaning.orEmpty() }
+        return when (marker) {
+            Marker.EXPRESSION, Marker.SEARCH_QUERY -> escapeHtml(item.word)
+            Marker.READING -> escapeHtml(item.reading)
+            Marker.FURIGANA -> buildFuriganaHtml(item.word, item.reading)
+            Marker.FURIGANA_PLAIN -> buildFuriganaPlain(item.word, item.reading)
+            Marker.GLOSSARY,
+            Marker.GLOSSARY_NO_DICT,
+            Marker.GLOSSARY_FIRST,
+            Marker.GLOSSARY_FIRST_NO_DICT,
+            Marker.SELECTED_GLOSSARY,
+            Marker.SELECTED_GLOSSARY_NO_FALLBACK,
+            -> buildAiGlossaryHtml(item, brief = false)
+            Marker.GLOSSARY_BRIEF,
+            Marker.GLOSSARY_FIRST_BRIEF,
+            -> buildAiGlossaryHtml(item, brief = true)
+            Marker.GLOSSARY_PLAIN,
+            Marker.GLOSSARY_PLAIN_NO_DICT,
+            -> buildAiGlossaryPlain(item)
+            Marker.SENTENCE,
+            Marker.SENTENCE_FURIGANA,
+            -> cloze?.let { escapeHtml(it.sentence) } ?: escapeHtml(item.sentence)
+            Marker.SENTENCE_BOLD -> cloze?.let {
+                "${escapeHtml(it.prefix)}<b>${escapeHtml(it.body)}</b>${escapeHtml(it.suffix)}"
+            } ?: escapeHtml(item.sentence)
+            Marker.SENTENCE_FURIGANA_PLAIN -> cloze?.sentence ?: item.sentence
+            Marker.CLOZE_PREFIX -> cloze?.let { escapeHtml(it.prefix) } ?: ""
+            Marker.CLOZE_BODY -> cloze?.let { escapeHtml(it.body) } ?: escapeHtml(item.word)
+            Marker.CLOZE_BODY_KANA -> cloze?.let { escapeHtml(it.bodyKana) } ?: escapeHtml(item.reading.ifBlank { item.word })
+            Marker.CLOZE_SUFFIX -> cloze?.let { escapeHtml(it.suffix) } ?: ""
+            Marker.PART_OF_SPEECH -> escapeHtml(normalizeAiPartOfSpeech(entry?.partOfSpeech.orEmpty()))
+            Marker.DICTIONARY, Marker.DICTIONARY_ALIAS -> "Chimahon AI"
+            Marker.FREQUENCIES,
+            Marker.FREQUENCY_LOWEST,
+            Marker.FREQUENCY_HARMONIC_RANK,
+            Marker.FREQUENCY_AVERAGE_RANK,
+            -> escapeHtml(normalizeAiFrequency(entry?.nuance?.frequency.orEmpty()))
+            Marker.AI_NOTES,
+            Marker.MISC_INFO,
+            Marker.POPUP_SELECTION_TEXT,
+            -> buildAiNotesHtml(entry)
+            Marker.AI_MEANING -> escapeHtmlWithLineBreaks(meaning)
+            Marker.AI_NUANCE -> buildAiNuanceHtml(entry)
+            Marker.AI_GRAMMAR -> buildAiGrammarHtml(entry)
+            Marker.AI_BREAKDOWN -> buildAiBreakdownHtml(entry)
+            Marker.AI_ALTERNATIVES -> buildAiAlternativesHtml(entry)
+            Marker.AI_EXAMPLES -> buildAiExamplesHtml(entry)
+            Marker.MEDIA_NAME -> media?.mangaTitle?.let { escapeHtml(it) } ?: ""
+            Marker.CHAPTER -> media?.chapterName?.let { escapeHtml(it) } ?: ""
+            Marker.MEDIA -> {
+                if (media != null && media.mangaTitle.isNotBlank()) {
+                    if (media.chapterName.isNotBlank()) {
+                        "${escapeHtml(media.mangaTitle)}-${escapeHtml(media.chapterName)}"
+                    } else {
+                        escapeHtml(media.mangaTitle)
+                    }
+                } else {
+                    ""
+                }
+            }
+            // Reserved for upcoming Word & Sentence Audio milestone
+            Marker.WORD_AUDIO,
+            Marker.AUDIO,
+            -> wordAudioFilename?.let { "[sound:$it]" } ?: ""
+            Marker.SENTENCE_AUDIO -> sentenceAudioFilename?.let { "[sound:$it]" } ?: ""
+            Marker.SCREENSHOT -> screenshotFilename?.let { "<img src=\"$it\">" } ?: ""
+            else -> when {
+                marker.startsWith("single-glossary-") -> {
+                    if (marker.contains("plain")) buildAiGlossaryPlain(item)
+                    else buildAiGlossaryHtml(item, brief = marker.contains("brief"))
+                }
+                marker.startsWith("single-frequency-") -> {
+                    escapeHtml(normalizeAiFrequency(entry?.nuance?.frequency.orEmpty()))
+                }
+                else -> ""
+            }
+        }
+    }
+
+    private fun normalizeAiFrequency(raw: String): String {
+        val cleaned = raw
+            .replace(Regex("""\s*[\(（].*?$"""), "")
+            .replace(Regex("""(?i)\s+(?:in|for|among|within|during|when)\b.*$"""), "")
+            .substringBefore(",")
+            .substringBefore(";")
+            .substringBefore("—")
+            .substringBefore(" - ")
+            .trim()
+        return cleaned.ifEmpty { raw.trim() }
+    }
+
+    private fun normalizeAiPartOfSpeech(raw: String): String {
+        val cleaned = raw
+            .replace(Regex("""\s*[\(（].*?$"""), "")
+            .substringBefore(",")
+            .substringBefore(";")
+            .substringBefore("/")
+            .trim()
+        return cleaned.ifEmpty { raw.trim() }
+    }
+
+    private fun buildAiGlossaryHtml(item: SavedWordItem, brief: Boolean): String {
+        val entry = item.entry
+        val meaning = item.contextualMeaning.ifBlank { entry?.contextualMeaning.orEmpty() }
+        if (meaning.isBlank() && entry == null) return ""
+
+        val sb = StringBuilder("""<div style="text-align: left;" class="chimahon-ai-glossary">""")
+        if (meaning.isNotBlank()) {
+            sb.append("<b>${escapeHtmlWithLineBreaks(meaning)}</b>")
+        }
+        if (!brief && entry != null) {
+            if (entry.literalMeaning.isNotBlank() && !entry.literalMeaning.equals(meaning, ignoreCase = true)) {
+                sb.append("<br><small>Literal: ${escapeHtmlWithLineBreaks(entry.literalMeaning)}</small>")
+            }
+            val notes = buildAiNotesHtml(entry)
+            if (notes.isNotBlank()) {
+                sb.append("<br><br>").append(notes)
+            }
+        }
+        sb.append("</div>")
+        return sb.toString()
+    }
+
+    private fun buildAiGlossaryPlain(item: SavedWordItem): String {
+        val entry = item.entry
+        val meaning = item.contextualMeaning.ifBlank { entry?.contextualMeaning.orEmpty() }
+        return buildList {
+            if (meaning.isNotBlank()) add(escapeHtmlWithLineBreaks(meaning))
+            if (entry != null) {
+                if (entry.literalMeaning.isNotBlank() && !entry.literalMeaning.equals(meaning, ignoreCase = true)) {
+                    add("Literal: ${escapeHtmlWithLineBreaks(entry.literalMeaning)}")
+                }
+                if (entry.nuance.dailyConversation.isNotBlank()) {
+                    add("Nuance (${escapeHtml(entry.nuance.formality)}): ${escapeHtmlWithLineBreaks(entry.nuance.dailyConversation)}")
+                }
+            }
+        }.joinToString("<br>")
+    }
+
+    private fun buildAiNotesHtml(entry: CustomAiDictionaryEntry?): String {
+        if (entry == null) return ""
+        return listOf(
+            buildAiNuanceHtml(entry),
+            buildAiGrammarHtml(entry),
+            buildAiAlternativesHtml(entry),
+            buildAiExamplesHtml(entry),
+        ).filter { it.isNotBlank() }.joinToString("<br><br>")
+    }
+
+    private fun buildAiNuanceHtml(entry: CustomAiDictionaryEntry?): String {
+        if (entry == null) return ""
+        val formality = entry.nuance.formality.trim()
+        val note = entry.nuance.dailyConversation.trim()
+        if (formality.isBlank() && note.isBlank()) return ""
+        return buildString {
+            append("<b>AI Nuance:</b>")
+            if (formality.isNotBlank()) append("<br>Formality: ${escapeHtml(formality)}")
+            if (note.isNotBlank()) append("<br>${escapeHtmlWithLineBreaks(note)}")
+        }
+    }
+
+    private fun buildAiGrammarHtml(entry: CustomAiDictionaryEntry?): String {
+        if (entry == null || entry.grammarBreakdown.isEmpty()) return ""
+        val rows = entry.grammarBreakdown.joinToString("<br>") { point ->
+            "• <b>${escapeHtml(point.pattern)}</b>: ${escapeHtmlWithLineBreaks(point.explanation)}"
+        }
+        return "<b>Grammar Breakdown:</b><br>$rows"
+    }
+
+    private fun buildAiBreakdownHtml(entry: CustomAiDictionaryEntry?): String {
+        if (entry == null || entry.sentenceBreakdown.isEmpty()) return ""
+        val rows = entry.sentenceBreakdown.joinToString("<br>") { chunk ->
+            "• <b>${escapeHtml(chunk.segment)}</b> — ${escapeHtmlWithLineBreaks(chunk.meaning)}"
+        }
+        return "<b>Sentence Breakdown:</b><br>$rows"
+    }
+
+    private fun buildAiAlternativesHtml(entry: CustomAiDictionaryEntry?): String {
+        if (entry == null || entry.alternativeWords.isEmpty()) return ""
+        val rows = entry.alternativeWords.joinToString("<br>") { escapeHtml(it.trim()) }
+        return "<b>Alternative Words:</b><br>$rows"
+    }
+
+    private fun buildAiExamplesHtml(entry: CustomAiDictionaryEntry?): String {
+        if (entry == null || entry.exampleSentences.isEmpty()) return ""
+        val rows = entry.exampleSentences.joinToString("<br>") { "• ${escapeHtmlWithLineBreaks(it)}" }
+        return "<b>Examples:</b><br>$rows"
     }
 
     suspend fun checkExistingCards(
@@ -2250,23 +2895,6 @@ object AnkiCardCreator {
             bytes[9] == 'v'.code.toByte() &&
             bytes[10] == 'i'.code.toByte() &&
             bytes[11] == 's'.code.toByte()
-    }
-
-    private fun generateSentenceAudioFilename(bytes: ByteArray, extension: String): String {
-        val hash = try {
-            val md = java.security.MessageDigest.getInstance("SHA-1")
-            val digest = md.digest(bytes)
-            digest.joinToString("") { "%02x".format(it) }.take(12)
-        } catch (e: Exception) {
-            "audio_${System.currentTimeMillis()}"
-        }
-        val safeExtension = extension
-            .substringBefore('?')
-            .substringAfterLast('.', extension)
-            .replace(Regex("[^A-Za-z0-9]"), "")
-            .ifBlank { "m4a" }
-            .lowercase()
-        return "chimahon_sentence_$hash.$safeExtension"
     }
 
     // =============================================================================
