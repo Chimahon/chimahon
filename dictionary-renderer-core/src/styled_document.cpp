@@ -2,6 +2,7 @@
 #include "profile.hpp"
 #include "resolved_style.hpp"
 #include "document_storage.hpp"
+#include "css_color.hpp"
 #include "css_numeric.hpp"
 #include "css_nesting.hpp"
 #include <lexbor/style/style.h>
@@ -1791,6 +1792,15 @@ struct SourceCompiler {
                     const auto data=find(input,op.token,"data");if(data!=none)copy(data);copy(op.token);
                     if(node.image_container!=none) {
                         const std::string name="container-style",value=std::to_string(elements[node.image_container].style);
+                        output.properties.push_back({output.save(name),checked_index(name.size()),output.save(value),checked_index(value.size())});
+                    }
+                    // The WebView paints monochrome images with `currentColor`; native needs the
+                    // image's inherited colour because it has no CSS cascade at draw time.
+                    uint32_t current = dictionary_core::css_color(property(output.computed[node.style], "color"), none);
+                    if (current == none && elements.size() > 1)
+                        current = dictionary_core::css_color(property(output.computed[1], "color"), none);
+                    if (current != none) {
+                        const std::string name="dc-current-color", value=dictionary_core::css_color_text(current);
                         output.properties.push_back({output.save(name),checked_index(name.size()),output.save(value),checked_index(value.size())});
                     }
                     output.images.push_back({checked_index(output.runs.size()-1),first_property,checked_index(output.properties.size())-first_property});
