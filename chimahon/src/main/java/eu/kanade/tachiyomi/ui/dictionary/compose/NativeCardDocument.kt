@@ -4,6 +4,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
@@ -74,6 +77,18 @@ public fun placeNativeCard(fragments: List<NativeCardFragment>, visible: Boolean
         ceil(placed.last()).toInt().coerceAtLeast(1), items, profilingId, first.profilingPlanId)
 }
 
+/** CSS #RRGGBBAA (the card theme's own serialisation) to a Compose colour. */
+private fun nativeInheritedColor(value: String?): Color? {
+    if (value == null || value.length != 9 || value[0] != '#') return null
+    val hex = value.substring(1).toLongOrNull(16) ?: return null
+    return Color(
+        red = ((hex shr 24) and 0xFF).toInt(),
+        green = ((hex shr 16) and 0xFF).toInt(),
+        blue = ((hex shr 8) and 0xFF).toInt(),
+        alpha = (hex and 0xFF).toInt(),
+    )
+}
+
 /** A single drawing view per card; only images and real action controls remain Compose children. */
 @Composable
 public fun NativeDocumentContent(document: NativeGlossaryDocument, dictionary: String,
@@ -95,7 +110,11 @@ public fun NativeDocumentContent(document: NativeGlossaryDocument, dictionary: S
         document.images.forEach { image ->
             val props = image.source.attributes.properties
             AsyncImage(model = resolveMediaUri2(props["cardDictionary"] ?: dictionary, props["path"].orEmpty(), media),
-                contentDescription = props["title"])
+                contentDescription = props["title"],
+                colorFilter = if (props["appearance"] == "monochrome") {
+                    ColorFilter.tint(nativeInheritedColor(props["dc-current-color"]) ?: document.style.color,
+                        BlendMode.SrcIn)
+                } else null)
         }
     }) { children, bounds ->
         val body = children.first().measure(Constraints.fixed(document.width, document.height))
