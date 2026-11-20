@@ -4,6 +4,13 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Google Drive sync failing when the default Google token endpoint can't be reached, with a fallback token endpoint
+- Native dictionary popup exporting the first dictionary when no dictionary was selected
+
 ## [v2.5.2]
 
 ### Fixed
