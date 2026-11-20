@@ -218,7 +218,17 @@ struct Face {
  * every font, which made measurement the largest native phase on the device.
  * Faces are stateful (size, synthetic slant) but every use configures them
  * first, and a thread only ever runs one document at a time. */
+/* Faces outlive the thread-local cache they came from: a document can be destroyed on the cleanup
+ * thread after the worker that rendered it has exited. The library therefore has to be reference
+ * counted too, or FT_Done_Face runs against a library that FT_Done_FreeType already tore down. */
+struct FreeTypeLibrary {
+    FT_Library handle = nullptr;
+    ~FreeTypeLibrary() {
+        if (handle) FT_Done_FreeType(handle);
+    }
+};
 struct CachedFace {
+    std::shared_ptr<FreeTypeLibrary> library;
     FT_Face ft = nullptr;
     hb_font_t *hb = nullptr;
     ~CachedFace() {
@@ -227,17 +237,18 @@ struct CachedFace {
     }
 };
 struct FontCache {
-    FT_Library library = nullptr;
+    std::shared_ptr<FreeTypeLibrary> library;
     std::map<std::pair<std::string, uint32_t>, std::shared_ptr<CachedFace>> faces;
-    ~FontCache() {
-        faces.clear();
-        if (library) FT_Done_FreeType(library);
-    }
+    ~FontCache() { faces.clear(); }
     std::shared_ptr<CachedFace> face(const std::string &path, uint32_t collection) {
         auto &entry = faces[{path, collection}];
         if (entry) return entry;
         require(!path.empty(), "Missing portable font path");
-        if (!library) require(FT_Init_FreeType(&library) == 0, "Cannot initialize FreeType");
+        if (!library) {
+            auto created = std::make_shared<FreeTypeLibrary>();
+            require(FT_Init_FreeType(&created->handle) == 0, "Cannot initialize FreeType");
+            library = std::move(created);
+        }
         auto loaded = std::make_shared<CachedFace>();
         const auto data = font_data(path, collection);
         unsigned bytes = 0;
@@ -245,11 +256,12 @@ struct FontCache {
         {
             DC_PROFILE("fonts.open");
             dc_profile::count("fonts.faces");
-            require(bytes <= LONG_MAX && FT_New_Memory_Face(library, memory, bytes, collection, &loaded->ft) == 0,
+            require(bytes <= LONG_MAX && FT_New_Memory_Face(library->handle, memory, bytes, collection, &loaded->ft) == 0,
                 "Cannot open portable font");
         }
         loaded->hb = hb_font_create(data->face);
         hb_ot_font_set_funcs(loaded->hb);
+        loaded->library = library;
         entry = std::move(loaded);
         return entry;
     }

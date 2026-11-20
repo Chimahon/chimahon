@@ -572,7 +572,7 @@ fun OcrLookupPopup(
                     val ordered = chimahon.diagnostics.LookupProfiler.section(result.profilingId, "results.order") {
                         orderLookupResultsForDisplay(result.results, activeProfile, context)
                     }
-                    preparation = if (nativeLookup && generation == lookupGeneration && visibleRef.value && requestInput === lookupInputRef.value) {
+                    preparation = if (nativeLookup && result.session != 0L && generation == lookupGeneration && visibleRef.value && requestInput === lookupInputRef.value) {
                         scope.prepareDictionaryCards(ordered, result.session, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
                             getDictionaryTitle(context, it)
                         }
@@ -1134,6 +1134,9 @@ fun OcrLookupPopup(
                             styles = result.styles,
                             mediaDataUris = result.mediaDataUris,
                             error = result.error,
+                            // Grouping is native and reads the session's last lookup. Without this
+                            // the child popup used handle 0 and the card preparation crashed.
+                            session = result.session,
                         ),
                     )
                     val matchedLength = matched.codePointCount(0, matched.length)

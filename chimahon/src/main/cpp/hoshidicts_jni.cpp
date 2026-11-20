@@ -42,6 +42,16 @@ namespace {
         }
     }
 
+    /*
+     * Every entry point that takes a session handle validates it first. A zero handle used to be
+     * dereferenced straight through, which killed the process instead of raising to Kotlin.
+     */
+    LookupObject *valid_object(JNIEnv *env, jlong session) {
+        LookupObject *obj = as_object(session);
+        if (!obj) failure(env, "Dictionary session is closed");
+        return obj;
+    }
+
     std::string jstring_to_std_string(JNIEnv *env, jstring input) {
         const char *chars = env->GetStringUTFChars(input, nullptr);
         std::string output(chars);
@@ -298,7 +308,8 @@ extern "C" JNIEXPORT void JNICALL
 Java_chimahon_HoshiDicts_rebuildQuery(JNIEnv *env, jobject, jlong session,
                                       jobjectArray term_paths, jobjectArray freq_paths,
                                       jobjectArray pitch_paths, jobjectArray kanji_paths) {
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return;
     obj->query = DictionaryQuery{};
     for_each_string(env, term_paths,
                     [&](const std::string &path) { obj->query.add_term_dict(path); });
@@ -313,7 +324,8 @@ Java_chimahon_HoshiDicts_rebuildQuery(JNIEnv *env, jobject, jlong session,
 
 extern "C" JNIEXPORT jobject JNICALL
 Java_chimahon_HoshiDicts_queryKanji(JNIEnv *env, jobject, jlong session, jstring character) {
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return nullptr;
     auto text_str = jstring_to_std_string(env, character);
     auto result = obj->query.query_kanji(text_str);
 
@@ -415,7 +427,8 @@ Java_chimahon_HoshiDicts_importDictionary(JNIEnv *env, jobject, jstring zip_path
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_chimahon_HoshiDicts_lookup(JNIEnv *env, jobject, jlong session, jstring text,
                                 jint max_results, jint scan_length) {
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return nullptr;
     auto text_str = jstring_to_std_string(env, text);
     auto result = obj->lookup->lookup(text_str, static_cast<int>(max_results),
                                       static_cast<size_t>(scan_length));
@@ -430,7 +443,8 @@ Java_chimahon_HoshiDicts_lookupProfiled(JNIEnv *env, jobject, jlong session, jst
                                       jint max_results, jint scan_length, jlong request_id) {
     dict_profile::Context context(request_id);
     dict_profile::Scope total("native.total");
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return nullptr;
     auto text_str = dict_profile::measure("jni.input", [&] { return jstring_to_std_string(env, text); });
     auto result = obj->lookup->lookup(text_str, static_cast<int>(max_results), static_cast<size_t>(scan_length));
     std::lock_guard<std::mutex> lock(obj->last_mutex);
@@ -440,7 +454,8 @@ Java_chimahon_HoshiDicts_lookupProfiled(JNIEnv *env, jobject, jlong session, jst
 
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_chimahon_HoshiDicts_query(JNIEnv *env, jobject, jlong session, jstring text) {
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return nullptr;
     auto text_str = jstring_to_std_string(env, text);
     auto results = obj->query.query(text_str);
     jclass cls = env->FindClass("chimahon/TermResult");
@@ -455,7 +470,8 @@ Java_chimahon_HoshiDicts_query(JNIEnv *env, jobject, jlong session, jstring text
 
 extern "C" JNIEXPORT jobjectArray JNICALL
 Java_chimahon_HoshiDicts_getStyles(JNIEnv *env, jobject, jlong session) {
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return nullptr;
     auto styles = obj->query.get_styles();
     return new_dictionary_style_array(env, styles);
 }
@@ -463,7 +479,8 @@ Java_chimahon_HoshiDicts_getStyles(JNIEnv *env, jobject, jlong session) {
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_chimahon_HoshiDicts_getMediaFile(JNIEnv *env, jobject, jlong session,
                                       jstring dict_name, jstring media_path) {
-    LookupObject *obj = as_object(session);
+    LookupObject *obj = valid_object(env, session);
+    if (!obj) return nullptr;
     auto dict_name_str = jstring_to_std_string(env, dict_name);
     auto media_path_str = jstring_to_std_string(env, media_path);
     auto data = obj->query.get_media_file(dict_name_str, media_path_str);
@@ -579,7 +596,8 @@ Java_chimahon_HoshiDicts_probeEntryTypes(JNIEnv *env, jobject, jstring dict_path
 extern "C" JNIEXPORT jbyteArray JNICALL
 Java_chimahon_HoshiDicts_cards(JNIEnv *env, jobject, jlong session, jboolean group_terms) {
     try {
-        LookupObject *obj = as_object(session);
+        LookupObject *obj = valid_object(env, session);
+        if (!obj) return nullptr;
         std::lock_guard<std::mutex> lock(obj->last_mutex);
         const auto &results = obj->last_results;
 
