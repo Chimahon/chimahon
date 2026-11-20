@@ -4,6 +4,69 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.5.2]
+
+### Fixed
+
+- Recursive dictionary popup crashing when it opened a child popup
+- Native dictionary renderer crashing on a lookup taken after the app had been idle
+- YouTube videos crashing when their stream data carried xtags entries
+
+## [v2.5.1]
+
+### Added
+
+- Kanji entries in the native renderer: stroke-order glyph, numbered meanings, wrapping readings and the WebView's statistics columns
+- Native dictionary renderer on Android 8-10, so Native is offered on every supported release
+- CSS `font-family` support in the native renderer, including serif and monospace fallbacks
+
+### Changed
+
+- Native pitch diagrams now use the WebView's geometry, colours and per-source layout
+- Popup font size and system font scale now apply to native dictionary text
+- NewPipe Extractor updated to v0.27.1 for YouTube episodes
+
+### Fixed
+
+- Native dictionary renderer crash when shaping text with a font face it had not preloaded
+- Native dictionary renderer ignoring the selected custom dictionary font
+- Native renderer using the wrong font for tag pills, frequency chips and recursive tab labels
+- External downloader never starting when a package was selected
+- Anki `{glossary-first}` exporting the selected dictionary instead of the first glossary
+
+## [v2.5.0]
+
+### Added
+
+- Optional native Compose dictionary glossary renderer, much faster than the WebView renderer
+- Anime subtitle font import
+- Subtitle audio padding controls
+- Anki app selection, including kuma3 and custom AnkiDroid-compatible packages
+
+### Changed
+
+- Novel browse library actions and badges
+- Anki glossary exports no longer repeat the inline style block
+
+### Fixed
+
+- Anime screenshots on image-wrapped streams
+- Webtoon lookup across page boundaries
+- Jimaku subtitles being lost after reopening the player
+- Anki browser showing only one matching note
+- Custom dictionary names and dictionary order in the popup
+- OCR outlines on rotated text lines
+- Mokuro OCR on downloaded chapters loading the wrong page
+- Novel character lookup through furigana
+- Furigana included in copied novel text
+- Novel browse scroll resets and missing-source loading
+- Novel search retries and source navigation
+- Novel global search across sources returning no results
+- Novel chapter selection and download feedback
+- Incognito mode in the novel reader
+- Anki `{glossary-plain}` markers exporting example sentences and ruby instead of definitions
+- Anime library filter dialog unreachable after filtering out every entry
+
 ## [v2.4.9]
 
 ### Changed

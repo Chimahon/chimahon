@@ -27,13 +27,18 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.domain.category.model.Category
@@ -57,9 +62,9 @@ class NovelLibraryScreenModel(
 
     init {
         screenModelScope.launch { migrateNovelJsonData.await() }
-        loadLibrary()
         // Sort choice survives restarts (manga parity); unknown stored
-        // values fall back to the default.
+        // values fall back to the default. Applied before the first load so
+        // the precomputed index already uses it.
         mutableState.update {
             it.copy(
                 sortMode = runCatching { SortMode.valueOf(libraryPreferences.sortMode().get()) }
@@ -67,18 +72,20 @@ class NovelLibraryScreenModel(
                 sortDescending = libraryPreferences.sortDescending().get(),
             )
         }
+        // The screen's LaunchedEffect(Unit) owns the first load and re-entry
+        // refresh; loading here as well scanned twice on first display.
 
         screenModelScope.launch {
             _searchQuery
                 .debounce(250)
                 .collect { query ->
-                    mutableState.update { it.copy(searchQuery = query) }
+                    applyIndexChange { it.copy(searchQuery = query) }
                 }
         }
 
         libraryPreferences.showHiddenCategories().changes()
             .onEach { showHiddenCategories ->
-                mutableState.update { it.copy(showHiddenCategories = showHiddenCategories) }
+                applyIndexChange { it.copy(showHiddenCategories = showHiddenCategories) }
             }
             .launchIn(screenModelScope)
     }
@@ -88,105 +95,183 @@ class NovelLibraryScreenModel(
         return runCatching { novelRepository.getNovelByLocalFolder(folder)?.id }.getOrNull()
     }
 
+    private val indexMutex = Mutex()
+    private var loadJob: Job? = null
+    private var reloadRequested = false
+
+    /**
+     * Applies a preference change and rebuilds the index against the newest
+     * data. The mutex stops a load from publishing an index built from older
+     * state (and vice versa) when both run at once.
+     */
+    private suspend fun applyIndexChange(transform: (State) -> State) {
+        indexMutex.withLock {
+            val current = mutableState.value
+            val updated = transform(current)
+            if (updated == current) return@withLock
+            val index = withContext(Dispatchers.Default) { updated.buildIndex() }
+            mutableState.update { live ->
+                live.copy(
+                    searchQuery = updated.searchQuery,
+                    sortMode = updated.sortMode,
+                    sortDescending = updated.sortDescending,
+                    showHiddenCategories = updated.showHiddenCategories,
+                    index = index,
+                )
+            }
+        }
+    }
+
     fun loadLibrary() {
-        screenModelScope.launch {
-            val categories = novelCategoryRepository.getAll().map { it.toUiCategory() }
-            // Source-built reader-cache books (src_*) are not library entries:
-            // only explicit imports and favorites appear here.
-            val books = BookStorage.loadAllBooks(app)
-                .filterNot { it.id.startsWith("src_") }
-            val sourceNovels = novelRepository.getFavorites()
-            val bookIds = books.map { it.id }.toSet()
-            val sourceManager = Injekt.get<chimahon.novel.manager.NovelSourceManager>()
-            val linkedSourceNovelIds = sourceNovels.filterNot { it.source == Novel.LOCAL_SOURCE_ID }
-                .mapNotNull { novel ->
-                    val folder = novel.localFolder?.takeIf { it in bookIds }
-                        ?: libraryPreferences.downloadedBookFolder(novel.id).get().takeIf { it in bookIds }
-                        ?: runCatching {
-                            (sourceManager.getNovelSource(novel.source) as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource)
-                                ?.downloadFolderId(novel.url)?.takeIf { it in bookIds }
-                        }.getOrNull()
-                    folder?.let { it to novel.id }
-                }.groupBy({ it.first }, { it.second })
-                .mapNotNull { (folder, ids) -> ids.singleOrNull()?.let { folder to it } }.toMap()
-            linkedSourceNovelIds.forEach { (folder, novelId) ->
-                libraryPreferences.downloadedBookFolder(novelId).set(folder)
-            }
-            val localRows = novelRepository.getNovelsBySourceId(Novel.LOCAL_SOURCE_ID)
-            val localNovelIds = localRows
-                .mapNotNull { row -> row.localFolder?.takeIf { it.isNotBlank() }?.let { it to row.id } }
-                .toMap()
-            val unreadCounts = novelChapterRepository
-                .getUnreadCountsByNovelIds(sourceNovels.map { it.id })
-            val lastReadTimestamps = novelHistoryRepository
-                .getLatestLastReadByNovelIds(sourceNovels.map { it.id })
-            val categoryMap = novelCategoryRepository
-                .getCategoryIdsByNovelIds(sourceNovels.map { it.id } + localNovelIds.values)
-            val downloadCounts = try {
-                val dm = Injekt.get<chimahon.novel.download.NovelDownloadManager>()
-                sourceNovels.associate { novel ->
-                    val chapters = novelChapterRepository.getChaptersByNovelId(novel.id)
-                    novel.id to dm.getDownloadedCount(novel.id, chapters).toLong()
-                }
-            } catch (_: Exception) { emptyMap() }
-            // Empty local entries (folder without readable content): derived
-            // per load, never stored. Readability is one shared check, so the
-            // badge and the tap handler always agree.
-            val booksWithoutContent = books
-                .filter { !BookStorage.hasReadableBookContent(app, it.id) }
-                .map { it.id }
-                .toSet()
-
-            mutableState.update {
-                val activeCategoryId = it.activeCategory?.id
-                val updated = it.copy(
-                    isLoading = false,
-                    categories = categories.toImmutableList(),
-                    books = books.toImmutableList(),
-                    sourceNovels = sourceNovels.toImmutableList(),
-                    unreadCounts = unreadCounts.toImmutableMap(),
-                    downloadCounts = downloadCounts.toImmutableMap(),
-                    lastReadTimestamps = lastReadTimestamps.toImmutableMap(),
-                    novelCategoryIds = categoryMap.toImmutableMap(),
-                    booksWithoutContent = booksWithoutContent,
-                    localNovelIds = localNovelIds,
-                    linkedSourceNovelIds = linkedSourceNovelIds,
-                )
-                updated.copy(
-                    activeCategoryIndex = updated.displayedCategories.indexOfFirst { category -> category.id == activeCategoryId }
-                        .takeIf { index -> index >= 0 } ?: updated.coercedActiveCategoryIndex,
-                )
-            }
-
-            // Orphan content dirs (files, no row — manually copied folders):
-            // register silently so history and resume work like any import.
-            // Books with a loose EPUB but nothing extracted yet count too —
-            // register() extracts on demand through the source. Rows missing a
-            // cover re-register as well (self-heal for the pre-EPUB-cover era).
-            // No reload; cards already render from the scan.
-            screenModelScope.launch {
-                runCatching {
-                    // Cache hygiene first: externally-deleted books orphan
-                    // their extraction cache; crashed imports leave temps.
-                    // Live = scan presence + rows (re-extract self-heals).
-                    BookStorage.pruneCaches(
-                        app,
-                        (books.map { it.id } + localNovelIds.keys).toSet(),
+        // A scan can take a while; a refresh requested during one used to be
+        // dropped. Remember it and rerun once the current pass finishes.
+        if (loadJob?.isActive == true) {
+            reloadRequested = true
+            return
+        }
+        loadJob = screenModelScope.launch {
+            try {
+                val snapshot = withContext(Dispatchers.IO) { readSnapshot() }
+                indexMutex.withLock {
+                    // Read the UI state after the scan: a query or sort change
+                    // made while it ran must not be overwritten by a stale index.
+                    val current = mutableState.value
+                    val candidate = current.copy(
+                        isLoading = false,
+                        categories = snapshot.categories.toImmutableList(),
+                        books = snapshot.books.toImmutableList(),
+                        sourceNovels = snapshot.sourceNovels.toImmutableList(),
+                        unreadCounts = snapshot.unreadCounts.toImmutableMap(),
+                        downloadCounts = snapshot.downloadCounts.toImmutableMap(),
+                        lastReadTimestamps = snapshot.lastReadTimestamps.toImmutableMap(),
+                        novelCategoryIds = snapshot.novelCategoryIds.toImmutableMap(),
+                        booksWithoutContent = snapshot.booksWithoutContent,
+                        localNovelIds = snapshot.localNovelIds,
+                        linkedSourceNovelIds = snapshot.linkedSourceNovelIds,
                     )
-                    val registrar = Injekt.get<RegisterLocalNovelHome>()
-                    val epubFolders = chimahon.novel.source.LocalNovelFiles.foldersWithEpub(app)
-                    val coverless = localRows
-                        .filter { it.thumbnailUrl.isNullOrBlank() }
-                        .mapNotNull { it.localFolder?.takeIf { f -> f.isNotBlank() } }
-                        .toSet()
-                    books.filter {
-                        // Readable = extracted content stages/can-stage, or a
-                        // loose public `.epub` (either scheme — register()
-                        // extracts on demand). Empty dirs stay out.
-                        (it.id !in localNovelIds || it.id in coverless) &&
-                            (it.id !in booksWithoutContent || it.id in epubFolders)
-                    }.forEach { runCatching { registrar.register(it.id) } }
+                    // Grouping and sorting are done once here, not per composition.
+                    val index = withContext(Dispatchers.Default) { candidate.buildIndex() }
+                    mutableState.update { live ->
+                        // Resolve against the live page: a swipe made while the
+                        // index was building must win over the page read before it.
+                        val activeCategoryId = live.activeCategory?.id
+                        val activeCategoryIndex = index.displayedCategories
+                            .indexOfFirst { category -> category.id == activeCategoryId }
+                            .takeIf { it >= 0 }
+                            ?: live.activeCategoryIndex.coerceIn(0, (index.displayedCategories.size - 1).coerceAtLeast(0))
+                        live.copy(
+                            isLoading = false,
+                            categories = candidate.categories,
+                            books = candidate.books,
+                            sourceNovels = candidate.sourceNovels,
+                            unreadCounts = candidate.unreadCounts,
+                            downloadCounts = candidate.downloadCounts,
+                            lastReadTimestamps = candidate.lastReadTimestamps,
+                            novelCategoryIds = candidate.novelCategoryIds,
+                            booksWithoutContent = candidate.booksWithoutContent,
+                            localNovelIds = candidate.localNovelIds,
+                            linkedSourceNovelIds = candidate.linkedSourceNovelIds,
+                            activeCategoryIndex = activeCategoryIndex,
+                            index = index,
+                        )
+                    }
                 }
+                screenModelScope.launch { registerMissingBooks(snapshot) }
+            } finally {
+                loadJob = null
+                if (reloadRequested) {
+                    reloadRequested = false
+                    loadLibrary()
+                }
+            }
+        }
+    }
+
+    private suspend fun readSnapshot(): NovelLibrarySnapshot {
+        val categories = novelCategoryRepository.getAll().map { it.toUiCategory() }
+        // Source-built reader-cache books (src_*) are not library entries:
+        // only explicit imports and favorites appear here.
+        val books = BookStorage.loadAllBooks(app)
+            .filterNot { it.id.startsWith("src_") }
+        val sourceNovels = novelRepository.getFavorites()
+        val bookIds = books.map { it.id }.toSet()
+        val sourceManager = Injekt.get<chimahon.novel.manager.NovelSourceManager>()
+        val linkedSourceNovelIds = sourceNovels.filterNot { it.source == Novel.LOCAL_SOURCE_ID }
+            .mapNotNull { novel ->
+                val folder = novel.localFolder?.takeIf { it in bookIds }
+                    ?: libraryPreferences.downloadedBookFolder(novel.id).get().takeIf { it in bookIds }
+                    ?: runCatching {
+                        (sourceManager.getNovelSource(novel.source) as? eu.kanade.tachiyomi.sourcenovel.NovelFileSource)
+                            ?.downloadFolderId(novel.url)?.takeIf { it in bookIds }
+                    }.getOrNull()
+                folder?.let { it to novel.id }
+            }.groupBy({ it.first }, { it.second })
+            .mapNotNull { (folder, ids) -> ids.singleOrNull()?.let { folder to it } }.toMap()
+        linkedSourceNovelIds.forEach { (folder, novelId) ->
+            libraryPreferences.downloadedBookFolder(novelId).set(folder)
+        }
+        val localRows = novelRepository.getNovelsBySourceId(Novel.LOCAL_SOURCE_ID)
+        val localNovelIds = localRows
+            .mapNotNull { row -> row.localFolder?.takeIf { it.isNotBlank() }?.let { it to row.id } }
+            .toMap()
+        val unreadCounts = novelChapterRepository
+            .getUnreadCountsByNovelIds(sourceNovels.map { it.id })
+        val lastReadTimestamps = novelHistoryRepository
+            .getLatestLastReadByNovelIds(sourceNovels.map { it.id })
+        val categoryMap = novelCategoryRepository
+            .getCategoryIdsByNovelIds(sourceNovels.map { it.id } + localNovelIds.values)
+        val downloadCounts = try {
+            val dm = Injekt.get<chimahon.novel.download.NovelDownloadManager>()
+            sourceNovels.associate { novel ->
+                val chapters = novelChapterRepository.getChaptersByNovelId(novel.id)
+                novel.id to dm.getDownloadedCount(novel.id, chapters).toLong()
+            }
+        } catch (_: Exception) { emptyMap() }
+        // Empty local entries (folder without readable content): derived
+        // per load, never stored. Readability is one shared check, so the
+        // badge and the tap handler always agree.
+        val booksWithoutContent = books
+            .filter { !BookStorage.hasReadableBookContent(app, it.id) }
+            .map { it.id }
+            .toSet()
+        return NovelLibrarySnapshot(
+            categories = categories,
+            books = books,
+            sourceNovels = sourceNovels,
+            unreadCounts = unreadCounts,
+            downloadCounts = downloadCounts,
+            lastReadTimestamps = lastReadTimestamps,
+            novelCategoryIds = categoryMap,
+            booksWithoutContent = booksWithoutContent,
+            localNovelIds = localNovelIds,
+            linkedSourceNovelIds = linkedSourceNovelIds,
+            localRows = localRows,
+        )
+    }
+
+    private suspend fun registerMissingBooks(snapshot: NovelLibrarySnapshot) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                // Cache hygiene first: externally-deleted books orphan
+                // their extraction cache; crashed imports leave temps.
+                // Live = scan presence + rows (re-extract self-heals).
+                BookStorage.pruneCaches(
+                    app,
+                    (snapshot.books.map { it.id } + snapshot.localNovelIds.keys).toSet(),
+                )
+                val registrar = Injekt.get<RegisterLocalNovelHome>()
+                val epubFolders = chimahon.novel.source.LocalNovelFiles.foldersWithEpub(app)
+                val coverless = snapshot.localRows
+                    .filter { it.thumbnailUrl.isNullOrBlank() }
+                    .mapNotNull { it.localFolder?.takeIf { f -> f.isNotBlank() } }
+                    .toSet()
+                snapshot.books.filter {
+                    // Readable = extracted content stages/can-stage, or a
+                    // loose public `.epub` (either scheme — register()
+                    // extracts on demand). Empty dirs stay out.
+                    (it.id !in snapshot.localNovelIds || it.id in coverless) &&
+                        (it.id !in snapshot.booksWithoutContent || it.id in epubFolders)
+                }.forEach { runCatching { registrar.register(it.id) } }
             }
         }
     }
@@ -504,6 +589,7 @@ class NovelLibraryScreenModel(
         val booksWithoutContent: Set<String> = emptySet(),
         val localNovelIds: Map<String, Long> = emptyMap(),
         val linkedSourceNovelIds: Map<String, Long> = emptyMap(),
+        val index: NovelLibraryIndex = NovelLibraryIndex.Empty,
         val deleteDialogDownloadFiles: Boolean = false,
     ) {
         val hasActiveFilters: Boolean
@@ -512,107 +598,20 @@ class NovelLibraryScreenModel(
         val selectionMode: Boolean = selection.isNotEmpty()
 
         val displayedCategories: List<NovelCategory>
-            get() = categories.filterNot {
-                it.isSystemCategory && getItemsForCategory(it).isEmpty()
-            }.filterNot {
-                it.hidden && !showHiddenCategories
-            }
+            get() = index.displayedCategories
 
         val coercedActiveCategoryIndex: Int
             get() = activeCategoryIndex.coerceIn(0, (displayedCategories.size - 1).coerceAtLeast(0))
-        
+
         val activeCategory: NovelCategory?
             get() = displayedCategories.getOrNull(coercedActiveCategoryIndex)
 
         fun getItemsForCategory(category: NovelCategory): List<NovelLibraryItem> {
-            val query = searchQuery
-            val localItems = books
-                .filter { query == null || it.title?.contains(query, ignoreCase = true) == true }
-                .map { NovelLibraryItem.LocalBook(it) }
-            val sourceItems = sourceNovels
-                // Local-source rows are represented by the file-scan cards above
-                // (LocalBook owns MISSING/add-files/folder routing); rendering both
-                // showed every import twice.
-                .filterNot { it.source == Novel.LOCAL_SOURCE_ID }
-                .filterNot { it.id in linkedSourceNovelIds.values }
-                .filter { query == null || it.title.contains(query, ignoreCase = true) }
-                .map { NovelLibraryItem.SourceNovel(it, unreadCount = unreadCounts[it.id]?.toInt() ?: 0, downloadCount = downloadCounts[it.id]?.toInt() ?: 0) }
-
-            val knownCategoryIds = categories.map { it.id }.toSet()
-            val allItems = (localItems + sourceItems).filter { item ->
-                when (item) {
-                    is NovelLibraryItem.LocalBook -> {
-                        // Row joins win; the sidecar survives only for
-                        // never-registered books.
-                        val novelId = linkedSourceNovelIds[item.metadata.id] ?: localNovelIds[item.metadata.id]
-                        if (novelId != null) {
-                            val rowIds = novelCategoryIds[novelId].orEmpty().filter { it > 0L }
-                            if (category.isSystemCategory) {
-                                rowIds.isEmpty()
-                            } else {
-                                val dbId = category.id.toLongOrNull()
-                                dbId != null && rowIds.contains(dbId)
-                            }
-                        } else {
-                            val ids = item.metadata.normalizedCategoryIds(knownCategoryIds)
-                            if (category.isSystemCategory) {
-                                ids.isEmpty() || ids.contains(NovelCategory.UNCATEGORIZED_ID)
-                            } else {
-                                ids.contains(category.id)
-                            }
-                        }
-                    }
-                    is NovelLibraryItem.SourceNovel -> {
-                        // Absence of join rows = Default/system category (manga convention)
-                        val ids = novelCategoryIds[item.novel.id].orEmpty().filter { it > 0L }
-                        if (category.isSystemCategory) {
-                            ids.isEmpty()
-                        } else {
-                            val dbId = category.id.toLongOrNull()
-                            dbId != null && ids.contains(dbId)
-                        }
-                    }
-                }
-            }
-            val comparator: Comparator<NovelLibraryItem> = when (sortMode) {
-                SortMode.Alphabetical -> compareBy({ it.title.lowercase() }, { it.id })
-                SortMode.DateAdded -> compareBy<NovelLibraryItem> { item ->
-                    when (item) {
-                        is NovelLibraryItem.LocalBook -> item.metadata.dateAdded
-                        is NovelLibraryItem.SourceNovel -> item.novel.dateAdded
-                    }
-                }
-                SortMode.LastRead -> compareBy<NovelLibraryItem> { item ->
-                    when (item) {
-                        is NovelLibraryItem.LocalBook -> item.metadata.lastAccess
-                        is NovelLibraryItem.SourceNovel ->
-                            lastReadTimestamps[item.novel.id] ?: 0L
-                    }
-                }
-            }
-            val tieBreaker = compareBy<NovelLibraryItem>({ it.title.lowercase() }, { it.id })
-            return if (sortDescending) {
-                allItems.sortedWith(comparator.reversed().then(tieBreaker))
-            } else {
-                allItems.sortedWith(comparator.then(tieBreaker))
-            }
-        }
-
-        private fun BookMetadata.normalizedCategoryIds(knownCategoryIds: Set<String>): List<String> {
-            val distinctIds = categoryIds
-                .filter { it.isNotBlank() }
-                .distinct()
-
-            val nonDefaultIds = distinctIds.filterNot { it == NovelCategory.UNCATEGORIZED_ID }
-            return if (nonDefaultIds.isNotEmpty()) {
-                nonDefaultIds.filter { it in knownCategoryIds }
-            } else {
-                distinctIds
-            }
+            return index.itemsFor(category)
         }
 
         fun getItemCountForCategory(category: NovelCategory): Int {
-            return getItemsForCategory(category).size
+            return index.countFor(category)
         }
 
         fun getToolbarTitle(
@@ -637,10 +636,37 @@ class NovelLibraryScreenModel(
         }
     }
     
+    private fun State.buildIndex(
+        searchQuery: String? = this.searchQuery,
+        sortMode: SortMode = this.sortMode,
+        sortDescending: Boolean = this.sortDescending,
+        showHiddenCategories: Boolean = this.showHiddenCategories,
+    ): NovelLibraryIndex {
+        return buildNovelLibraryIndex(
+            NovelLibraryIndexInput(
+                categories = categories,
+                books = books,
+                sourceNovels = sourceNovels,
+                searchQuery = searchQuery,
+                sortMode = sortMode,
+                sortDescending = sortDescending,
+                showHiddenCategories = showHiddenCategories,
+                unreadCounts = unreadCounts,
+                downloadCounts = downloadCounts,
+                lastReadTimestamps = lastReadTimestamps,
+                novelCategoryIds = novelCategoryIds,
+                localNovelIds = localNovelIds,
+                linkedSourceNovelIds = linkedSourceNovelIds,
+            ),
+        )
+    }
+
     fun setSort(mode: SortMode, descending: Boolean) {
         libraryPreferences.sortMode().set(mode.name)
         libraryPreferences.sortDescending().set(descending)
-        mutableState.update { it.copy(sortMode = mode, sortDescending = descending) }
+        screenModelScope.launch {
+            applyIndexChange { it.copy(sortMode = mode, sortDescending = descending) }
+        }
     }
     
     fun showSortDialog() {

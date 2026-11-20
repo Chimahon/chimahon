@@ -56,6 +56,10 @@ enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 rootProject.name = "Komikku"
 include(":chimahon")
 project(":chimahon").projectDir = file("chimahon")
+if (providers.gradleProperty("includeLocalDictionaryHarness").orNull == "true") {
+    include(":dictionary-fidelity")
+    project(":dictionary-fidelity").projectDir = file("tools/dictionary-harness/fidelity")
+}
 include(":app")
 include(":core-metadata")
 include(":core:archive")

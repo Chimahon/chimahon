@@ -2,6 +2,7 @@ package chimahon.novel.data
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,30 +32,47 @@ object FontManager {
     }
 
     suspend fun importFont(context: Context, uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        var temporary: File? = null
         try {
-            val fileName = getFileName(context, uri) ?: "imported_font_${System.currentTimeMillis()}.ttf"
-            val targetFile = File(getFontsDir(context), fileName)
-
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                targetFile.outputStream().use { output ->
+            val fileName = getFileName(context, uri)?.let { File(it).name }
+                ?.takeUnless { it.isBlank() || it == "." || it == ".." }
+                ?: "imported_font_${System.currentTimeMillis()}.ttf"
+            val directory = getFontsDir(context)
+            val pending = File.createTempFile("font_", ".tmp", directory)
+            temporary = pending
+            val input = context.contentResolver.openInputStream(uri) ?: return@withContext false
+            input.use {
+                pending.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
-            true
+            if (pending.length() == 0L) return@withContext false
+            var target = File(directory, fileName)
+            var suffix = 2
+            while (target.exists()) {
+                val name = File(fileName)
+                target = File(directory, "${name.nameWithoutExtension} (${suffix++}).${name.extension}")
+            }
+            pending.renameTo(target)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        } finally {
+            temporary?.delete()
         }
     }
 
     fun getImportedFonts(context: Context): List<String> {
         val dir = getFontsDir(context)
-        return dir.listFiles()?.map { it.nameWithoutExtension } ?: emptyList()
+        return dir.listFiles()?.filter { it.isFile && it.extension != "tmp" }
+            ?.map { it.nameWithoutExtension } ?: emptyList()
     }
 
     fun getFontFile(context: Context, fontName: String): File? {
         val dir = getFontsDir(context)
-        return dir.listFiles()?.find { it.nameWithoutExtension == fontName }
+        return dir.listFiles()?.find { it.isFile && it.extension != "tmp" && it.nameWithoutExtension == fontName }
     }
 
     fun deleteFont(context: Context, fontName: String) {

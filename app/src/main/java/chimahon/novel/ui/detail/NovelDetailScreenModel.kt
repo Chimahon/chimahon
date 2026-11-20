@@ -16,6 +16,7 @@ import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.source.LocalNovelFiles
 import eu.kanade.presentation.entries.DownloadAction
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNChapter
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
@@ -101,7 +102,10 @@ data class NovelDetailState(
     val sortDescending: Boolean = true,
     val unreadOnly: Boolean = false,
     val bookmarkedOnly: Boolean = false,
-)
+) {
+    val visibleChapters: List<NovelChapterItem>
+        get() = chapters.filter { (!unreadOnly || !it.isRead) && (!bookmarkedOnly || it.isBookmarked) }
+}
 
 class NovelDetailScreenModel(
     private val novel: SNNovel,
@@ -464,9 +468,17 @@ class NovelDetailScreenModel(
         }
     }
 
-    fun downloadChapter(chapter: NovelChapterItem) {
+    fun downloadChapter(chapter: NovelChapterItem, startNow: Boolean = false) {
         val dbNovel = cachedDbNovel ?: return
-        downloadManager.downloadChapters(dbNovel, listOf(chapter.snChapter), source, mutableState.value.novel)
+        if (startNow && downloadManager.getDownloadState(chapter.id) == chimahon.novel.download.NovelDownload.State.QUEUED) {
+            downloadManager.startNow(chapter.id)
+            return
+        }
+        downloadManager.downloadChapters(dbNovel, listOf(chapter.snChapter), source, mutableState.value.novel, startNow)
+    }
+
+    fun cancelChapterDownload(chapter: NovelChapterItem) {
+        downloadManager.cancelChapter(chapter.id)
     }
 
     fun deleteChapterDownload(chapter: NovelChapterItem) {
@@ -518,7 +530,7 @@ class NovelDetailScreenModel(
                 val client = fileSource.downloadClient() ?: Injekt.get<NetworkHelper>().client
                 val requestBuilder = okhttp3.Request.Builder()
                     .url(fileUrl)
-                    .header("User-Agent", "Mozilla/5.0")
+                    .header("User-Agent", Injekt.get<NetworkPreferences>().defaultUserAgent().get())
                 fileSource.downloadHeaders(novel.url).forEach { (name, value) -> requestBuilder.header(name, value) }
                 val tmpFile = java.io.File(app.cacheDir, "book_${java.util.UUID.randomUUID()}.epub")
                 temporary = tmpFile
@@ -806,9 +818,25 @@ class NovelDetailScreenModel(
         markPreviousAsRead(first)
     }
 
-    fun toggleChapterSelection(chapterId: Long) {
+    fun toggleChapterSelection(chapterId: Long, fromLongPress: Boolean = false) {
         val current = mutableState.value.selectedChapters.toMutableSet()
-        if (chapterId in current) current.remove(chapterId) else current.add(chapterId)
+        if (chapterId in current) {
+            current.remove(chapterId)
+        } else {
+            val visible = mutableState.value.visibleChapters
+            val index = visible.indexOfFirst { it.id == chapterId }
+            val selected = visible.indices.filter { visible[it].id in current }
+            if (fromLongPress && index >= 0 && selected.isNotEmpty()) {
+                val range = when {
+                    index < selected.first() -> index..selected.first()
+                    index > selected.last() -> selected.last()..index
+                    else -> index..index
+                }
+                current.addAll(range.map { visible[it].id })
+            } else {
+                current.add(chapterId)
+            }
+        }
         mutableState.value = mutableState.value.copy(
             selectedChapters = current,
             selectionMode = current.isNotEmpty(),
@@ -824,13 +852,13 @@ class NovelDetailScreenModel(
 
     fun selectAll() {
         mutableState.value = mutableState.value.copy(
-            selectedChapters = mutableState.value.chapters.map { it.id }.toSet(),
-            selectionMode = true,
+            selectedChapters = mutableState.value.visibleChapters.map { it.id }.toSet(),
+            selectionMode = mutableState.value.visibleChapters.isNotEmpty(),
         )
     }
 
     fun invertSelection() {
-        val all = mutableState.value.chapters.map { it.id }.toSet()
+        val all = mutableState.value.visibleChapters.map { it.id }.toSet()
         val current = mutableState.value.selectedChapters
         val inverted = all - current
         mutableState.value = mutableState.value.copy(

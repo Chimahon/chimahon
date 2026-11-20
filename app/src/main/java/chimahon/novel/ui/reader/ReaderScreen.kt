@@ -210,7 +210,8 @@ fun ReaderScreen(
             val ttuSyncManager = runCatching {
                 Injekt.get<TtuSyncManager>()
             }.getOrNull()
-            if (ttuSyncManager?.isEnabled == true && ttuSyncManager.autoSyncOnOpen) {
+            val incognitoMode = Injekt.get<eu.kanade.domain.source.interactor.GetIncognitoState>().await(null)
+            if (!incognitoMode && ttuSyncManager?.isEnabled == true && ttuSyncManager.autoSyncOnOpen) {
                 loadingMessage = "Syncing reading progress..."
                 withContext(Dispatchers.IO) {
                     val folder = book.folder ?: rootUrl.name
@@ -234,6 +235,7 @@ fun ReaderScreen(
                     scope = scope,
                     openNovelId = novelId,
                     openChapterIndex = chapterIndex,
+                    incognitoMode = incognitoMode,
                 )
             }
             ReaderLoadState.Ready(viewModel)

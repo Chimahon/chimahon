@@ -15,19 +15,16 @@ import chimahon.dictionary.it.ItalianDeinflector
  */
 object DeinflectorRegistry {
 
-    private val registry = mapOf(
-        "ar" to ArabicDeinflector,
-        "ko" to KoreanDeinflector,
-        "en" to EnglishDeinflector,
-        "zh" to ChineseDeinflector,
-        "de" to GermanDeinflector,
-        "fr" to FrenchDeinflector,
-        "ru" to RussianDeinflector,
-        "es" to SpanishDeinflector,
-        "it" to ItalianDeinflector
-    )
-
-    fun get(languageCode: String): Deinflector? {
-        return registry[languageCode]
+    fun get(languageCode: String): Deinflector? = when (languageCode) {
+        "ar" -> ArabicDeinflector
+        "ko" -> KoreanDeinflector
+        "en" -> EnglishDeinflector
+        "zh" -> ChineseDeinflector
+        "de" -> GermanDeinflector
+        "fr" -> FrenchDeinflector
+        "ru" -> RussianDeinflector
+        "es" -> SpanishDeinflector
+        "it" -> ItalianDeinflector
+        else -> null
     }
 }

@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -55,6 +56,8 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.manager.NovelSourceManager
 import chimahon.novel.ui.detail.NovelDetailScreen
+import eu.kanade.presentation.browse.components.InLibraryBadge
+import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.library.components.CommonMangaItemDefaults
 import eu.kanade.presentation.library.components.MangaComfortableGridItem
 import eu.kanade.presentation.library.components.MangaCompactGridItem
@@ -95,14 +98,33 @@ data class BrowseNovelSourceScreen(
         val sourceManager = remember { Injekt.get<chimahon.novel.manager.NovelSourceManager>() }
         val sources by sourceManager.catalogueSources.collectAsState(initial = emptyList())
         val source = remember(sources, sourceId) { sources.find { it.id == sourceId } }
+        val sourcesReady by sourceManager.isInitialized.collectAsState()
+        val navigator = LocalNavigator.currentOrThrow
         if (source == null) {
-            LoadingScreen()
+            Scaffold(
+                topBar = { scrollBehavior ->
+                    AppBar(
+                        title = sourceManager.getOrStub(sourceId).name,
+                        navigateUp = navigator::pop,
+                        scrollBehavior = scrollBehavior,
+                    )
+                },
+            ) { paddingValues ->
+                if (sourcesReady) {
+                    EmptyScreen(
+                        message = stringResource(MR.strings.source_not_installed, sourceManager.getOrStub(sourceId).name),
+                        modifier = Modifier.padding(paddingValues),
+                    )
+                } else {
+                    LoadingScreen(Modifier.padding(paddingValues))
+                }
+            }
             return
         }
         val screenModel = rememberScreenModel { BrowseNovelSourceScreenModel(sourceId, initialListing) }
         val state by screenModel.state.collectAsState()
+        val libraryAction = novelBrowseLibraryActions()
 
-        val navigator = LocalNavigator.currentOrThrow
         val snackbarHostState = remember { SnackbarHostState() }
         val retryLabel = stringResource(MR.strings.action_retry)
         LaunchedEffect(state.error) {
@@ -253,22 +275,26 @@ data class BrowseNovelSourceScreen(
             },
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         ) { paddingValues ->
-            BrowseNovelSourceContent(
-                sourceId = source.id,
-                novels = state.novels,
-                isLoading = state.isLoading,
-                hasNextPage = state.hasNextPage,
-                loadedPage = state.loadedPage,
-                error = state.error,
-                columns = screenModel.getColumnsPreference(LocalConfiguration.current.orientation),
-                displayMode = screenModel.displayMode,
-                contentPadding = paddingValues,
-                onNovelClick = { navigator.push(NovelDetailScreen(it, sourceId)) },
-                onLoadMore = screenModel::loadNextPage,
-                onRequestCover = screenModel::requestCover,
-                onRetryClick = screenModel::retry,
-                onWebViewClick = openInWebView.takeIf { canOpenInWebView },
-            )
+            key(state.listingGeneration) {
+                BrowseNovelSourceContent(
+                    sourceId = source.id,
+                    novels = state.novels,
+                    isLoading = state.isLoading,
+                    hasNextPage = state.hasNextPage,
+                    loadedPage = state.loadedPage,
+                    error = state.error,
+                    columns = screenModel.getColumnsPreference(LocalConfiguration.current.orientation),
+                    displayMode = screenModel.displayMode,
+                    contentPadding = paddingValues,
+                    onNovelClick = { navigator.push(NovelDetailScreen(it, sourceId)) },
+                    onNovelLongClick = { libraryAction(it, source) },
+                    onLoadMore = screenModel::loadNextPage,
+                    onRequestCover = screenModel::requestCover,
+                    onRetryClick = screenModel::retry,
+                    onWebViewClick = openInWebView.takeIf { canOpenInWebView },
+                    libraryUrls = state.libraryUrls,
+                )
+            }
         }
     }
 }
@@ -284,11 +310,13 @@ internal fun BrowseNovelSourceContent(
     displayMode: LibraryDisplayMode,
     contentPadding: PaddingValues,
     onNovelClick: (SNNovel) -> Unit,
+    onNovelLongClick: (SNNovel) -> Unit,
     onLoadMore: () -> Unit,
     onRequestCover: (SNNovel) -> Unit,
     onRetryClick: () -> Unit,
     onWebViewClick: (() -> Unit)? = null,
     loadedPage: Int = 0,
+    libraryUrls: Set<String> = emptySet(),
 ) {
     val gridState = rememberLazyGridState()
     LaunchedEffect(
@@ -346,8 +374,10 @@ internal fun BrowseNovelSourceContent(
                 contentPadding = contentPadding,
                 isLoading = isLoading,
                 onNovelClick = onNovelClick,
+                onNovelLongClick = onNovelLongClick,
                 onRequestCover = onRequestCover,
                 usePanoramaCover = false,
+                libraryUrls = libraryUrls,
             )
         }
         LibraryDisplayMode.ComfortableGridPanorama -> {
@@ -359,8 +389,10 @@ internal fun BrowseNovelSourceContent(
                 contentPadding = contentPadding,
                 isLoading = isLoading,
                 onNovelClick = onNovelClick,
+                onNovelLongClick = onNovelLongClick,
                 onRequestCover = onRequestCover,
                 usePanoramaCover = true,
+                libraryUrls = libraryUrls,
             )
         }
         LibraryDisplayMode.List -> {
@@ -371,10 +403,12 @@ internal fun BrowseNovelSourceContent(
                 isLoading = isLoading,
                 hasNextPage = hasNextPage,
                 onNovelClick = onNovelClick,
+                onNovelLongClick = onNovelLongClick,
                 onRequestCover = onRequestCover,
                 onLoadMore = onLoadMore,
                 loadedPage = loadedPage,
                 error = error,
+                libraryUrls = libraryUrls,
             )
         }
         else -> {
@@ -386,8 +420,10 @@ internal fun BrowseNovelSourceContent(
                 contentPadding = contentPadding,
                 isLoading = isLoading,
                 onNovelClick = onNovelClick,
+                onNovelLongClick = onNovelLongClick,
                 onRequestCover = onRequestCover,
                 showTitle = displayMode != LibraryDisplayMode.CoverOnlyGrid,
+                libraryUrls = libraryUrls,
             )
         }
     }
@@ -402,8 +438,10 @@ private fun BrowseNovelSourceCompactGrid(
     contentPadding: PaddingValues,
     isLoading: Boolean,
     onNovelClick: (SNNovel) -> Unit,
+    onNovelLongClick: (SNNovel) -> Unit,
     onRequestCover: (SNNovel) -> Unit,
     showTitle: Boolean,
+    libraryUrls: Set<String>,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -424,7 +462,9 @@ private fun BrowseNovelSourceCompactGrid(
                     lastModified = 0L,
                 ),
                 onClick = { onNovelClick(novel) },
-                onLongClick = {},
+                onLongClick = { onNovelLongClick(novel) },
+                coverAlpha = if (novel.url in libraryUrls) CommonMangaItemDefaults.BrowseFavoriteCoverAlpha else 1f,
+                coverBadgeStart = { InLibraryBadge(enabled = novel.url in libraryUrls) },
             )
         }
         if (isLoading) {
@@ -449,8 +489,10 @@ private fun BrowseNovelSourceComfortableGrid(
     contentPadding: PaddingValues,
     isLoading: Boolean,
     onNovelClick: (SNNovel) -> Unit,
+    onNovelLongClick: (SNNovel) -> Unit,
     onRequestCover: (SNNovel) -> Unit,
     usePanoramaCover: Boolean,
+    libraryUrls: Set<String>,
 ) {
     LazyVerticalGrid(
         state = gridState,
@@ -472,7 +514,9 @@ private fun BrowseNovelSourceComfortableGrid(
                 ),
                 usePanoramaCover = usePanoramaCover,
                 onClick = { onNovelClick(novel) },
-                onLongClick = {},
+                onLongClick = { onNovelLongClick(novel) },
+                coverAlpha = if (novel.url in libraryUrls) CommonMangaItemDefaults.BrowseFavoriteCoverAlpha else 1f,
+                coverBadgeStart = { InLibraryBadge(enabled = novel.url in libraryUrls) },
             )
         }
         if (isLoading) {
@@ -501,10 +545,12 @@ private fun BrowseNovelSourceList(
     isLoading: Boolean,
     hasNextPage: Boolean,
     onNovelClick: (SNNovel) -> Unit,
+    onNovelLongClick: (SNNovel) -> Unit,
     onRequestCover: (SNNovel) -> Unit,
     onLoadMore: () -> Unit,
     loadedPage: Int,
     error: String?,
+    libraryUrls: Set<String>,
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(
@@ -537,9 +583,10 @@ private fun BrowseNovelSourceList(
                     ogUrl = novel.thumbnail_url,
                     lastModified = 0L,
                 ),
-                badge = {},
+                badge = { InLibraryBadge(enabled = novel.url in libraryUrls) },
+                coverAlpha = if (novel.url in libraryUrls) CommonMangaItemDefaults.BrowseFavoriteCoverAlpha else 1f,
                 onClick = { onNovelClick(novel) },
-                onLongClick = {},
+                onLongClick = { onNovelLongClick(novel) },
             )
         }
         if (isLoading) {

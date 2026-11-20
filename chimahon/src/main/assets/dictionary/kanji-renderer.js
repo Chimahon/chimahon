@@ -34,7 +34,7 @@
     inner.className = 'tag-label';
     var content = document.createElement('span');
     content.className = 'tag-label-content';
-    content.textContent = entry.dictName || 'Unknown';
+    content.textContent = entry.displayName || entry.dictName || 'Unknown';
     inner.appendChild(content);
     tag.appendChild(inner);
     tagList.appendChild(tag);

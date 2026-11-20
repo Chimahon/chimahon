@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.dictionary
 
+import chimahon.anki.AnkiAppSelection
 import chimahon.anki.AnkiProfile
 import chimahon.anki.AnkiProfileStore
 import chimahon.audio.WordAudioPreferences
@@ -120,6 +121,17 @@ class DictionaryPreferences(
 
     fun customCss() = preferenceStore.getString("pref_dictionary_custom_css", "")
 
+    /** One of [RENDERER_WEBVIEW] (default) or [RENDERER_COMPOSE]. */
+    private val rendererPreference by lazy {
+        val stored = if (eu.kanade.tachiyomi.BuildConfig.NATIVE_RENDERER_DIAGNOSTICS) {
+            preferenceStore.getString("pref_dictionary_renderer_native_diagnostics", RENDERER_COMPOSE)
+        } else preferenceStore.getString("pref_dictionary_renderer", RENDERER_WEBVIEW)
+        if (stored.get() == "plain_text") stored.set(RENDERER_COMPOSE)
+        stored
+    }
+
+    fun renderer(): Preference<String> = rendererPreference
+
     // -------------------------------------------------------------------------
     // Profile storage (raw pref keys — consumed by AnkiProfileStore and settings UI)
     // -------------------------------------------------------------------------
@@ -231,6 +243,12 @@ class DictionaryPreferences(
     }
 
     // -------------------------------------------------------------------------
+    // Anki app (AnkiDroid or an AnkiDroid-API-compatible fork)
+    // -------------------------------------------------------------------------
+
+    fun ankiAppPackage() = preferenceStore.getString("pref_anki_app_package", AnkiAppSelection.DEFAULT_PACKAGE)
+
+    // -------------------------------------------------------------------------
     // Legacy flat-key READERS — only used for one-time migration.
     // -------------------------------------------------------------------------
 
@@ -314,6 +332,9 @@ class DictionaryPreferences(
 
         const val SCROLL_SMOOTH = "smooth"
         const val SCROLL_INSTANT = "instant"
+
+        const val RENDERER_WEBVIEW = "webview"
+        const val RENDERER_COMPOSE = "compose"
     }
 
     // -------------------------------------------------------------------------

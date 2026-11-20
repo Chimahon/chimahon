@@ -47,17 +47,22 @@ class JimakuApi(
 
     suspend fun downloadFile(apiKey: String, file: JimakuFile, outputDir: File): File {
         outputDir.mkdirs()
-        val outputFile = File(outputDir, file.name.toSafeFileName()).apply {
-            if (exists()) delete()
-        }
-        client.newCall(GET(file.url, authorizationHeaders(apiKey)))
-            .awaitSuccess()
-            .use { response ->
-                outputFile.outputStream().use { output ->
-                    response.body.byteStream().use { input -> input.copyTo(output) }
+        val outputFile = File(outputDir, file.name.toSafeFileName())
+        val temporary = File.createTempFile(".jimaku-", ".tmp", outputDir)
+        try {
+            client.newCall(GET(file.url, authorizationHeaders(apiKey)))
+                .awaitSuccess()
+                .use { response ->
+                    temporary.outputStream().use { output ->
+                        response.body.byteStream().use { input -> input.copyTo(output) }
+                    }
                 }
-            }
-        return outputFile
+            check(temporary.length() > 0) { "Empty Jimaku subtitle" }
+            check(temporary.renameTo(outputFile)) { "Could not save Jimaku subtitle" }
+            return outputFile
+        } finally {
+            temporary.delete()
+        }
     }
 
     private fun authorizationHeaders(apiKey: String): Headers {

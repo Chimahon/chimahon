@@ -120,9 +120,15 @@ class OcrSubsamplingImageView(
 
         // Draw passive OCR text boxes at the configured opacity. The active tapped
         // box keeps the old transparent-background feel and paints only the OCR text.
+        // Seam OCR keeps full line geometry; clip at the image edge without shrinking it.
+        val imageTopLeft = sourceToViewCoord(0f, 0f) ?: return
+        val imageBottomRight = sourceToViewCoord(sWidth.toFloat(), sHeight.toFloat()) ?: return
+        canvas.save()
+        canvas.clipRect(imageTopLeft.x, imageTopLeft.y, imageBottomRight.x, imageBottomRight.y)
         for (block in host.ocrBlocks) {
             drawOcrBlock(canvas, block, host)
         }
+        canvas.restore()
     }
 
     /**
@@ -149,7 +155,8 @@ class OcrSubsamplingImageView(
         val screenW = brScreen.x - tlScreen.x
         val screenH = brScreen.y - tlScreen.y
 
-        if (host.ocrOutlineVisible) {
+        val hasLineGeometry = block.lineGeometries?.size == block.lines.size
+        if (host.ocrOutlineVisible && !hasLineGeometry) {
             canvas.drawRect(
                 tlScreen.x,
                 tlScreen.y,
@@ -181,7 +188,7 @@ class OcrSubsamplingImageView(
 
         val textAlpha = (255 * host.ocrBoxOpacity).roundToInt().coerceIn(0, 255)
         val backgroundAlpha = (255 * host.ocrBoxOpacity).roundToInt().coerceIn(0, 255)
-        if (textAlpha > 0 || backgroundAlpha > 0) {
+        if (textAlpha > 0 || backgroundAlpha > 0 || (host.ocrOutlineVisible && hasLineGeometry)) {
             drawOcrTextBox(
                 canvas = canvas,
                 block = block,
@@ -279,7 +286,7 @@ class OcrSubsamplingImageView(
         if (text.isBlank()) return
 
         val rect = getLineRect(geo, host.ocrBoxScaleX, host.ocrBoxScaleY) ?: return
-        val lineIsVertical = isVertical || (geo.ymax - geo.ymin) / (geo.xmax - geo.xmin) > 1.2f
+        val lineIsVertical = OcrHitTester.isLineVertical(isVertical, geo.xmin, geo.ymin, geo.xmax, geo.ymax)
         val matchedStart = host.activeOcrCharOffset - lineStartOffset
         val matchedEnd = matchedStart + host.activeOcrMatchedCount
         OcrTextOverlayPainter.drawLine(
@@ -292,6 +299,7 @@ class OcrSubsamplingImageView(
             scaleCompensation = getParentScaleCompensation(),
             textPaint = textPaint,
             backgroundPaint = backgroundPaint,
+            borderPaint = borderPaint.takeIf { host.ocrOutlineVisible },
             highlightPaint = if (highlightMatches && host.activeOcrMatchedCount > 0) highlightPaint else null,
             highlightRange = if (highlightMatches && host.activeOcrMatchedCount > 0) matchedStart until matchedEnd else null,
             drawVerticalCharacter = ::drawVerticalChar,
@@ -382,6 +390,11 @@ class OcrSubsamplingImageView(
         val result = RectF(rects[0])
         for (i in 1 until rects.size) {
             result.union(rects[i])
+        }
+        if (block.sharedId != null) {
+            val topLeft = sourceToViewCoord(0f, 0f) ?: return null
+            val bottomRight = sourceToViewCoord(sWidth.toFloat(), sHeight.toFloat()) ?: return null
+            if (!result.intersect(topLeft.x, topLeft.y, bottomRight.x, bottomRight.y)) return null
         }
 
         // Convert view-relative to screen-relative coordinates
@@ -631,6 +644,7 @@ class OcrSubsamplingImageView(
         // Convert source coordinates to normalized coordinates
         val nx = sourcePoint.x / sWidth
         val ny = sourcePoint.y / sHeight
+        if (nx !in 0f..1f || ny !in 0f..1f) return null
 
         // Keep OCR hit testing precise but allow tiny edge tolerance for side taps.
         val edgePaddingViewPx = 2f * context.resources.displayMetrics.density

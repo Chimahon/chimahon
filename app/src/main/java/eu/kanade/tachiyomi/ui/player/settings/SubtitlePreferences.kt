@@ -22,6 +22,8 @@ class SubtitlePreferences(
     fun subtitleWhitelist() = preferenceStore.getString("pref_subtitle_whitelist", "")
     fun subtitleBlacklist() = preferenceStore.getString("pref_subtitle_blacklist", "")
     fun subtitleBlackBars() = preferenceStore.getBoolean("pref_subtitle_black_bars", true)
+    fun subtitleAudioPaddingBeforeMillis() = preferenceStore.getInt("pref_subtitle_audio_padding_before_ms", 100)
+    fun subtitleAudioPaddingAfterMillis() = preferenceStore.getInt("pref_subtitle_audio_padding_after_ms", 500)
     fun jimakuApiKey() = preferenceStore.getString(Preference.privateKey(JIMAKU_API_KEY), "")
     fun jimakuTitle() = preferenceStore.getString("pref_jimaku_title", "")
     fun subtitleRegexRemoveSpeakerNames() = preferenceStore.getBoolean(
@@ -124,6 +126,8 @@ class SubtitlePreferences(
         ?: subtitlesSecondaryDelayForAnime(animeId)
 
     companion object {
+        const val AUDIO_PADDING_MAX_MILLIS = 2_000
+
         const val POSITION_MIN = 0
         const val POSITION_DEFAULT = 100
         const val POSITION_MAX = 150

@@ -857,7 +857,11 @@
     <string name="pref_anki_duplicate_overwrite">Update existing</string>
     <string name="pref_anki_screenshot_animated_scene">Animated Scene</string>
     <string name="pref_anki_default_tags">Default tags</string>
-    <string name="pref_anki_no_ankidroid">AnkiDroid is not installed</string>
+    <string name="pref_anki_no_ankidroid">The selected Anki app is not installed or does not expose the AnkiDroid API</string>
+    <string name="pref_anki_app">Anki app</string>
+    <string name="pref_anki_app_custom">Custom package</string>
+    <string name="pref_anki_app_package">Package name</string>
+    <string name="pref_anki_app_unsupported">This Anki app uses its own database permission, which this Chimahon build can\'t request</string>
     <string name="pref_anki_permission_denied">AnkiDroid permission denied</string>
     <string name="pref_anki_select_deck">Select deck</string>
     <string name="pref_anki_select_model">Select note type</string>
@@ -1045,6 +1049,7 @@
     <!-- missing prompt after Compose rewrite #7901 -->
     <string name="no_more_results">No more results</string>
     <string name="no_results_found">No results found</string>
+    <string name="dictionary_search_placeholder">Search to view dictionary entries</string>
     <string name="local_source">Local source</string>
     <string name="local_anime_source">Local anime</string>
     <string name="local_anime_source_help_guide">Local anime source guide</string>
@@ -1499,6 +1504,10 @@
     <!-- Player -->
     <string name="pref_player_subtitle">Subtitles</string>
     <string name="pref_player_subtitle_summary">Preferred languages, whitelist, blacklist</string>
+    <string name="pref_subtitle_audio_padding">Subtitle audio padding</string>
+    <string name="pref_subtitle_audio_padding_summary">Extra audio before and after subtitle cues</string>
+    <string name="subtitle_audio_padding_before">Before %1$d ms</string>
+    <string name="subtitle_audio_padding_after">After %1$d ms</string>
     <string name="pref_player_subtitle_lang">Preferred languages</string>
     <string name="pref_player_subtitle_lang_info">Subtitle language(s) to be selected by default on a video with multiple subtitles. Two- or three-letter language codes work. Multiple values can be delimited by a comma.</string>
     <string name="pref_player_subtitle_whitelist">Whitelist</string>
@@ -1856,4 +1865,8 @@
     <string name="extensionRepo_settings">Extension repo</string>
     <string name="pref_disable_long_press_screenshot">Disable long-press screenshot</string>
     <string name="pref_single_tap_to_pause">Single tap to pause</string>
+    <string name="import_subtitle_font">Import font</string>
+    <string name="import_subtitle_font_summary">Add a TTF or OTF subtitle font</string>
+    <string name="subtitle_font_imported">Font imported. Select it in the player subtitle settings.</string>
+    <string name="subtitle_font_import_failed">Could not import font. Choose a valid TTF or OTF file.</string>
 </resources>

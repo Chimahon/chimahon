@@ -27,6 +27,10 @@
 -keep class org.mozilla.classfile.ClassFileWriter
 -dontwarn org.mozilla.javascript.tools.**
 
+# protobuf-lite messages are only reached through RawMessageInfo class literals, so R8 strips
+# their members and leaves the message abstract, which breaks parsing that payload.
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }
+
 # Injekt type resolution - FullTypeReference needs generic type info
 -keep class * extends uy.kohesive.injekt.api.TypeReference { *; }
 -keep class * extends uy.kohesive.injekt.api.FullTypeReference { *; }

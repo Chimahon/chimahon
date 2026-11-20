@@ -1,11 +1,21 @@
 ﻿package eu.kanade.presentation.more.settings.screen.player
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.SearchableSettings
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleFontResolver
+import eu.kanade.tachiyomi.util.system.toast
+import kotlinx.coroutines.launch
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 import uy.kohesive.injekt.Injekt
@@ -22,6 +32,27 @@ object PlayerSettingsSubtitleScreen : SearchableSettings {
     @Composable
     override fun getPreferences(): List<Preference> {
         val subtitlePreferences = remember { Injekt.get<SubtitlePreferences>() }
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        var importing by remember { mutableStateOf(false) }
+        val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    importing = true
+                    try {
+                        context.toast(
+                            if (SubtitleFontResolver.importFont(context, uri)) {
+                                MR.strings.subtitle_font_imported
+                            } else {
+                                MR.strings.subtitle_font_import_failed
+                            },
+                        )
+                    } finally {
+                        importing = false
+                    }
+                }
+            }
+        }
 
         val langPref = subtitlePreferences.preferredSubLanguages()
         val whitelist = subtitlePreferences.subtitleWhitelist()
@@ -90,6 +121,21 @@ object PlayerSettingsSubtitleScreen : SearchableSettings {
             Preference.PreferenceItem.SwitchPreference(
                 preference = systemFonts,
                 title = stringResource(MR.strings.player_pref_subtitle_system_fonts),
+            ),
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(MR.strings.import_subtitle_font),
+                subtitle = stringResource(MR.strings.import_subtitle_font_summary),
+                enabled = !importing,
+                onClick = {
+                    fontPicker.launch(
+                        arrayOf(
+                            "font/*",
+                            "application/x-font-ttf",
+                            "application/x-font-opentype",
+                            "application/octet-stream",
+                        ),
+                    )
+                },
             ),
             Preference.PreferenceItem.EditTextPreference(
                 preference = jimakuApiKey,

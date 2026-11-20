@@ -475,13 +475,43 @@ window.hoshiReader = {
     registerCopyText: function() {
         if (window._hoshiCopy) return;
         window._hoshiCopy = true;
+        const reader = this;
         document.addEventListener('copy', function(e) {
-            var text = window.getSelection() ? window.getSelection().toString() : '';
-            if (text) {
-                e.preventDefault();
-                e.clipboardData.setData('text/plain', text);
-            }
+            const selection = window.getSelection();
+            if (!selection || !selection.toString() || !e.clipboardData) return;
+            e.preventDefault();
+            e.clipboardData.setData('text/plain', reader.copySelectionText(selection));
         }, true);
+    },
+
+    copySelectionText: function(selection) {
+        const fragments = [];
+        let hasRuby = false;
+        for (let i = 0; i < selection.rangeCount; i++) {
+            const range = selection.getRangeAt(i);
+            if (this.isFurigana(range.commonAncestorContainer)) {
+                hasRuby = true;
+                continue;
+            }
+            const fragment = range.cloneContents();
+            if (fragment.querySelector('rt, rp')) hasRuby = true;
+            fragment.querySelectorAll('rt, rp').forEach(node => node.remove());
+            fragments.push(fragment);
+        }
+        if (!hasRuby) return selection.toString();
+
+        const blocks = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'LI', 'BLOCKQUOTE',
+            'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'TR']);
+        const plainText = node => {
+            if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                if (node.tagName === 'BR') return '\n';
+                if (['SCRIPT', 'STYLE'].includes(node.tagName)) return '';
+            }
+            const text = Array.from(node.childNodes, plainText).join('');
+            return text + (blocks.has(node.tagName) ? '\n' : '');
+        };
+        return fragments.map(plainText).join('\n').replace(/\n{3,}/g, '\n\n').replace(/\n+$/, '');
     },
 
     scanDelimiters: '。、！？…‥「」『』（）()【】〈〉《》〔〕｛｝{}［］[]・：；:;，,.─\n\r',
@@ -515,30 +545,91 @@ window.hoshiReader = {
         return null;
     },
 
+    codePointStartOffset: function(text, offset) {
+        if (offset > 0 && offset < text.length &&
+            text.charCodeAt(offset) >= 0xDC00 && text.charCodeAt(offset) <= 0xDFFF &&
+            text.charCodeAt(offset - 1) >= 0xD800 && text.charCodeAt(offset - 1) <= 0xDBFF) {
+            return offset - 1;
+        }
+        return Math.max(0, Math.min(offset, text.length));
+    },
+
+    nextCodePointOffset: function(text, offset) {
+        const start = this.codePointStartOffset(text, offset);
+        return start < text.length ? start + String.fromCodePoint(text.codePointAt(start)).length : start;
+    },
+
     getCharacterAtPoint: function(x, y) {
         const range = this.getCaretRange(x, y);
         if (!range || !range.startContainer) return null;
         const node = range.startContainer;
-        if (node.nodeType !== Node.TEXT_NODE || this.isFurigana(node)) return null;
+        const candidates = new Map();
+        const addCandidate = (textNode, offset) => {
+            if (!textNode || textNode.nodeType !== Node.TEXT_NODE || this.isFurigana(textNode)) return;
+            const start = this.codePointStartOffset(textNode.textContent, offset);
+            if (start >= textNode.textContent.length) return;
+            if (!candidates.has(textNode)) candidates.set(textNode, new Set());
+            candidates.get(textNode).add(start);
+        };
+        if (node.nodeType === Node.TEXT_NODE) {
+            for (const offset of [range.startOffset, range.startOffset - 1, range.startOffset + 1]) {
+                if (offset >= 0) addCandidate(node, offset);
+            }
+        }
 
-        const text = node.textContent;
-        const caret = range.startOffset;
+        // Carets at inline/ruby boundaries may belong to the neighboring text node.
+        const walker = this.createWalker(this.findParagraph(node) || document.body);
+        const ruby = (node.nodeType === Node.TEXT_NODE ? node.parentElement : node).closest('ruby');
+        for (const origin of ruby ? [node, ruby] : [node]) {
+            walker.currentNode = origin;
+            const previous = walker.previousNode();
+            if (previous) addCandidate(previous, previous.textContent.length - 1);
+            walker.currentNode = origin;
+            addCandidate(walker.nextNode(), 0);
+        }
 
-        // Try precise hit, then slight left/right offsets to handle character edges
-        for (const offset of [caret, caret - 1]) {
-            if (offset < 0 || offset >= text.length) continue;
-            const charRange = document.createRange();
-            charRange.setStart(node, offset);
-            charRange.setEnd(node, offset + 1);
-            const rects = charRange.getClientRects();
-            for (const rect of rects) {
-                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-                    if (this.isScanBoundary(text[offset])) return null;
-                    return { node, offset };
+        // A caret in an annotation can still overlap the base character's box.
+        if (this.isFurigana(node)) {
+            if (ruby) {
+                const baseWalker = this.createWalker(ruby);
+                let base;
+                while (base = baseWalker.nextNode()) {
+                    for (let offset = 0; offset < base.textContent.length; offset = this.nextCodePointOffset(base.textContent, offset)) {
+                        addCandidate(base, offset);
+                    }
                 }
             }
         }
-        return null;
+
+        let best = null;
+        let distance = Infinity;
+        for (const [textNode, offsets] of candidates) {
+            const text = textNode.textContent;
+            const ruby = textNode.parentElement.closest('ruby');
+            const vertical = getComputedStyle(textNode.parentElement).writingMode.startsWith('vertical');
+            const rubyRects = ruby ? Array.from(ruby.getClientRects()) : null;
+            for (const offset of offsets) {
+                const charRange = document.createRange();
+                charRange.setStart(textNode, offset);
+                charRange.setEnd(textNode, this.nextCodePointOffset(text, offset));
+                for (const rect of charRange.getClientRects()) {
+                    // Ruby overhang extends character ranges into adjacent text.
+                    for (const bounds of rubyRects || [rect]) {
+                        const left = ruby && !vertical ? Math.max(rect.left, bounds.left) : rect.left;
+                        const right = ruby && !vertical ? Math.min(rect.right, bounds.right) : rect.right;
+                        const top = ruby && vertical ? Math.max(rect.top, bounds.top) : rect.top;
+                        const bottom = ruby && vertical ? Math.min(rect.bottom, bounds.bottom) : rect.bottom;
+                        if (x < left || x > right || y < top || y > bottom) continue;
+                        const delta = vertical ? Math.abs(y - (top + bottom) / 2) : Math.abs(x - (left + right) / 2);
+                        if (delta < distance) {
+                            best = { node: textNode, offset };
+                            distance = delta;
+                        }
+                    }
+                }
+            }
+        }
+        return best && !this.isScanBoundary(String.fromCodePoint(best.node.textContent.codePointAt(best.offset))) ? best : null;
     },
 
     getSentence: function(startNode, startOffset) {
@@ -748,7 +839,7 @@ window.hoshiReader = {
                 const first = ranges[0];
                 const range = document.createRange();
                 range.setStart(first.node, first.start);
-                range.setEnd(first.node, first.start + 1); // Only 1 character
+                range.setEnd(first.node, this.nextCodePointOffset(first.node.textContent, first.start));
 
                 const rects = Array.from(range.getClientRects());
                 const rect = rects.find(r => clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom)

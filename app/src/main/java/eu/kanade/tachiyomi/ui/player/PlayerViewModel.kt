@@ -362,6 +362,10 @@ class PlayerViewModel @JvmOverloads constructor(
         getSource = { currentSource.value },
         getTimeSeconds = { activity.player.timePosSeconds ?: pos.value.toDouble() },
         getOcrPaddingSeconds = { dictionaryPreferences.videoOcrSentenceAudioPaddingSeconds().get().toDouble() },
+        getSubtitleAudioPaddingMillis = {
+            subtitlePreferences.subtitleAudioPaddingBeforeMillis().get() to
+                subtitlePreferences.subtitleAudioPaddingAfterMillis().get()
+        },
         readMpvSnapshot = {
             SentenceAudioMpvSnapshotReader(object : SentenceAudioMpvPropertyReader {
                 override fun string(name: String): String? = MPVLib.getPropertyString(name)
@@ -705,6 +709,8 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun autoLoadJimakuSubtitlesOnVideoOpen() {
         if (!currentVideoAllowsExternalSubtitleLookup()) return
+        val episodeId = currentSubtitleEpisodeId()
+        if (episodeId != null && savedJimakuSubtitles(episodeId).isNotEmpty()) return
 
         val apiKey = subtitlePreferences.jimakuApiKey().get().trim()
         if (apiKey.isBlank()) return
@@ -805,26 +811,45 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     private suspend fun downloadJimakuSubtitles(apiKey: String, files: List<JimakuFile>, showFeedback: Boolean) {
-        val outputDir = File(activity.cacheDir, "jimaku_subtitles")
+        val targetEpisodeId = currentSubtitleEpisodeId()?.takeIf { it > 0 }
+        val targetVideoUrl = currentVideo.value?.videoUrl
+        fun isCurrentEpisode() = if (targetEpisodeId != null) {
+            currentSubtitleEpisodeId() == targetEpisodeId
+        } else {
+            currentVideo.value?.videoUrl == targetVideoUrl
+        }
+        val outputDir = if (targetEpisodeId != null) {
+            File(activity.filesDir, "jimaku_subtitles/$targetEpisodeId")
+        } else {
+            File(activity.cacheDir, "jimaku_subtitles")
+        }
         var added = 0
         try {
             files.forEach { file ->
                 _jimakuState.update { JimakuState.Downloading(file) }
                 val subtitleFile = jimakuApi.downloadFile(apiKey, file, outputDir)
-                rememberAddedSubtitleForCurrentEpisode(
-                    AddedSubtitleTrack(
-                        uriString = subtitleFile.toURI().toString(),
-                        path = subtitleFile.absolutePath,
-                        title = file.name,
-                        isContentUri = false,
-                    ),
-                )
                 withUIContext {
-                    MPVLib.command(arrayOf("sub-add", subtitleFile.absolutePath, "cached", file.name))
+                    if (isCurrentEpisode()) {
+                        rememberAddedSubtitleForCurrentEpisode(
+                            AddedSubtitleTrack(
+                                uriString = subtitleFile.toURI().toString(),
+                                path = subtitleFile.absolutePath,
+                                title = file.name,
+                                isContentUri = false,
+                            ),
+                        )
+                        MPVLib.command(arrayOf("sub-add", subtitleFile.absolutePath, "cached", file.name))
+                        added += 1
+                    }
                 }
-                added += 1
             }
             withUIContext {
+                if (!isCurrentEpisode()) {
+                    _jimakuState.update { state ->
+                        if (state is JimakuState.Downloading && state.file in files) JimakuState.Idle else state
+                    }
+                    return@withUIContext
+                }
                 selectFirstJimakuSubtitle(files)
                 loadTracks()
                 _jimakuState.update { JimakuState.Idle }
@@ -838,9 +863,13 @@ class PlayerViewModel @JvmOverloads constructor(
                     )
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e)
-            updateJimakuFailure(e.message ?: "Failed to download Jimaku subtitle", showFeedback)
+            if (isCurrentEpisode()) {
+                updateJimakuFailure(e.message ?: "Failed to download Jimaku subtitle", showFeedback)
+            }
         }
     }
 
@@ -1879,7 +1908,12 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun restoreAddedSubtitlesForCurrentEpisode(): Int {
         val episodeId = currentSubtitleEpisodeId() ?: return 0
-        val tracks = addedSubtitleTracksByEpisodeId[episodeId].orEmpty()
+        val tracks = addedSubtitleTracksByEpisodeId.getOrPut(episodeId) { mutableListOf() }
+        for (file in savedJimakuSubtitles(episodeId)) {
+            if (tracks.none { !it.isContentUri && it.path == file.absolutePath }) {
+                tracks += AddedSubtitleTrack(file.toURI().toString(), file.absolutePath, file.name, false)
+            }
+        }
         var restored = 0
         tracks.forEach { track ->
             val path = if (track.isContentUri) {
@@ -1897,6 +1931,14 @@ class PlayerViewModel @JvmOverloads constructor(
         }
         return restored
     }
+
+    private fun savedJimakuSubtitles(episodeId: Long): List<File> =
+        File(activity.filesDir, "jimaku_subtitles/$episodeId").listFiles()
+            ?.filter {
+                it.isFile && it.length() > 0 && it.extension.lowercase() in setOf("srt", "ass", "ssa", "vtt", "sub")
+            }
+            ?.sortedBy { it.name }
+            .orEmpty()
 
     private fun rememberAddedAudioForCurrentEpisode(track: AddedAudioTrack) {
         val episodeId = currentEpisode.value?.id ?: return

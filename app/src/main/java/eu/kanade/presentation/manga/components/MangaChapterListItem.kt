@@ -70,6 +70,7 @@ fun MangaChapterListItem(
     onDownloadClick: ((ChapterDownloadAction) -> Unit)?,
     onChapterSwipe: (LibraryPreferences.ChapterSwipeAction) -> Unit,
     modifier: Modifier = Modifier,
+    supportsOcr: Boolean = true,
 ) {
     // KMK -->
     val swipeBackground = MaterialTheme.colorScheme.primaryContainer
@@ -209,6 +210,7 @@ fun MangaChapterListItem(
                 onClick = { onDownloadClick?.invoke(it) },
                 isOcrReady = isOcrReady,
                 isOcrRunning = isOcrRunning,
+                supportsOcr = supportsOcr,
             )
 
             ChapterOcrIndicator(

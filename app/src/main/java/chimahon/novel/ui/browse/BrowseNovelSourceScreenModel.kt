@@ -16,16 +16,22 @@ import eu.kanade.tachiyomi.sourcenovel.NovelSource
 import eu.kanade.tachiyomi.sourcenovel.NovelsPageSource
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.domain.novel.repository.NovelRepository
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.Serializable
@@ -35,6 +41,7 @@ class BrowseNovelSourceScreenModel(
     private val initialListing: Listing? = null,
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     sourcePreferences: SourcePreferences = Injekt.get(),
+    private val novelRepository: NovelRepository = Injekt.get(),
 ) : StateScreenModel<BrowseNovelSourceScreenModel.State>(State()) {
 
     private var currentPage = 1
@@ -59,6 +66,11 @@ class BrowseNovelSourceScreenModel(
         private set
 
     init {
+        screenModelScope.launch {
+            novelRepository.getFavoritesBySourceId(sourceId).collectLatest { novels ->
+                mutableState.update { it.copy(libraryUrls = novels.map { novel -> novel.url }.toImmutableSet()) }
+            }
+        }
         loadFilters()
         when (val listing = initialListing) {
             is Listing.Search -> if (listing.query.isNotBlank()) {
@@ -132,6 +144,7 @@ class BrowseNovelSourceScreenModel(
         mutableState.value = mutableState.value.copy(
             novels = if (reset) persistentListOf() else mutableState.value.novels,
             listing = listing,
+            listingGeneration = generation,
             isLoading = true,
             loadedPage = if (reset) 0 else mutableState.value.loadedPage,
             error = null,
@@ -215,6 +228,8 @@ class BrowseNovelSourceScreenModel(
         val hasNextPage: Boolean = true,
         val loadedPage: Int = 0,
         val listing: Listing = Listing.Popular,
+        val listingGeneration: Int = 0,
         val error: String? = null,
+        val libraryUrls: ImmutableSet<String> = persistentSetOf(),
     )
 }

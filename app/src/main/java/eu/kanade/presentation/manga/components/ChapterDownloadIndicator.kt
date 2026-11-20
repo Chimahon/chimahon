@@ -58,12 +58,14 @@ fun ChapterDownloadIndicator(
     modifier: Modifier = Modifier,
     isOcrReady: Boolean = false,
     isOcrRunning: Boolean = false,
+    supportsOcr: Boolean = true,
 ) {
     when (val downloadState = downloadStateProvider()) {
         Download.State.NOT_DOWNLOADED -> NotDownloadedIndicator(
             enabled = enabled,
             modifier = modifier,
             onClick = onClick,
+            supportsOcr = supportsOcr,
         )
         Download.State.QUEUE, Download.State.DOWNLOADING -> DownloadingIndicator(
             enabled = enabled,
@@ -78,6 +80,7 @@ fun ChapterDownloadIndicator(
             onClick = onClick,
             isOcrReady = isOcrReady,
             isOcrRunning = isOcrRunning,
+            supportsOcr = supportsOcr,
         )
         Download.State.ERROR -> ErrorIndicator(
             enabled = enabled,
@@ -92,6 +95,7 @@ private fun NotDownloadedIndicator(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: (ChapterDownloadAction) -> Unit,
+    supportsOcr: Boolean,
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
     Box(
@@ -120,7 +124,7 @@ private fun NotDownloadedIndicator(
                     isMenuExpanded = false
                 },
             )
-            DropdownMenuItem(
+            if (supportsOcr) DropdownMenuItem(
                 text = { Text(text = stringResource(MR.strings.action_download_and_ocr)) },
                 leadingIcon = {
                     Icon(
@@ -223,6 +227,7 @@ private fun DownloadedIndicator(
     onClick: (ChapterDownloadAction) -> Unit,
     isOcrReady: Boolean = false,
     isOcrRunning: Boolean = false,
+    supportsOcr: Boolean = true,
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
     Box(
@@ -244,48 +249,49 @@ private fun DownloadedIndicator(
         )
         DropdownMenu(expanded = isMenuExpanded, onDismissRequest = { isMenuExpanded = false }) {
             // OCR action
-            if (isOcrRunning) {
-                DropdownMenuItem(
-                    text = { Text(text = stringResource(MR.strings.ocr_running)) },
-                    enabled = false,
-                    leadingIcon = {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    },
-                    onClick = { },
-                )
-            } else if (isOcrReady) {
-                DropdownMenuItem(
-                    text = { Text(text = stringResource(MR.strings.action_delete_ocr)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = null,
-                        )
-                    },
-                    onClick = {
-                        onClick(ChapterDownloadAction.DELETE_OCR)
-                        isMenuExpanded = false
-                    },
-                )
-            } else {
-                DropdownMenuItem(
-                    text = { Text(text = stringResource(MR.strings.action_run_ocr)) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Search,
-                            contentDescription = null,
-                        )
-                    },
-                    onClick = {
-                        onClick(ChapterDownloadAction.OCR)
-                        isMenuExpanded = false
-                    },
-                )
+            if (supportsOcr) {
+                if (isOcrRunning) {
+                    DropdownMenuItem(
+                        text = { Text(text = stringResource(MR.strings.ocr_running)) },
+                        enabled = false,
+                        leadingIcon = {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        },
+                        onClick = { },
+                    )
+                } else if (isOcrReady) {
+                    DropdownMenuItem(
+                        text = { Text(text = stringResource(MR.strings.action_delete_ocr)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Search,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            onClick(ChapterDownloadAction.DELETE_OCR)
+                            isMenuExpanded = false
+                        },
+                    )
+                } else {
+                    DropdownMenuItem(
+                        text = { Text(text = stringResource(MR.strings.action_run_ocr)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Search,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            onClick(ChapterDownloadAction.OCR)
+                            isMenuExpanded = false
+                        },
+                    )
+                }
             }
-
             // Delete download
             DropdownMenuItem(
                 text = { Text(text = stringResource(MR.strings.action_delete)) },

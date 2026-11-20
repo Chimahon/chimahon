@@ -41,6 +41,7 @@ class DownloadPreferences(
     fun downloadSpeedLimit() = preferenceStore.getInt("download_speed_limit", 0)
     fun useExternalDownloader() = preferenceStore.getBoolean("use_external_downloader", false)
     fun externalDownloaderSelection() = preferenceStore.getString("external_downloader_selection", "")
+    fun externalDownloaderCustomPackage() = preferenceStore.getString("external_downloader_custom_package", "")
     fun notDownloadFillermarkedItems() = preferenceStore.getBoolean("pref_no_download_fillermarked", false)
     fun downloadFillermarkedItems() = preferenceStore.getBoolean("pref_download_fillermarked", true)
 

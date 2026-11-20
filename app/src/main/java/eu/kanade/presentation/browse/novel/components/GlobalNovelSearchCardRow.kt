@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.browse.components.InLibraryBadge
 import eu.kanade.presentation.library.components.CommonMangaItemDefaults
 import eu.kanade.presentation.library.components.MangaComfortableGridItem
 import eu.kanade.tachiyomi.sourcenovel.model.SNNovel
@@ -26,6 +27,7 @@ fun GlobalNovelSearchCardRow(
     sourceId: Long,
     onClick: (SNNovel) -> Unit,
     onLongClick: (SNNovel) -> Unit,
+    libraryUrls: Set<String> = emptySet(),
 ) {
     if (titles.isEmpty()) {
         Text(
@@ -58,6 +60,8 @@ fun GlobalNovelSearchCardRow(
                     usePanoramaCover = false,
                     onClick = { onClick(novel) },
                     onLongClick = { onLongClick(novel) },
+                    coverAlpha = if (novel.url in libraryUrls) CommonMangaItemDefaults.BrowseFavoriteCoverAlpha else 1f,
+                    coverBadgeStart = { InLibraryBadge(enabled = novel.url in libraryUrls) },
                 )
             }
         }

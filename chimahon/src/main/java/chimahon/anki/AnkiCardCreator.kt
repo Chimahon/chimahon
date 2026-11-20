@@ -229,7 +229,7 @@ sealed class AnkiResult {
         val mediaWarnings: List<AnkiMediaWarning> = emptyList(),
     ) : AnkiResult()
     data class CardExists(val noteId: Long) : AnkiResult()
-    data class OpenCard(val noteId: Long) : AnkiResult()
+    data class OpenCard(val noteId: Long, val noteIds: List<Long> = listOf(noteId)) : AnkiResult()
     data class Error(val message: String) : AnkiResult()
     data object PermissionDenied : AnkiResult()
     data object NotConfigured : AnkiResult()
@@ -386,9 +386,9 @@ object AnkiCardCreator {
                 if (existing.isEmpty()) return AnkiDuplicateDecision.Insert
                 val noteId = existing.first()
                 return when {
-                    forceOpen -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId))
+                    forceOpen -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId, existing))
                     dupAction == "prevent" -> AnkiDuplicateDecision.Return(AnkiResult.CardExists(noteId))
-                    dupAction == "open" -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId))
+                    dupAction == "open" -> AnkiDuplicateDecision.Return(AnkiResult.OpenCard(noteId, existing))
                     dupAction == "overwrite" -> AnkiDuplicateDecision.Overwrite(noteId)
                     else -> AnkiDuplicateDecision.Insert
                 }
@@ -1168,9 +1168,16 @@ object AnkiCardCreator {
         expression: String,
         deckName: String = "",
         dupScope: String = "collection",
-    ): Long? {
+    ): Long? = findExistingCardIds(context, expression, deckName, dupScope).firstOrNull()
+
+    suspend fun findExistingCardIds(
+        context: Context,
+        expression: String,
+        deckName: String = "",
+        dupScope: String = "collection",
+    ): List<Long> {
         val bridge = bridgeFactory(context)
-        if (!bridge.hasPermission()) return null
+        if (!bridge.hasPermission()) return emptyList()
 
         val targetDeckId = if (dupScope == "deck" && deckName.isNotBlank()) {
             try {
@@ -1183,10 +1190,10 @@ object AnkiCardCreator {
         }
 
         return try {
-            bridge.findNotes(expression, null, targetDeckId).firstOrNull()
+            bridge.findNotes(expression, null, targetDeckId)
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "findExistingCardId failed for expr=$expression", e)
-            null
+            android.util.Log.w(TAG, "findExistingCardIds failed for expr=$expression", e)
+            emptyList()
         }
     }
 
@@ -1458,7 +1465,7 @@ object AnkiCardCreator {
         Marker.FURIGANA_PLAIN -> buildFuriganaPlain(result.term.expression, result.term.reading)
         Marker.AUDIO -> wordAudioFilename?.let { "[sound:$it]" } ?: ""
         Marker.GLOSSARY -> buildGlossary(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
             brief = false,
             noDictTag = false,
             firstOnly = false,
@@ -1466,7 +1473,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_BRIEF -> buildGlossary(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
             brief = true,
             noDictTag = false,
             firstOnly = false,
@@ -1474,7 +1481,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_NO_DICT -> buildGlossary(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
             brief = false,
             noDictTag = true,
             firstOnly = false,
@@ -1482,7 +1489,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST -> buildGlossary(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex),
             brief = false,
             noDictTag = false,
             firstOnly = true,
@@ -1490,7 +1497,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST_NO_DICT -> buildGlossary(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex),
             brief = false,
             noDictTag = true,
             firstOnly = true,
@@ -1498,7 +1505,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST_BRIEF -> buildGlossary(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex),
             brief = true,
             noDictTag = false,
             firstOnly = true,
@@ -1506,11 +1513,11 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_PLAIN -> buildGlossaryPlain(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
             noDictTag = false,
         )
         Marker.GLOSSARY_PLAIN_NO_DICT -> buildGlossaryPlain(
-            if (glossaryIndex != null && glossaryIndex >= 0) arrayOf(result.term.glossaries.getOrElse(glossaryIndex) { result.term.glossaries.first() }) else result.term.glossaries,
+            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
             noDictTag = true,
         )
         Marker.SENTENCE -> cloze?.let { escapeHtml(it.sentence) } ?: ""
@@ -1899,18 +1906,31 @@ object AnkiCardCreator {
             previousDictName = entry.dictName
         }
         sb.append("</ol>")
+        for (style in scopedStyles) {
+            sb.append("<style>")
+            sb.append(style)
+            sb.append("</style>")
+        }
         sb.append("</div>")
-        sb.append("<style>")
-        val lists = ".yomitan-glossary .glossary-list, .yomitan-glossary ul[data-sc-content=\"glossary\"]"
-        sb.append("$lists { display: inline; list-style: none; padding-left: 0; }")
-        val items = ".yomitan-glossary .glossary-list > li, .yomitan-glossary ul[data-sc-content=\"glossary\"] > li"
-        sb.append("$items { display: inline; }")
-        sb.append(".yomitan-glossary .glossary-list > li:not(:first-child)::before, ")
-        sb.append(".yomitan-glossary ul[data-sc-content=\"glossary\"] > li:not(:first-child)::before ")
-        sb.append("{ content: \" | \"; white-space: pre-wrap; color: #777; }")
-        sb.append(scopedStyles)
-        sb.append("</style>")
         return sb.toString()
+    }
+
+    private fun selectGlossaries(
+        glossaries: Array<GlossaryEntry>,
+        glossaryIndex: Int?,
+        selectedDict: String? = null,
+    ): Array<GlossaryEntry> {
+        if (glossaries.isEmpty()) return emptyArray()
+        if (glossaryIndex != null && glossaryIndex >= 0) {
+            val entry = glossaries.getOrNull(glossaryIndex)
+            return if (entry != null) arrayOf(entry) else emptyArray()
+        }
+        val selected = selectedDict?.takeIf { it.isNotBlank() }
+        return if (selected != null) {
+            glossaries.filter { it.dictName.contains(selected, ignoreCase = true) }.toTypedArray()
+        } else {
+            glossaries
+        }
     }
 
     // A dictionary can supply several senses for the same term (for example JMnedict names).
@@ -1921,18 +1941,19 @@ object AnkiCardCreator {
     private fun buildScopedDictionaryStyles(
         dictionaryNames: Set<String>,
         styles: List<DictionaryStyle>,
-    ): String {
-        if (dictionaryNames.isEmpty() || styles.isEmpty()) return ""
+    ): List<String> {
+        if (dictionaryNames.isEmpty() || styles.isEmpty()) return emptyList()
         return styles
             .asSequence()
             .filter { it.dictName in dictionaryNames && it.styles.isNotBlank() }
-            .joinToString("\n") { style ->
+            .map { style ->
                 scopeDictionaryCss(
                     css = sanitizeDictionaryCss(style.styles),
                     scopeSelector = """[data-dictionary="${cssDoubleQuotedContent(style.dictName)}"]""",
                 )
             }
-            .trim()
+            .filter { it.isNotBlank() }
+            .toList()
     }
 
     private fun sanitizeDictionaryCss(css: String): String = css
@@ -2222,15 +2243,264 @@ object AnkiCardCreator {
 
     private fun buildGlossaryPlain(glossaries: Array<GlossaryEntry>, noDictTag: Boolean): String {
         if (glossaries.isEmpty()) return ""
-        return glossaries.joinToString("<br>") { entry ->
-            buildString {
-                if (!noDictTag && entry.dictName.isNotBlank()) {
-                    append("(${escapeHtml(entry.dictName)})<br>")
+        val dictionaryBlocks = glossaries.mapNotNull { entry ->
+            val defs = extractGlossaryPlainDefinitions(entry.glossary)
+            if (defs.isEmpty()) null
+            else {
+                buildString {
+                    if (!noDictTag && entry.dictName.isNotBlank()) {
+                        append("(${escapeHtml(entry.dictName)})<br>\n")
+                    }
+                    append(defs.joinToString("<br>\n"))
                 }
-                append(glossaryToPlainText(entry.glossary))
             }
         }
+        return dictionaryBlocks.joinToString("<br>\n<br>\n")
     }
+
+    private val PLAIN_TEXT_BLOCK_TAGS = setOf(
+        "div", "li", "ol", "ul", "p", "tr", "td", "th", "dt", "dd",
+        "details", "summary", "h1", "h2", "h3", "h4", "h5", "h6", "hr",
+    )
+
+    private fun extractGlossaryNodes(root: Any?): List<JSONObject> {
+        val results = mutableListOf<JSONObject>()
+        fun recurse(item: Any?) {
+            when (item) {
+                is JSONArray -> {
+                    for (i in 0 until item.length()) {
+                        recurse(item.opt(i))
+                    }
+                }
+                is JSONObject -> {
+                    val dataObj = item.optJSONObject("data")
+                    if (dataObj != null && dataObj.optString("content") == "glossary") {
+                        results.add(item)
+                        return
+                    }
+                    if (item.has("content")) {
+                        recurse(item.opt("content"))
+                    }
+                }
+            }
+        }
+        recurse(root)
+        return results
+    }
+
+    private fun extractRubyText(rubyObj: JSONObject): String {
+        val content = rubyObj.opt("content") ?: return ""
+        val sb = StringBuilder()
+        fun recurse(item: Any?) {
+            when (item) {
+                null -> {}
+                is String -> sb.append(item)
+                is Number, is Boolean -> sb.append(item.toString())
+                is JSONArray -> {
+                    for (i in 0 until item.length()) recurse(item.opt(i))
+                }
+                is JSONObject -> {
+                    val tag = item.optString("tag", "").lowercase()
+                    if (tag == "rt") {
+                        val rtText = inlineNodeToPlainText(item.opt("content")).trim()
+                        if (rtText.isNotEmpty()) {
+                            sb.append("[$rtText]")
+                        }
+                    } else {
+                        recurse(item.opt("content"))
+                    }
+                }
+            }
+        }
+        recurse(content)
+        return sb.toString()
+    }
+
+    private fun inlineNodeToPlainText(node: Any?): String = when (node) {
+        null -> ""
+        is String -> node
+        is Number, is Boolean -> node.toString()
+        is JSONArray -> {
+            val sb = StringBuilder()
+            for (i in 0 until node.length()) {
+                sb.append(inlineNodeToPlainText(node.opt(i)))
+            }
+            sb.toString()
+        }
+        is JSONObject -> {
+            val type = node.optString("type", "")
+            if (type == "image") {
+                node.optString("alt", "")
+            } else if (type == "ruby") {
+                val headword = node.optString("headword", "")
+                val reading = node.optString("reading", "")
+                if (reading.isNotEmpty() && reading != headword) {
+                    "$headword[$reading]"
+                } else {
+                    headword
+                }
+            } else {
+                val tag = node.optString("tag", "").lowercase()
+                when (tag) {
+                    "br" -> "\n"
+                    "ruby" -> extractRubyText(node)
+                    else -> {
+                        val content = node.opt("content")
+                        inlineNodeToPlainText(content)
+                    }
+                }
+            }
+        }
+        else -> node.toString()
+    }
+
+    private fun extractDefinitionsFromGlossaryNode(node: JSONObject): List<String> {
+        val tag = node.optString("tag", "").lowercase()
+        val content = node.opt("content") ?: return emptyList()
+
+        fun textToDefs(text: String): List<String> = text
+            .split('\n')
+            .map { it.replace(Regex("[ \\t\\u000B\\u000C]+"), " ").trim() }
+            .filter { it.isNotEmpty() }
+            .map { escapeHtml(it) }
+
+        if (tag == "ul" || tag == "ol") {
+            if (content is JSONArray) {
+                val defs = mutableListOf<String>()
+                for (i in 0 until content.length()) {
+                    defs += textToDefs(inlineNodeToPlainText(content.opt(i)))
+                }
+                return defs
+            }
+        }
+
+        if (content is JSONArray) {
+            val defs = mutableListOf<String>()
+            for (i in 0 until content.length()) {
+                defs += textToDefs(inlineNodeToPlainText(content.opt(i)))
+            }
+            return defs
+        }
+
+        return textToDefs(inlineNodeToPlainText(content))
+    }
+
+    private fun structuredContentToPlainTextFallback(node: Any?): List<String> {
+        val sb = StringBuilder()
+        fun recurse(item: Any?) {
+            when (item) {
+                null -> {}
+                is String -> sb.append(item)
+                is Number, is Boolean -> sb.append(item.toString())
+                is JSONArray -> {
+                    for (i in 0 until item.length()) {
+                        recurse(item.opt(i))
+                    }
+                }
+                is JSONObject -> {
+                    val dataObj = item.optJSONObject("data")
+                    val contentAttr = dataObj?.optString("content", "") ?: ""
+                    if (contentAttr == "attribution" || contentAttr.startsWith("example")) {
+                        return
+                    }
+                    val type = item.optString("type", "")
+                    if (type == "image") {
+                        val alt = item.optString("alt", "")
+                        if (alt.isNotEmpty()) sb.append(" $alt ")
+                        return
+                    }
+                    if (type == "ruby") {
+                        val headword = item.optString("headword", "")
+                        val reading = item.optString("reading", "")
+                        if (reading.isNotEmpty() && reading != headword) {
+                            sb.append("$headword[$reading]")
+                        } else {
+                            sb.append(headword)
+                        }
+                        return
+                    }
+                    val tag = item.optString("tag", "").lowercase()
+                    val isBlockTag = tag in PLAIN_TEXT_BLOCK_TAGS
+                    if (isBlockTag && sb.isNotEmpty() && !sb.endsWith("\n")) {
+                        sb.append("\n")
+                    }
+                    if (tag == "ruby") {
+                        sb.append(extractRubyText(item))
+                    } else if (tag == "br") {
+                        sb.append("\n")
+                    } else {
+                        recurse(item.opt("content"))
+                    }
+                    if (isBlockTag && sb.isNotEmpty() && !sb.endsWith("\n")) {
+                        sb.append("\n")
+                    }
+                }
+            }
+        }
+        recurse(node)
+        val text = sb.toString()
+        return text.split('\n')
+            .map { it.replace(Regex("[ \\t\\u000B\\u000C]+"), " ").trim() }
+            .filter { it.isNotEmpty() }
+            .map { escapeHtml(it) }
+    }
+
+    internal fun extractGlossaryPlainDefinitions(raw: String): List<String> {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            return normalizePlainText(trimmed)
+                .split('\n')
+                .map { it.replace(Regex("[ \\t\\u000B\\u000C]+"), " ").trim() }
+                .filter { it.isNotEmpty() }
+                .map { escapeHtml(it) }
+        }
+
+        return try {
+            when {
+                trimmed.startsWith("[") -> {
+                    val array = JSONArray(trimmed)
+                    val allStrings = (0 until array.length()).all { array.get(it) is String }
+                    if (allStrings) {
+                        (0 until array.length())
+                            .map { array.getString(it).trim() }
+                            .filter { it.isNotEmpty() }
+                            .map { escapeHtml(it) }
+                    } else {
+                        val glossaryNodes = extractGlossaryNodes(array)
+                        if (glossaryNodes.isNotEmpty()) {
+                            glossaryNodes.flatMap { extractDefinitionsFromGlossaryNode(it) }
+                        } else {
+                            structuredContentToPlainTextFallback(array)
+                        }
+                    }
+                }
+                else -> {
+                    val obj = JSONObject(trimmed)
+                    val type = obj.optString("type", "")
+                    if (type == "image") {
+                        emptyList<String>()
+                    } else {
+                        val glossaryNodes = extractGlossaryNodes(obj)
+                        if (glossaryNodes.isNotEmpty()) {
+                            glossaryNodes.flatMap { extractDefinitionsFromGlossaryNode(it) }
+                        } else {
+                            structuredContentToPlainTextFallback(obj)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            normalizePlainText(trimmed)
+                .split('\n')
+                .map { it.replace(Regex("[ \\t\\u000B\\u000C]+"), " ").trim() }
+                .filter { it.isNotEmpty() }
+                .map { escapeHtml(it) }
+        }
+    }
+
+    private fun glossaryToPlainText(raw: String): String =
+        extractGlossaryPlainDefinitions(raw).joinToString("<br>")
 
     // =============================================================================
     // Structured-content → HTML
@@ -2260,25 +2530,11 @@ object AnkiCardCreator {
         }
     }
 
-    private fun glossaryToPlainText(raw: String): String {
-        val html = glossaryToHtml(raw)
-        val text = html
-            .replace(Regex("(?i)<br\\s*/?>"), "\n")
-            .replace(Regex("(?i)</(p|li|div|tr|h[1-6])>"), "\n")
-            .replace(Regex("<[^>]+>"), " ")
-        .replace("&lt;", "<").replace("&gt;", ">")
-            .replace("&amp;", "&").replace("&quot;", "\"")
-        return text
-            .split('\n')
-            .joinToString("\n") { line -> line.replace(Regex("[ \\t\\u000B\\u000C]+"), " ").trim() }
-            .trim()
-    }
-
     private fun arrayToHtml(arr: JSONArray, dictionary: String, parentTag: String, exportMedia: ExportMediaContext?): String {
         val allStrings = (0 until arr.length()).all { arr.get(it) is String }
         if (allStrings) {
             if (arr.length() == 1) return contentValueToHtml(arr.getString(0), dictionary, parentTag, exportMedia)
-            
+
             // Only auto-wrap in UL if we are NOT already in a list-like tag
             val isListParent = parentTag == "ul" || parentTag == "ol" || parentTag == "li" || parentTag == "span" || parentTag == "td" || parentTag == "th"
             if (!isListParent) {
@@ -2423,7 +2679,7 @@ object AnkiCardCreator {
 
         val sb = StringBuilder("<img")
         sb.append(""" src="${attrEscape(renderPath)}"""")
-        
+
         node.optString("alt", "").takeIf { it.isNotEmpty() }?.let { sb.append(""" alt="${attrEscape(it)}"""") }
         node.optString("title", "").takeIf { it.isNotEmpty() }?.let { sb.append(""" title="${attrEscape(it)}"""") }
 
@@ -2431,7 +2687,7 @@ object AnkiCardCreator {
         val height = node.optInt("height", 0)
         val sizeUnits = node.optString("sizeUnits", "px")
         val appearance = node.optString("appearance", "")
-        
+
         val styleParts = mutableListOf<String>()
         if (width > 0 || height > 0) {
             val cssWidth = if (width > 0) "${width}$sizeUnits" else "auto"
@@ -2439,9 +2695,9 @@ object AnkiCardCreator {
             styleParts.add("width: $cssWidth")
             styleParts.add("height: $cssHeight")
         }
-        
+
         styleParts.add("vertical-align: middle")
-        
+
         if (appearance == "monochrome") {
             sb.append(""" class="gloss-image-monochrome"""")
             // Yomitan style masking: allows the image to inherit text color
@@ -2453,7 +2709,7 @@ object AnkiCardCreator {
             styleParts.add("mask-repeat: no-repeat")
             styleParts.add("mask-size: contain")
         }
-        
+
         if (styleParts.isNotEmpty()) {
             sb.append(""" style="${styleParts.joinToString("; ")}"""")
         }

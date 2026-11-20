@@ -104,13 +104,15 @@ class WebtoonPageHolder(
         frame.onImageLoaded = { onImageDecoded() }
         frame.onImageLoadError = { error -> setError(error) }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
-        frame.onShowOcrPopup = { lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, mediaInfo, _ ->
+        frame.onShowOcrPopup = { lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, mediaInfo, block ->
+            viewer.syncOcrSelection(this, block?.sharedId, frame.activeOcrCharOffset)
             viewer.onShowOcrPopup?.invoke(lookupString, fullText, charOffset, anchorX, anchorY, anchorWidth, anchorHeight, isVertical, mediaInfo, page)
         }
         frame.onShowOcrSelectionPanel = { text, anchorX, anchorY, anchorWidth, anchorHeight ->
             viewer.onShowOcrSelectionPanel?.invoke(text, anchorX, anchorY, anchorWidth, anchorHeight)
         }
         frame.onDismissOcrPopup = {
+            viewer.syncOcrSelection(this, null, 0)
             viewer.onDismissOcrPopup?.invoke()
         }
     }
@@ -356,6 +358,15 @@ class WebtoonPageHolder(
         frame.ocrOutlineVisible = visible
     }
 
+    fun refreshOcr(chapterId: Long, index: Int) {
+        val target = page ?: return
+        if (!frame.ocrEnabled || target.chapter.chapter.id != chapterId ||
+            (target.index != index && target.index != index + 1)
+        ) return
+        ocrLoadJob?.cancel()
+        ocrLoadJob = scope.launch { loadOcrWithTransform(target) }
+    }
+
     fun applyOcrBoxScale(scaleX: Float, scaleY: Float) {
         frame.ocrBoxScaleX = scaleX
         frame.ocrBoxScaleY = scaleY
@@ -381,7 +392,7 @@ class WebtoonPageHolder(
                 (viewer.config.continuousCropBorders && !viewer.isContinuous)
 
             logcat { "OCR request start (webtoon): chapter=${targetPage.chapter.chapter.id} page=${targetPage.index}" }
-            var blocks = viewModel.getOcrBlocks(targetPage)
+            var blocks = viewModel.getWebtoonOcrBlocks(targetPage)
 
             if (blocks.isEmpty()) {
                 frame.setOcrBlocks(blocks)
@@ -424,7 +435,7 @@ class WebtoonPageHolder(
             // ── Case 2: Crop borders ────────────────────────────────────────────────────
             val cropRect = pageCropRect
             if (cropBordersEnabled && blocks.isNotEmpty() && cropRect != null) {
-                blocks = OcrCoordinateMapper.remapToCrop(blocks, cropRect)
+                blocks = OcrCoordinateMapper.remapToCrop(blocks, cropRect, clipToBounds = false)
                 logcat { "OCR crop-remap done (webtoon): ${blocks.size} blocks" }
             }
 
@@ -509,6 +520,14 @@ class WebtoonPageHolder(
     /** True if this page currently has an active (highlighted) OCR block. */
     val hasActiveOcrBlock: Boolean
         get() = frame.activeOcrBlock != null
+
+    fun syncOcrSelection(sharedId: String?, charOffset: Int) {
+        frame.activeOcrBlock = sharedId?.let { id -> frame.ocrBlocks.firstOrNull { it.sharedId == id } }
+        frame.activeOcrCharOffset = charOffset
+        frame.activeOcrMatchedCount = 0
+        frame.ocrLayoutCache = null
+        frame.pageView?.invalidate()
+    }
 
     /**
      * Dismiss the active OCR block on this page, clearing the highlight and closing the popup.

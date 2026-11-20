@@ -82,6 +82,17 @@ jobs:
       - name: Clean CMake cache
         run: rm -rf app/.cxx chimahon/.cxx
 
+      # The native renderer sources are large and gitignored; cache them so
+      # repeated release builds do not clone every dependency again.
+      - name: Cache native dictionary dependencies
+        uses: actions/cache@v4
+        with:
+          path: tools/native-dictionary/.deps
+          key: native-dictionary-deps-${{ hashFiles('scripts/fetch-native-dictionary-deps.sh') }}
+
+      - name: Fetch native dictionary dependencies
+        run: bash scripts/fetch-native-dictionary-deps.sh
+
       - name: Build
         run: ./gradlew assembleRelease -Penable-updater -PreleaseVersionName=${{ needs.get_tag.outputs.version_name }} -PreleaseVersionCode=${{ needs.get_tag.outputs.version_code }}
 

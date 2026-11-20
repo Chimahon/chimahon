@@ -772,12 +772,14 @@ object ImageUtil {
 
     /**
      * Vertically stack [imageBytes] with the top [overlapPx] strip of [nextImageBytes].
+     * [cropTopPx] limits recognition to the boundary area when repairing split text.
      * Returns the augmented JPEG bytes, or null if augmentation fails.
      */
     fun appendTopOverlap(
         imageBytes: ByteArray,
         nextImageBytes: ByteArray,
         overlapPx: Int = SEAM_OVERLAP_PX,
+        cropTopPx: Int = 0,
     ): ByteArray? {
         val pageBitmap = try {
             BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
@@ -787,6 +789,8 @@ object ImageUtil {
 
         val w = pageBitmap.width
         val h = pageBitmap.height
+        val top = cropTopPx.coerceIn(0, h - 1)
+        val pageHeight = h - top
 
         val decoder = try {
             getBitmapRegionDecoder(ByteArrayInputStream(nextImageBytes))
@@ -798,7 +802,7 @@ object ImageUtil {
         }
 
         val nextH = decoder.height
-        val stripW = minOf(w, decoder.width)
+        val stripW = decoder.width
         val stripH = minOf(overlapPx, nextH)
 
         if (stripH <= 0) {
@@ -820,16 +824,21 @@ object ImageUtil {
         }
 
         try {
-            val combinedH = h + stripH
-            val combined = createBitmap(stripW, combinedH)
-            val canvas = Canvas(combined)
-            canvas.drawColor(Color.WHITE)
-            canvas.drawBitmap(pageBitmap, Rect(0, 0, stripW, h), Rect(0, 0, stripW, h), null)
-            canvas.drawBitmap(topStrip, 0f, h.toFloat(), null)
+            val scaledStripH = (stripH.toLong() * w / stripW).toInt().coerceAtLeast(1)
+            val combinedH = pageHeight + scaledStripH
+            val combined = createBitmap(w, combinedH)
+            try {
+                val canvas = Canvas(combined)
+                canvas.drawColor(Color.WHITE)
+                canvas.drawBitmap(pageBitmap, Rect(0, top, w, h), Rect(0, 0, w, pageHeight), null)
+                canvas.drawBitmap(topStrip, Rect(0, 0, stripW, stripH), Rect(0, pageHeight, w, combinedH), null)
 
-            val output = ByteArrayOutputStream()
-            combined.compress(Bitmap.CompressFormat.JPEG, 95, output)
-            return output.toByteArray()
+                val output = ByteArrayOutputStream()
+                combined.compress(Bitmap.CompressFormat.JPEG, 95, output)
+                return output.toByteArray()
+            } finally {
+                combined.recycle()
+            }
         } finally {
             pageBitmap.recycle()
             topStrip.recycle()

@@ -10,6 +10,7 @@ import chimahon.anki.LazyAnkiSentenceAudioProvider
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
 import eu.kanade.tachiyomi.torrentServer.TorrentServerUtils
 import eu.kanade.tachiyomi.util.storage.toFFmpegReadString
 import `is`.xyz.mpv.MPVLib
@@ -33,6 +34,7 @@ internal class MediaCaptureService(
     private val getSource: () -> AnimeSource?,
     private val getTimeSeconds: () -> Double,
     private val getOcrPaddingSeconds: () -> Double,
+    private val getSubtitleAudioPaddingMillis: () -> Pair<Int, Int>,
     private val readMpvSnapshot: () -> SentenceAudioMpvSnapshot,
     private val prepareSentenceAudioOverride: (suspend (SentenceAudioCaptureRequest) -> AnkiSentenceAudioPreparation)? = null,
 ) {
@@ -59,7 +61,11 @@ internal class MediaCaptureService(
     }
 
     /** Input FFmpeg reads plus the HTTP headers to forward for the video mpv is currently playing. */
-    private class FfmpegSource(val input: String, val headers: List<Pair<String, String>>)
+    private class FfmpegSource(
+        val input: String,
+        val headers: List<Pair<String, String>>,
+        val forceMpegTs: Boolean,
+    )
 
     private fun ffmpegInput(): FfmpegSource? {
         val video = getVideo() ?: return null
@@ -73,7 +79,11 @@ internal class MediaCaptureService(
         }
         val source = getSource() as? AnimeHttpSource
         val headers = (video.headers ?: source?.headers)?.toList().orEmpty()
-        return FfmpegSource(input, if (input.startsWith("http")) headers else emptyList())
+        return FfmpegSource(
+            input,
+            if (input.startsWith("http")) headers else emptyList(),
+            video.ffmpegStreamArgs.orEmpty().any { it.first == "force_mpegts" && it.second == "1" },
+        )
     }
 
     private fun MutableList<String>.addInputOptions(source: FfmpegSource) {
@@ -81,10 +91,13 @@ internal class MediaCaptureService(
             add("-headers"); add(source.headers.joinToString("") { "${it.first}: ${it.second}\r\n" })
         }
         // HLS-only (see isHlsLikeInput): ffmpeg aborts other inputs if these are present.
-        if (isHlsLikeInput(source.input)) {
+        if (isHlsLikeInput(source.input) || source.forceMpegTs) {
             add("-allowed_extensions"); add("ALL")
             add("-allowed_segment_extensions"); add("ALL")
             add("-extension_picky"); add("0")
+        }
+        if (source.forceMpegTs) {
+            add("-force_mpegts"); add("1")
         }
     }
 
@@ -121,8 +134,18 @@ internal class MediaCaptureService(
         }
     }
 
-    fun createSubtitleAudioMediaRequest(startSeconds: Double?, endSeconds: Double?): AnkiMediaRequest =
-        createSentenceAudioMediaRequest(startSeconds, endSeconds)
+    fun createSubtitleAudioMediaRequest(startSeconds: Double?, endSeconds: Double?): AnkiMediaRequest {
+        // Padding must not turn missing or invalid cue timings into a usable range.
+        if (startSeconds == null || endSeconds == null || !startSeconds.isFinite() || !endSeconds.isFinite() ||
+            startSeconds < 0.0 || endSeconds <= startSeconds
+        ) {
+            return createSentenceAudioMediaRequest(startSeconds, endSeconds)
+        }
+        val (beforeMillis, afterMillis) = getSubtitleAudioPaddingMillis()
+        val before = beforeMillis.coerceIn(0, SubtitlePreferences.AUDIO_PADDING_MAX_MILLIS) / 1000.0
+        val after = afterMillis.coerceIn(0, SubtitlePreferences.AUDIO_PADDING_MAX_MILLIS) / 1000.0
+        return createSentenceAudioMediaRequest((startSeconds - before).coerceAtLeast(0.0), endSeconds + after)
+    }
 
     fun createVideoOcrAudioMediaRequest(): AnkiMediaRequest {
         val center = getTimeSeconds()

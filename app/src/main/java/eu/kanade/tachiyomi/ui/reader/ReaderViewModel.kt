@@ -97,6 +97,8 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -208,12 +210,16 @@ class ReaderViewModel @JvmOverloads constructor(
     private data class MokuroChapterData(
         val mokuro: chimahon.ocr.MokuroVolume,
         val imageFiles: List<chimahon.ocr.ImageFileInfo>,
+        val isDownload: Boolean,
     )
 
     private val ocrCacheMutex = Mutex()
     private val ocrCache = LinkedHashMap<OcrCacheKey, List<eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock>>()
     private val ocrInFlight =
         mutableMapOf<OcrCacheKey, Deferred<List<eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock>>>()
+    private val webtoonSeams = LinkedHashMap<OcrCacheKey, Deferred<List<OcrTextBlock>>>()
+    private val mutableWebtoonOcrUpdates = MutableSharedFlow<Pair<Long, Int>>(extraBufferCapacity = 32)
+    val webtoonOcrUpdates = mutableWebtoonOcrUpdates.asSharedFlow()
     private val ocrDispatcher = Dispatchers.IO.limitedParallelism(2)
     private var ocrScanJob: Job? = null
     private var ocrScanChapterId: Long? = null
@@ -1818,6 +1824,127 @@ class ReaderViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Both page views use the same seam recognition, rather than separate partial words. */
+    suspend fun getWebtoonOcrBlocks(page: ReaderPage): List<OcrTextBlock> = withContext(Dispatchers.IO) {
+        fun sharedBlocks(target: ReaderPage, blocks: List<OcrTextBlock>) = blocks.map { block ->
+            if (block.ymin < 1f && block.ymax > 1f) {
+                val origin = "${target.chapter.chapter.id}:${target.index}"
+                val bounds = "${block.xmin}:${block.ymin}:${block.xmax}:${block.ymax}"
+                block.copy(sharedId = "$origin:$bounds:${block.lines.hashCode()}")
+            } else {
+                block
+            }
+        }
+        var blocks = getOcrBlocks(page)
+        val next = page.chapter.pages?.getOrNull(page.index + 1)
+        if (next?.status == Page.State.Ready) {
+            for (block in getWebtoonSeam(page, next)) {
+                blocks = OcrCoordinateMapper.replaceRegion(
+                    blocks, RectF(block.xmin, block.ymin, block.xmax, block.ymax), listOf(block),
+                )
+            }
+        }
+        blocks = sharedBlocks(page, blocks)
+        val previous = page.chapter.pages?.getOrNull(page.index - 1) ?: return@withContext blocks
+        if (previous.status != Page.State.Ready) return@withContext blocks
+        val previousBlocks = sharedBlocks(previous, getWebtoonSeam(previous, page))
+        if (previousBlocks.none { it.sharedId != null }) return@withContext blocks
+
+        fun dimensions(target: ReaderPage): Pair<Int, Int>? {
+            val stream = target.stream?.invoke() ?: return null
+            return stream.use {
+                val decoder = ImageDecoder.newInstance(it) ?: return null
+                try {
+                    decoder.width to decoder.height
+                } finally {
+                    decoder.recycle()
+                }
+            }
+        }
+        val (firstWidth, firstHeight) = dimensions(previous) ?: return@withContext blocks
+        val (secondWidth, secondHeight) = dimensions(page) ?: return@withContext blocks
+        val shared = OcrCoordinateMapper.blocksAcrossSeam(
+            previousBlocks, firstWidth, firstHeight, secondWidth, secondHeight,
+        )
+        for (block in shared) {
+            blocks = OcrCoordinateMapper.replaceRegion(
+                blocks, RectF(block.xmin, block.ymin, block.xmax, block.ymax), listOf(block),
+            )
+        }
+        blocks
+    }
+
+    /** Repair old page-local OCR at a seam without replacing any OCR outside that seam. */
+    private suspend fun getWebtoonSeam(first: ReaderPage, second: ReaderPage): List<OcrTextBlock> {
+        val chapterId = first.chapter.chapter.id ?: return emptyList()
+        val ocrSource = state.value.ocrSource
+        if (ocrSource == ReaderOcrSource.MOKURO) return emptyList()
+        val key = OcrCacheKey(chapterId, first.index, ocrSource)
+        val deferred = ocrCacheMutex.withLock {
+            webtoonSeams.getOrPut(key) {
+                viewModelScope.async(ocrDispatcher) {
+                    val firstBlocks = getOcrBlocks(first)
+                    val crossing = firstBlocks.filter { it.ymin < 1f && it.ymax > 1f }
+                    val secondBlocks = getOcrBlocks(second)
+                    val fragments = secondBlocks.filter { block ->
+                        block.ymin <= .05f && (crossing.isEmpty() || crossing.any {
+                            it.xmin < block.xmax && block.xmin < it.xmax
+                        })
+                    }
+                    if (crossing.isNotEmpty() && fragments.all { fragment ->
+                            crossing.any { it.fullText.contains(fragment.fullText) }
+                        }
+                    ) return@async crossing
+                    if (firstBlocks.none { it.ymax >= .95f } || fragments.isEmpty()) {
+                        return@async crossing
+                    }
+                    val firstBytes = first.stream?.invoke()?.use { it.readBytes() }
+                        ?: return@async emptyList()
+                    val secondBytes = second.stream?.invoke()?.use { it.readBytes() }
+                        ?: return@async emptyList()
+                    val firstHeight = ImageUtil.getImageHeight(firstBytes)
+                    val secondHeight = ImageUtil.getImageHeight(secondBytes)
+                    val overlap = (fragments.maxOf { it.ymax }
+                        .coerceAtMost(1f) * secondHeight).toInt() + 16
+                    val cropTop = ((firstBlocks.filter { it.ymax >= .95f }.minOf { it.ymin }
+                        .coerceIn(0f, 1f) * firstHeight).toInt() - 16).coerceAtLeast(0)
+                    val combined = ImageUtil.appendTopOverlap(firstBytes, secondBytes, overlap, cropTop)
+                        ?: return@async emptyList()
+                    val profile = resolveOcrProfile()
+                    val language = chimahon.ocr.OcrLanguage.entries.find {
+                        it.bcp47.equals(profile.languageCode, ignoreCase = true)
+                    } ?: chimahon.ocr.OcrLanguage.JAPANESE
+                    val recognized = retryWithBackoff(times = 3) {
+                        recognizePage(combined, language, engineType = ocrSource.recognitionEngine)
+                    }.toScreenLookupBlocks(language.bcp47)
+                    val stripBlocks = OcrCoordinateMapper.remapSeamAugmented(
+                        recognized, firstHeight - cropTop, ImageUtil.getImageHeight(combined),
+                    )
+                    val shared = OcrCoordinateMapper.blocksFromRegion(
+                        stripBlocks, RectF(0f, cropTop.toFloat() / firstHeight, 1f, 1f),
+                    ).filter { it.ymin < 1f && it.ymax > 1f }.ifEmpty { crossing }
+                    if (shared.isNotEmpty()) mutableWebtoonOcrUpdates.emit(chapterId to first.index)
+                    shared
+                }
+            }.also {
+                if (webtoonSeams.size > maxOcrCacheEntries) webtoonSeams.remove(webtoonSeams.keys.first())
+            }
+        }
+        return try {
+            deferred.await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ocrCacheMutex.withLock {
+                if (webtoonSeams[key] === deferred) webtoonSeams.remove(key)
+            }
+            logcat(LogPriority.WARN, e) { "Webtoon seam OCR failed" }
+            ocrCacheMutex.withLock {
+                ocrCache[key].orEmpty().filter { it.ymin < 1f && it.ymax > 1f }
+            }
+        }
+    }
+
     /** Recognizes every crop before replacing regions in the existing page cache. */
     suspend fun rescanOcrRegions(regions: List<OcrPageRegion>) = withContext(Dispatchers.IO) {
         require(regions.isNotEmpty())
@@ -1890,6 +2017,10 @@ class ReaderViewModel @JvmOverloads constructor(
                     }
                 }.also { result ->
                     ocrCache.putAll(result)
+                    for (key in result.keys) {
+                        webtoonSeams.remove(key)
+                        webtoonSeams.remove(key.copy(pageIndex = key.pageIndex - 1))
+                    }
                     trimOcrCacheLocked()
                 }
             }
@@ -2092,7 +2223,7 @@ class ReaderViewModel @JvmOverloads constructor(
             val mokuro = chimahon.ocr.Mokuro.parseMokuro(content)
                 ?: return@withLock null
 
-            val data = MokuroChapterData(mokuro, imageFiles)
+            val data = MokuroChapterData(mokuro, imageFiles, isDownload = !source.isLocal())
             mokuroChapterCache[chapterId] = data
             logcat { "Mokuro: cached chapter $chapterId with ${mokuro.pages.size} pages, ${imageFiles.size} images" }
             data
@@ -2103,11 +2234,16 @@ class ReaderViewModel @JvmOverloads constructor(
         chapterData: MokuroChapterData,
         pageIndex: Int,
     ): List<eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock>? {
-        val mokuroPage = chimahon.ocr.Mokuro.resolveMokuroPage(
-            chapterData.mokuro,
-            chapterData.imageFiles,
-            pageIndex,
-        ) ?: return null
+        val mokuroPage = if (chapterData.isDownload) {
+            // Downloads are renamed 001..N in source order, so the reader index is the mokuro index.
+            chapterData.mokuro.pages.getOrNull(pageIndex)
+        } else {
+            chimahon.ocr.Mokuro.resolveMokuroPage(
+                chapterData.mokuro,
+                chapterData.imageFiles,
+                pageIndex,
+            )
+        } ?: return null
 
         return chimahon.ocr.Mokuro.convertMokuroBlocks(mokuroPage).map { block ->
             eu.kanade.tachiyomi.ui.reader.viewer.OcrTextBlock(
@@ -2549,6 +2685,7 @@ class ReaderViewModel @JvmOverloads constructor(
 
             // ── Seam-aware augmentation ──────────────────────────
             var originalImageHeight = 0
+            var augmentedImageHeight = 0
             var ocrBytes = imageBytes
             val pages = page.chapter.pages
             val nextIdx = page.index + 1
@@ -2564,6 +2701,7 @@ class ReaderViewModel @JvmOverloads constructor(
                     val augmented = ImageUtil.appendTopOverlap(imageBytes, nextBytes)
                     if (augmented != null) {
                         originalImageHeight = ImageUtil.getImageHeight(imageBytes)
+                        augmentedImageHeight = ImageUtil.getImageHeight(augmented)
                         ocrBytes = augmented
                     }
                 }
@@ -2612,11 +2750,10 @@ class ReaderViewModel @JvmOverloads constructor(
 
             // ── Remap augmented coordinates ───────────────────────
             val finalBlocks = if (originalImageHeight > 0) {
-                val augmentedHeight = originalImageHeight + ImageUtil.SEAM_OVERLAP_PX
                 eu.kanade.tachiyomi.ui.reader.viewer.OcrCoordinateMapper.remapSeamAugmented(
                     blocks = blocks,
                     originalHeight = originalImageHeight,
-                    augmentedHeight = augmentedHeight,
+                    augmentedHeight = augmentedImageHeight,
                 )
             } else {
                 blocks

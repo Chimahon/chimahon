@@ -38,4 +38,26 @@ class AnkiDroidBridgeTest {
         assertEquals(0, launchFlags and Intent.FLAG_ACTIVITY_NEW_TASK)
         assertEquals(0, launchFlags and Intent.FLAG_ACTIVITY_TASK_ON_HOME)
     }
+
+    @Test
+    fun `custom Anki app package is used for intents`() {
+        val context = mockk<Context>()
+        val uri = mockk<Uri>()
+        var targetPackage: String? = null
+
+        mockkStatic(Uri::class)
+        every { Uri.encode("nid:42") } returns "nid%3A42"
+        every { Uri.parse("anki://x-callback-url/browser?search=nid%3A42") } returns uri
+
+        mockkConstructor(Intent::class)
+        every { anyConstructed<Intent>().setPackage(any()) } answers {
+            targetPackage = firstArg()
+            self as Intent
+        }
+        every { context.startActivity(any()) } just runs
+
+        AnkiDroidBridge(context, "io.github.pedrubik2000.kuma3").guiBrowse("nid:42")
+
+        assertEquals("io.github.pedrubik2000.kuma3", targetPackage)
+    }
 }

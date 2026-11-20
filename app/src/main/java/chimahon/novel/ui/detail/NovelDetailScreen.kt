@@ -199,7 +199,7 @@ data class NovelDetailScreen(
         val downloadManager = remember { Injekt.get<NovelDownloadManager>() }
         val downloadQueue by downloadManager.queueState.collectAsState()
         val visibleChapters = remember(chapters, state.unreadOnly, state.bookmarkedOnly) {
-            chapters.filter { (!state.unreadOnly || !it.isRead) && (!state.bookmarkedOnly || it.isBookmarked) }
+            state.visibleChapters
         }
         val uiPreferences = remember { Injekt.get<UiPreferences>() }
         var layoutSize by remember { mutableStateOf(IntSize.Zero) }
@@ -210,6 +210,11 @@ data class NovelDetailScreen(
         val fabPosition by remember { readButtonPosition.changes() }
             .collectAsState(initial = readButtonPosition.get())
         val snackbarHostState = remember { SnackbarHostState() }
+        androidx.compose.runtime.LaunchedEffect(downloadManager, state.dbNovel?.id) {
+            downloadManager.errors.collect { error ->
+                if (error.novelId == state.dbNovel?.id) snackbarHostState.showSnackbar(error.message)
+            }
+        }
         var openingChapter by remember { mutableStateOf(false) }
         var openGeneration by remember { mutableIntStateOf(0) }
         fun openChapterWithFeedback(item: NovelChapterItem) {
@@ -293,6 +298,13 @@ data class NovelDetailScreen(
                 onConfirm = { include, _ ->
                     screenModel.setNovelCategories(include)
                 },
+            )
+        }
+
+        if (state.dialog is Dialog.DeleteChapters) {
+            eu.kanade.presentation.manga.components.DeleteChaptersDialog(
+                onDismissRequest = screenModel::dismissDialog,
+                onConfirm = screenModel::deleteSelectedDownloads,
             )
         }
 
@@ -389,10 +401,10 @@ data class NovelDetailScreen(
                     },
                     onDownloadClicked = {
                         screenModel.downloadSelectedChapters()
-                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource },
+                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { !downloadManager.isDownloaded(it.id) } },
                     onDeleteClicked = {
-                        screenModel.deleteSelectedDownloads()
-                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { it.novelChapter != null } },
+                        screenModel.showDialog(Dialog.DeleteChapters)
+                    }.takeIf { state.dbNovel != null && !isLocalSource && !state.isDownloadSource && selectedItems.fastAny { downloadManager.isDownloaded(it.id) } },
                 )
             },
             floatingActionButton = {
@@ -626,6 +638,8 @@ data class NovelDetailScreen(
                                 }
                             } else {
                                 items(visibleChapters, key = { "ch_${it.snChapter.url}" }) { item ->
+                                    val download = downloadQueue.firstOrNull { it.chapterId == item.id }
+                                    val downloadState = download?.state ?: downloadManager.getDownloadState(item.id)
                                     val readProgressText = if (item.lastPageRead > 0 && !item.isRead) {
                                         "${item.lastPageRead} chars"
                                     } else null
@@ -641,26 +655,25 @@ data class NovelDetailScreen(
                                         read = item.isRead,
                                         bookmark = item.isBookmarked,
                                         selected = item.id in state.selectedChapters,
-                                        downloadIndicatorEnabled = !isLocalSource,
+                                        downloadIndicatorEnabled = !state.selectionMode && !isLocalSource,
+                                        supportsOcr = false,
                                         downloadStateProvider = {
-                                            val dm = try { Injekt.get<chimahon.novel.download.NovelDownloadManager>() } catch (_: Exception) { null }
-                                            when (dm?.getDownloadState(item.id)) {
+                                            when (downloadState) {
                                                 chimahon.novel.download.NovelDownload.State.DOWNLOADED -> Download.State.DOWNLOADED
                                                 chimahon.novel.download.NovelDownload.State.DOWNLOADING -> Download.State.DOWNLOADING
                                                 chimahon.novel.download.NovelDownload.State.QUEUED -> Download.State.QUEUE
+                                                chimahon.novel.download.NovelDownload.State.ERROR -> Download.State.ERROR
                                                 else -> Download.State.NOT_DOWNLOADED
                                             }
                                         },
                                         downloadProgressProvider = {
-                                            downloadQueue.find { it.chapterId == item.id }?.progress ?: 0
+                                            download?.progress ?: 0
                                         },
                                         chapterSwipeStartAction = swipeStartAction,
                                         chapterSwipeEndAction = swipeEndAction,
                                         onLongClick = {
-                                            if (state.isFavorite) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                screenModel.toggleChapterSelection(item.id)
-                                            }
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            screenModel.toggleChapterSelection(item.id, fromLongPress = true)
                                         },
                                         onClick = {
                                             if (state.selectionMode) {
@@ -671,8 +684,12 @@ data class NovelDetailScreen(
                                         },
                                         onDownloadClick = { downloadAction: ChapterDownloadAction ->
                                             when (downloadAction) {
-                                                ChapterDownloadAction.START, ChapterDownloadAction.START_NOW ->
+                                                ChapterDownloadAction.START ->
                                                     screenModel.downloadChapter(item)
+                                                ChapterDownloadAction.START_NOW ->
+                                                    screenModel.downloadChapter(item, startNow = true)
+                                                ChapterDownloadAction.CANCEL ->
+                                                    screenModel.cancelChapterDownload(item)
                                                 ChapterDownloadAction.DELETE ->
                                                     screenModel.deleteChapterDownload(item)
                                                 else -> {}
@@ -689,7 +706,15 @@ data class NovelDetailScreen(
                                                 LibraryPreferences.ChapterSwipeAction.ToggleBookmark ->
                                                     screenModel.toggleChapterBookmark(item)
                                                 LibraryPreferences.ChapterSwipeAction.Download ->
-                                                    if (!isLocalSource) screenModel.downloadChapter(item)
+                                                    if (!isLocalSource) {
+                                                        when (downloadManager.getDownloadState(item.id)) {
+                                                            chimahon.novel.download.NovelDownload.State.DOWNLOADED -> screenModel.deleteChapterDownload(item)
+                                                            chimahon.novel.download.NovelDownload.State.QUEUED,
+                                                            chimahon.novel.download.NovelDownload.State.DOWNLOADING,
+                                                            -> screenModel.cancelChapterDownload(item)
+                                                            else -> screenModel.downloadChapter(item)
+                                                        }
+                                                    }
                                                 LibraryPreferences.ChapterSwipeAction.Disabled -> {}
                                             }
                                         },

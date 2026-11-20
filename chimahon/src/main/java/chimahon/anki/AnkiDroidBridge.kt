@@ -32,23 +32,25 @@ interface AnkiCardBridge {
     fun triggerSync()
 }
 
-class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
+class AnkiDroidBridge(
+    private val context: Context,
+    private val packageName: String = AnkiAppSelection.packageName,
+) : AnkiCardBridge {
+
+    private val readWritePermission: String = "$packageName.permission.READ_WRITE_DATABASE"
+    private val baseUri: Uri by lazy { Uri.parse("content://$packageName.flashcards") }
+    private val notesUri by lazy { Uri.withAppendedPath(baseUri, "notes") }
+    private val notesV2Uri by lazy { Uri.withAppendedPath(baseUri, "notes_v2") }
+    private val modelsUri by lazy { Uri.withAppendedPath(baseUri, "models") }
+    private val decksUri by lazy { Uri.withAppendedPath(baseUri, "decks") }
+    private val mediaUri by lazy { Uri.withAppendedPath(baseUri, "media") }
 
     companion object {
         private const val TAG = "AnkiDroidBridge"
         private const val SYNC_COOLDOWN_MS = 120_000L
         private var lastSyncTimeMs = 0L
 
-        const val PERMISSION = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
         const val PERMISSION_REQUEST_CODE = 2001
-
-        private const val AUTHORITY = "com.ichi2.anki.flashcards"
-        private val BASE_URI = Uri.parse("content://$AUTHORITY")
-        private val NOTES_URI = Uri.withAppendedPath(BASE_URI, "notes")
-        private val NOTES_V2_URI = Uri.withAppendedPath(BASE_URI, "notes_v2")
-        private val MODELS_URI = Uri.withAppendedPath(BASE_URI, "models")
-        private val DECKS_URI = Uri.withAppendedPath(BASE_URI, "decks")
-        private val MEDIA_URI = Uri.withAppendedPath(BASE_URI, "media")
 
         private const val NOTE_ID = "_id"
         private const val NOTE_MID = "mid"
@@ -87,20 +89,15 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
     // ==========================================================================
 
     suspend fun isAnkiDroidInstalled(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            context.packageManager.getPackageInfo("com.ichi2.anki", 0)
-            true
-        } catch (_: Exception) {
-            false
-        }
+        AnkiAppSelection.isInstalled(context, packageName)
     }
 
     override fun hasPermission(): Boolean {
-        return context.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED
+        return context.checkSelfPermission(readWritePermission) == PackageManager.PERMISSION_GRANTED
     }
 
     fun requestPermission(activity: android.app.Activity) {
-        activity.requestPermissions(arrayOf(PERMISSION), PERMISSION_REQUEST_CODE)
+        activity.requestPermissions(arrayOf(readWritePermission), PERMISSION_REQUEST_CODE)
     }
 
     suspend fun deckNames(): List<String> = withContext(Dispatchers.IO) {
@@ -108,7 +105,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         val names = mutableListOf<String>()
         try {
             context.contentResolver.query(
-                DECKS_URI,
+                decksUri,
                 arrayOf(DECK_NAME),
                 null,
                 null,
@@ -131,7 +128,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         val names = mutableListOf<String>()
         try {
             context.contentResolver.query(
-                MODELS_URI,
+                modelsUri,
                 arrayOf(MODEL_NAME),
                 null,
                 null,
@@ -154,7 +151,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         val result = mutableListOf<String>()
         try {
             context.contentResolver.query(
-                MODELS_URI,
+                modelsUri,
                 arrayOf(MODEL_NAME, MODEL_FIELD_NAMES),
                 null,
                 null,
@@ -210,7 +207,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
             try {
                 val csum = fieldChecksum(expression)
                 context.contentResolver.query(
-                    NOTES_V2_URI,
+                    notesV2Uri,
                     arrayOf(NOTE_ID, NOTE_MID),
                     "$NOTE_CSUM=?",
                     arrayOf(csum.toString()),
@@ -259,7 +256,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         }
 
         val result = try {
-            context.contentResolver.insert(NOTES_URI, cv)
+            context.contentResolver.insert(notesUri, cv)
         } catch (e: Exception) {
             null
         } ?: throw Exception("AnkiDroid insert failed")
@@ -273,7 +270,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
 
     override suspend fun updateNoteFields(noteId: Long, fields: Map<String, String>) =
         withContext(Dispatchers.IO) {
-            val uri = Uri.withAppendedPath(NOTES_URI, noteId.toString())
+            val uri = Uri.withAppendedPath(notesUri, noteId.toString())
             context.contentResolver.query(
                 uri,
                 arrayOf(NOTE_MID, NOTE_FLDS),
@@ -305,7 +302,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         try {
             val uri = Uri.parse("anki://x-callback-url/browser?search=${Uri.encode(query)}")
             val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                setPackage("com.ichi2.anki")
+                setPackage(packageName)
             }
             context.startActivity(intent)
         } catch (e: Exception) {
@@ -317,6 +314,11 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         // AnkiDroid's NoteEditor has no public intent filter for external apps.
         // The only supported external navigation is the Card Browser filtered by note ID.
         guiBrowse("nid:$noteId")
+    }
+
+    fun guiBrowseNotes(noteIds: List<Long>) {
+        val ids = noteIds.filter { it > 0 }.distinct()
+        if (ids.isNotEmpty()) guiBrowse(ids.joinToString(" or ") { "nid:$it" })
     }
 
     override suspend fun storeMedia(filename: String, data: ByteArray): String =
@@ -377,10 +379,10 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
                 return
             }
 
-            context.packageManager.getPackageInfo("com.ichi2.anki", 0)
+            context.packageManager.getPackageInfo(packageName, 0)
 
             val intent = Intent("com.ichi2.anki.DO_SYNC").apply {
-                setPackage("com.ichi2.anki")
+                setPackage(packageName)
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             context.startActivity(intent)
@@ -407,7 +409,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
     private fun findDeckIdOrNull(deckName: String): Long? {
         try {
             context.contentResolver.query(
-                DECKS_URI,
+                decksUri,
                 arrayOf(DECK_ID, DECK_NAME),
                 null,
                 null,
@@ -430,7 +432,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         val cv = ContentValues().apply {
             put(DECK_NAME, deckName)
         }
-        val uri = context.contentResolver.insert(DECKS_URI, cv)
+        val uri = context.contentResolver.insert(decksUri, cv)
             ?: throw Exception("Failed to create deck '$deckName'")
         return uri.lastPathSegment?.toLongOrNull()
             ?: throw Exception("Failed to parse deck ID for '$deckName'")
@@ -439,7 +441,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
     private fun findModelId(modelName: String): Long {
         try {
             context.contentResolver.query(
-                MODELS_URI,
+                modelsUri,
                 arrayOf(MODEL_ID, MODEL_NAME),
                 null,
                 null,
@@ -459,7 +461,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
     private fun getModelFields(modelId: Long): List<String> {
         try {
             context.contentResolver.query(
-                MODELS_URI,
+                modelsUri,
                 arrayOf(MODEL_ID, MODEL_FIELD_NAMES),
                 null,
                 null,
@@ -482,7 +484,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         val models = mutableListOf<ModelInfo>()
         try {
             context.contentResolver.query(
-                MODELS_URI,
+                modelsUri,
                 arrayOf(MODEL_NAME, MODEL_FIELD_NAMES),
                 null,
                 null,
@@ -518,7 +520,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
             if (deckId != null) put(MODEL_DECK_ID, deckId)
         }
 
-        val modelUri = context.contentResolver.insert(MODELS_URI, modelValues)
+        val modelUri = context.contentResolver.insert(modelsUri, modelValues)
             ?: throw Exception("Failed to create Anki model '$modelName'")
         val modelId = modelUri.lastPathSegment?.toLongOrNull()
             ?: throw Exception("Failed to parse Anki model ID for '$modelName'")
@@ -557,7 +559,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
     }
 
     private fun moveCardsToDeck(noteId: Long, targetDeckId: Long) {
-        val cardsUri = Uri.withAppendedPath(NOTES_URI, "$noteId/cards")
+        val cardsUri = Uri.withAppendedPath(notesUri, "$noteId/cards")
         try {
             context.contentResolver.query(
                 cardsUri,
@@ -597,7 +599,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
         )
 
         context.grantUriPermission(
-            "com.ichi2.anki",
+            packageName,
             contentUri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION,
         )
@@ -607,7 +609,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
             put(MEDIA_PREFERRED_NAME, name.replace(Regex("\\.[^.]*$"), ""))
         }
 
-        val res = context.contentResolver.insert(MEDIA_URI, mediaCv)
+        val res = context.contentResolver.insert(mediaUri, mediaCv)
         file.delete()
 
         if (res != null) {
@@ -625,7 +627,7 @@ class AnkiDroidBridge(private val context: Context) : AnkiCardBridge {
             .ifBlank { "chimahon_media" }
 
     private fun isNoteInDeck(noteId: Long, deckId: Long): Boolean {
-        val noteUri = Uri.withAppendedPath(NOTES_URI, noteId.toString())
+        val noteUri = Uri.withAppendedPath(notesUri, noteId.toString())
         val cardsUri = Uri.withAppendedPath(noteUri, "cards")
         var inDeck = false
         try {
