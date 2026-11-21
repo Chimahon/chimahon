@@ -31,12 +31,13 @@ internal fun CoroutineScope.prepareDictionaryCards(
     dictionaryOrder: List<String>,
     profilingId: Long,
     resolveTitle: (String) -> String,
+    resolveSourceTitle: (String) -> String,
 ): DictionaryCardPreparation {
     val order = dictionaryOrder.toList()
     val task = async(Dispatchers.Default) {
         try {
             Result.success(LookupProfiler.elapsedSection(profilingId, "plan.cards_parse") {
-                val priority = order.map(resolveTitle).withIndex().associate { it.value to it.index }
+                val priority = order.map(resolveSourceTitle).withIndex().associate { it.value to it.index }
                 // Grouping runs in C++ over the session's last lookup; no Java object walk.
                 parseCards(HoshiDicts.cards(session, groupTerms), resolveTitle, priority, results)
             })

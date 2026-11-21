@@ -265,7 +265,7 @@ internal fun getDictionaryTitle(context: Context, dirName: String): String {
 }
 
 /** Native lookup, CSS, media and Anki all use the index title, never the display label. */
-private fun getDictionarySourceTitle(context: Context, dirName: String): String {
+internal fun getDictionarySourceTitle(context: Context, dirName: String): String {
     val dictionariesDir = File(context.getExternalFilesDir(null), "dictionaries")
     // Imports, updates and removals already touch this directory to refresh lookup paths.
     val revision = dictionariesDir.lastModified()

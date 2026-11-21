@@ -15,6 +15,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 
 - Google Drive sync failing when the default Google token endpoint can't be reached, with a fallback token endpoint
 - Native Anki export using a different lookup result than the card showed for grouped terms, and missing the glossary when a dictionary had a custom display name
+- Native dictionary cards and dictionary groups appearing in a different order than the WebView entries
 - Native dictionary popup exporting the first dictionary when no dictionary was selected
 - Sentence audio export using the active playback stream, including tokenized HLS and localhost extension proxies
 - Hoster loading failing after an episode lookup error

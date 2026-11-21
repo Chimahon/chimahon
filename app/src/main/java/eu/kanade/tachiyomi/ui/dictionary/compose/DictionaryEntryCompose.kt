@@ -879,7 +879,7 @@ internal suspend fun buildCards(
 ): List<TermCard> {
     if (results.isEmpty()) return emptyList()
 
-    fun rank(title: String): Int = priority[title] ?: Int.MAX_VALUE
+    fun rank(dictName: String): Int = priority[dictName] ?: Int.MAX_VALUE
     val titles = HashMap<String, String>()
     val parsed = HashMap<Triple<String, String, Boolean>, List<StructuredNode>>()
 
@@ -898,7 +898,7 @@ internal suspend fun buildCards(
         val pitches = LinkedHashMap<String, PitchEntry>()
 
         fun finish(): TermCard {
-            val groups = glosses.values.sortedBy { rank(it.title) }.map { group ->
+            val groups = glosses.values.sortedBy { rank(it.dictName) }.map { group ->
                 group.copy(parsedGlosses = group.glosses.map { gloss ->
                     checkCancellation()
                     parsed.getOrPut(Triple(group.dictName, gloss.glossary, group.glosses.size == 1)) {

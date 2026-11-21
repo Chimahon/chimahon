@@ -84,6 +84,7 @@ import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.resolveDictionaryTheme
 import eu.kanade.tachiyomi.ui.dictionary.TabInfo
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
+import eu.kanade.tachiyomi.ui.dictionary.getDictionarySourceTitle
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import eu.kanade.tachiyomi.ui.dictionary.orderLookupResultsForDisplay
 import eu.kanade.tachiyomi.ui.dictionary.stopDictionaryAudio
@@ -574,9 +575,15 @@ fun OcrLookupPopup(
                         orderLookupResultsForDisplay(result.results, activeProfile, context)
                     }
                     preparation = if (nativeLookup && result.session != 0L && generation == lookupGeneration && visibleRef.value && requestInput === lookupInputRef.value) {
-                        scope.prepareDictionaryCards(ordered, result.session, groupTerms, activeProfile.dictionaryOrder, result.profilingId) {
-                            getDictionaryTitle(context, it)
-                        }
+                        scope.prepareDictionaryCards(
+                            results = ordered,
+                            session = result.session,
+                            groupTerms = groupTerms,
+                            dictionaryOrder = activeProfile.dictionaryOrder,
+                            profilingId = result.profilingId,
+                            resolveTitle = { getDictionaryTitle(context, it) },
+                            resolveSourceTitle = { getDictionarySourceTitle(context, it) },
+                        )
                     } else null
                     val slot = if (preparation != null) {
                         /* Started through a slot so its first card can be published to the popup

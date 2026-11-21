@@ -22,6 +22,7 @@ import chimahon.novel.data.FontManager
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
+import eu.kanade.tachiyomi.ui.dictionary.getDictionarySourceTitle
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -215,7 +216,8 @@ internal class DictionaryPlanBuilder(
                     val css = async { NativeRenderDiagnostics.section(id, planId, "plan.css") { buildParsedCssMap(styles, customCss, context, appearance.variables) } }
                     val parsed = if (cards != null) NativeRenderDiagnostics.elapsed(id, planId, "plan.cards.await") { cards.await() }
                     else NativeRenderDiagnostics.elapsed(id, planId, "plan.cards_parse") {
-                        val priority = profile.dictionaryOrder.map(resolveTitle).withIndex().associate { it.value to it.index }
+                        val priority = profile.dictionaryOrder.map { getDictionarySourceTitle(context, it) }
+                            .withIndex().associate { it.value to it.index }
                         buildCards(results, groupTerms, resolveTitle, priority, id)
                     }
                     css.await() to parsed

@@ -51,7 +51,7 @@ internal fun parseCards(bytes: ByteArray, resolveTitle: (String) -> String,
             groups.add(DictionaryGroup(dictName, title, glosses,
                 glosses.map { nativeCoreSource(it.glossary) }))
         }
-        groups.sortBy { priority[it.title] ?: Int.MAX_VALUE }
+        groups.sortBy { priority[it.dictName] ?: Int.MAX_VALUE }
 
         val frequencyCount = records.int
         val frequencies = ArrayList<FrequencyEntry>(frequencyCount)
@@ -81,11 +81,13 @@ internal fun parseCards(bytes: ByteArray, resolveTitle: (String) -> String,
 /**
  * Native cards are grouped by expression and reading, and the C++ grouping walks the session's
  * results rather than the display-ordered list. Map each card back to the result the renderer
- * shows so Anki exports the same term and glossaries as the WebView.
+ * shows so Anki exports the same term and glossaries as the WebView, then restore the display
+ * order so the native card list matches the WebView entries.
  */
 private fun assignResultIndices(cards: List<TermCard>, results: List<LookupResult>): List<TermCard> {
     val used = BooleanArray(results.size)
-    return cards.mapIndexed { cardIndex, card ->
+    var complete = true
+    val assigned = cards.mapIndexed { cardIndex, card ->
         fun find(match: (LookupResult) -> Boolean): Int = results.indices.firstOrNull { index ->
             !used[index] && match(results[index])
         } ?: -1
@@ -100,8 +102,14 @@ private fun assignResultIndices(cards: List<TermCard>, results: List<LookupResul
         val relaxed = if (exact >= 0) exact else find { result ->
             result.term.expression == card.expression && result.term.reading == card.reading
         }
-        if (relaxed >= 0) used[relaxed] = true
-        val index = if (relaxed >= 0) relaxed else cardIndex.coerceAtMost(results.lastIndex.coerceAtLeast(0))
+        val index = if (relaxed >= 0) {
+            used[relaxed] = true
+            relaxed
+        } else {
+            complete = false
+            cardIndex.coerceAtMost(results.lastIndex.coerceAtLeast(0))
+        }
         card.copy(resultIndex = index)
     }
+    return if (complete) assigned.sortedBy { it.resultIndex } else assigned
 }
