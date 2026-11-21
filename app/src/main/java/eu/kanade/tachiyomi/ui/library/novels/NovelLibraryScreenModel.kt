@@ -59,6 +59,9 @@ class NovelLibraryScreenModel(
 ) : StateScreenModel<NovelLibraryScreenModel.State>(State()) {
 
     private val _searchQuery = MutableStateFlow<String?>(null)
+    private val indexMutex = Mutex()
+    private var loadJob: Job? = null
+    private var reloadRequested = false
 
     init {
         screenModelScope.launch { migrateNovelJsonData.await() }
@@ -94,10 +97,6 @@ class NovelLibraryScreenModel(
     suspend fun getLocalNovelId(folder: String): Long? {
         return runCatching { novelRepository.getNovelByLocalFolder(folder)?.id }.getOrNull()
     }
-
-    private val indexMutex = Mutex()
-    private var loadJob: Job? = null
-    private var reloadRequested = false
 
     /**
      * Applies a preference change and rebuilds the index against the newest

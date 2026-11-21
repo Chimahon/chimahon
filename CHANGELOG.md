@@ -4,6 +4,13 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- Torrent server crash loop when Android ends the dataSync foreground service timeout
+- Novel library crashing on first open when a preference emitted during screen-model construction
+
 ## [v2.5.3]
 
 ### Added

@@ -8,6 +8,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
+import androidx.annotation.RequiresApi
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.torrentServer.TorrentServerApi
@@ -23,14 +25,24 @@ import kotlin.coroutines.EmptyCoroutineContext
 class TorrentServerService : Service() {
     private val serviceScope = CoroutineScope(EmptyCoroutineContext)
     private val applicationContext = Injekt.get<Application>()
+    private var timedOut = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (timedOut) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_START -> {
                 startServer()
-                notification(applicationContext)
+                if (!notification(applicationContext)) {
+                    timedOut = true
+                    stopSelf(startId)
+                    stopServer()
+                    return START_NOT_STICKY
+                }
                 return START_STICKY
             }
             ACTION_STOP -> {
@@ -39,6 +51,17 @@ class TorrentServerService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Android 15+ limits dataSync foreground services. Stop cleanly when the
+     * limit is reached instead of letting the system kill the process.
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        timedOut = true
+        stopSelf()
+        stopServer()
     }
 
     private fun startServer() {
@@ -60,7 +83,7 @@ class TorrentServerService : Service() {
         }
     }
 
-    private fun notification(context: Context) {
+    private fun notification(context: Context): Boolean {
         val exitPendingIntent = PendingIntent.getService(
             applicationContext,
             0,
@@ -79,18 +102,27 @@ class TorrentServerService : Service() {
             addAction(R.drawable.ic_close_24dp, "Stop", exitPendingIntent)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                Notifications.ID_TORRENT_SERVER,
-                builder.build(),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-            )
-        } else {
-            startForeground(Notifications.ID_TORRENT_SERVER, builder.build())
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    Notifications.ID_TORRENT_SERVER,
+                    builder.build(),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                )
+            } else {
+                startForeground(Notifications.ID_TORRENT_SERVER, builder.build())
+            }
+            true
+        } catch (e: Exception) {
+            // The dataSync quota can be exhausted before this start, especially
+            // when Android restarts a sticky service after the timeout.
+            Log.w(TAG, "Unable to start torrent foreground service", e)
+            false
         }
     }
 
     companion object {
+        private const val TAG = "TorrentServerService"
         const val ACTION_START = "start_torrent_server"
         const val ACTION_STOP = "stop_torrent_server"
         private val applicationContext = Injekt.get<Application>()
