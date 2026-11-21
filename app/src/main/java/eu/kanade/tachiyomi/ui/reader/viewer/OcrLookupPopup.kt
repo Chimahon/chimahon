@@ -239,7 +239,7 @@ fun OcrLookupPopup(
         childPopupRequest = null
         nativeRecursiveSelection.clear()
     }
-    var contentReady by remember(visible) { mutableStateOf(false) }
+    var contentReady by remember { mutableStateOf(false) }
     var readyNativeFrameId by remember(visible) { mutableStateOf<String?>(null) }
     // Tracks the lookupGeneration value at the time content was last painted.
     // Used to distinguish a fresh lookup (hide stale content) from a same-lookup
@@ -1213,11 +1213,10 @@ fun OcrLookupPopup(
     // data while the renderer itself can skip. The outer host callback goes through a ref so
     // its identity never matters downstream.
     val contentReadyChangeRef = rememberUpdatedState(onContentReadyChange)
-    // Keyed on `visible` to match `contentReady`'s own `remember(visible)`: visibility swaps the
-    // state object, so an unkeyed callback would keep writing the detached one and the popup
-    // would stick in the wrong readiness. Identity still never changes within a visibility
-    // epoch, which is all downstream skipping needs.
-    val composeContentReady: (Boolean) -> Unit = remember(visible) {
+    // Readiness must survive the popup being hidden. The warm WebView can already be painted
+    // when a later lookup opens; re-keying this state on `visible` discarded that ready edge,
+    // which left `usePopup = false` at alpha 0 until a new ready callback happened to arrive.
+    val composeContentReady: (Boolean) -> Unit = remember {
         { ready ->
             // Only the "not ready" edge comes from the loading flag. The ready
             // edge comes from onPlanReady below, because the flag clears while
@@ -1244,7 +1243,7 @@ fun OcrLookupPopup(
             }
         }
     }
-    val webContentReady: (Boolean) -> Unit = remember(visible) {
+    val webContentReady: (Boolean) -> Unit = remember {
         { ready ->
             if (ready) {
                 // A flush of the pre-result empty page also reports ready; only take the ready

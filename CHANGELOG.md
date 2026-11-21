@@ -17,6 +17,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 - Sentence audio export using the active playback stream, including tokenized HLS and localhost extension proxies
 - Hoster loading failing after an episode lookup error
 - DASH playback failing with `Failed to recognize file format.` because the bundled FFmpeg build omitted the DASH demuxer
+- Dictionary lookup popup sometimes staying invisible after closing and reopening it in the player
 - Novel updates view missing on upgraded installs
 
 ## [v2.5.2]
