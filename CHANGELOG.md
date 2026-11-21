@@ -4,6 +4,21 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- Compact tags option for dictionary popups, showing repeated grammar and usage tags only once per dictionary
+
+### Fixed
+
+- Google Drive sync failing when the default Google token endpoint can't be reached, with a fallback token endpoint
+- Native dictionary popup exporting the first dictionary when no dictionary was selected
+- Sentence audio export using the active playback stream, including tokenized HLS and localhost extension proxies
+- Hoster loading failing after an episode lookup error
+- DASH playback failing with `Failed to recognize file format.` because the bundled FFmpeg build omitted the DASH demuxer
+- Novel updates view missing on upgraded installs
+
 ## [v2.5.2]
 
 ### Fixed

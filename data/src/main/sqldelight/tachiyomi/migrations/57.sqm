@@ -1,5 +1,7 @@
 -- Novel updates view: views are only created with the database, so existing
--- installs need this migration.
+-- installs need this migration. The view may already exist if the base schema
+-- was created by a build that included it, so recreate it defensively.
+DROP VIEW IF EXISTS novel_updatesView;
 CREATE VIEW novel_updatesView AS
 SELECT
     novels._id AS novelId,
