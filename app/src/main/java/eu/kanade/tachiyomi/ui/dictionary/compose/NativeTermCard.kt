@@ -65,7 +65,7 @@ internal class NativeTermCard(val card: TermCard, val pieces: List<NativeCardPie
             val action = piece.action?.let { name -> StructuredNode.Element(StructuredTag.Summary,
                 listOf(StructuredNode.Text(if (piece.group >= 0) card.dictGroups[piece.group].title else card.expression)),
                 StructuredAttributes(properties = mapOf("cardAction" to name))) }
-            val highlighted = piece.action?.startsWith("group:") == true && card.dictGroups[piece.group].title == selected
+            val highlighted = piece.action?.startsWith("group:") == true && card.dictGroups[piece.group].dictName == selected
             NativeCardFragment(document, piece.dictionary, piece.left, piece.before, piece.after, action,
                 headword = if (piece === pieces.first()) card.expression else null,
                 background = if (highlighted) appearance.hover.toArgb() else 0,
@@ -353,7 +353,7 @@ private fun NativeCardBuilder.pitchImage(morae: List<String>, high: BooleanArray
 }
 
 @Composable
-internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: AnkiProfile,
+internal fun NativeTermCardContent(model: NativeTermCard, profile: AnkiProfile,
     onAnkiLookup: ((Int, Int?, String?, String?, Boolean) -> Unit)?,
     onRecursiveLookup: ((String, String?, Int?, Float?, Float?, String?) -> Unit)?,
     audioEnabled: Boolean, autoplay: Boolean, accent: Color, onBg: Color) {
@@ -426,8 +426,8 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
             }
         }, onLongAction = { node ->
             node.attributes.properties["cardAction"]?.removePrefix("group:")?.toIntOrNull()?.let { group ->
-                val title = model.card.dictGroups[group].title
-                selected = if (selected == title) null else title
+                val name = model.card.dictGroups[group].dictName
+                selected = if (selected == name) null else name
             }
         }, onKanjiLookup = { text -> sink.value?.invoke(text, null, null, null, null, "kanji") },
             onRecursiveLookup = { hit -> hit.lookup?.let { text ->
@@ -450,7 +450,7 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
         LaunchedEffect(model) { androidx.compose.runtime.withFrameNanos { }; chrome = true }
         if (chrome) Row(Modifier.align(Alignment.TopEnd).offset(y = 10.dp + (headHeight - 28.dp) / 2)) {
             if (audioEnabled) WordAudioButton(model.card.expression, model.card.reading, accent, onBg, autoplay, Modifier.size(28.dp))
-            if (onAnkiLookup != null) TermCardAnkiActions(index, model.card.expression,
+            if (onAnkiLookup != null) TermCardAnkiActions(model.card.resultIndex, model.card.expression,
                 selected, profile.ankiDupAction, onAnkiLookup, onBg)
         }
     }

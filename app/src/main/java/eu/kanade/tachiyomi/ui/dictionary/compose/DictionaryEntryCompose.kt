@@ -128,6 +128,12 @@ internal data class TermCard(
     val dictGroups: List<DictionaryGroup>,
     val frequencies: List<FrequencyEntry>,
     val pitches: List<PitchEntry>,
+    /**
+     * Index of the lookup result this card was built from. Cards group matching results, so the
+     * card position is not the result position; Anki export must use the same result the WebView
+     * entry would have used.
+     */
+    val resultIndex: Int = -1,
 )
 
 @Immutable
@@ -678,7 +684,7 @@ fun DictionaryEntryCompose(
                     ) {
                         items(count = effectivePlan.nativeCards.size, key = { "native-card-$it" },
                             contentType = { "native-card" }) { index ->
-                            NativeTermCardContent(effectivePlan.nativeCards[index], index, activeProfile,
+                            NativeTermCardContent(effectivePlan.nativeCards[index], activeProfile,
                                 onAnkiLookup, onRecursiveLookup, wordAudioEnabled, wordAudioAutoplayOverride == true,
                                 accent, onBg)
                         }
@@ -878,6 +884,7 @@ internal suspend fun buildCards(
     val parsed = HashMap<Triple<String, String, Boolean>, List<StructuredNode>>()
 
     class Acc {
+        var resultIndex = -1
         var expression = ""
         var reading = ""
         var matched = ""
@@ -910,12 +917,13 @@ internal suspend fun buildCards(
                 dictGroups = groups,
                 frequencies = frequencies.values.toList(),
                 pitches = pitches.values.toList(),
+                resultIndex = resultIndex,
             )
         }
     }
 
     val out = mutableListOf<Acc>()
-    for (result in results) {
+    for ((resultIndex, result) in results.withIndex()) {
         checkCancellation()
         val acc: Acc
         val last = out.lastOrNull()
@@ -926,6 +934,7 @@ internal suspend fun buildCards(
             acc = last
         } else {
             acc = Acc().apply {
+                this.resultIndex = resultIndex
                 expression = result.term.expression
                 reading = result.term.reading
                 matched = result.matched
@@ -971,11 +980,12 @@ private val LocalExistingExpressions = compositionLocalOf { emptySet<String>() }
  * `alreadyAdded` is read here, not by the native document host, so when an Anki add swaps the
  * `existingExpressions` set, only these two IconButtons recompose. The card body (gloss, ruby,
  * tables) keeps identical parameters and is skipped. [selectedDict] stays owned by the card (the
- * group headers write it on long-press); it is only *passed* here.
+ * group headers write it on long-press); it is only *passed* here. It is the raw dictionary name
+ * from [DictionaryGroup.dictName], not the display title, matching the WebView's export key.
  */
 @Composable
 internal fun TermCardAnkiActions(
-    index: Int,
+    resultIndex: Int,
     expression: String,
     selectedDict: String?,
     dupAction: String,
@@ -984,8 +994,8 @@ internal fun TermCardAnkiActions(
 ) {
     val alreadyAdded = expression in LocalExistingExpressions.current
     val showAdd = !alreadyAdded || dupAction != "prevent"
-    val addAction = rememberUpdatedState { onAnkiLookup(index, null, selectedDict, null, false) }
-    val openAction = rememberUpdatedState { onAnkiLookup(index, null, selectedDict, null, true) }
+    val addAction = rememberUpdatedState { onAnkiLookup(resultIndex, null, selectedDict, null, false) }
+    val openAction = rememberUpdatedState { onAnkiLookup(resultIndex, null, selectedDict, null, true) }
     val onAdd = remember { { addAction.value() } }
     val onOpen = remember { { openAction.value() } }
     if (showAdd) {

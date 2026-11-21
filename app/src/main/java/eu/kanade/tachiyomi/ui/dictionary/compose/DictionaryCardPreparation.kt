@@ -38,7 +38,7 @@ internal fun CoroutineScope.prepareDictionaryCards(
             Result.success(LookupProfiler.elapsedSection(profilingId, "plan.cards_parse") {
                 val priority = order.map(resolveTitle).withIndex().associate { it.value to it.index }
                 // Grouping runs in C++ over the session's last lookup; no Java object walk.
-                parseCards(HoshiDicts.cards(session, groupTerms), resolveTitle, priority)
+                parseCards(HoshiDicts.cards(session, groupTerms), resolveTitle, priority, results)
             })
         } catch (e: CancellationException) {
             throw e

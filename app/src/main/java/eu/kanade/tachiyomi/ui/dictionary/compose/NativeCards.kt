@@ -3,6 +3,7 @@
 import chimahon.Frequency
 import chimahon.FrequencyEntry
 import chimahon.GlossaryEntry
+import chimahon.LookupResult
 import chimahon.PitchEntry
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -13,7 +14,7 @@ import java.nio.ByteOrder
  * is resolved here (it needs the localized titles) and stays stable.
  */
 internal fun parseCards(bytes: ByteArray, resolveTitle: (String) -> String,
-    priority: Map<String, Int>): List<TermCard> {
+    priority: Map<String, Int>, results: List<LookupResult>): List<TermCard> {
     val header = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
     check(header.int == 0x47525031) { "Invalid card blob" }
     val cardCount = header.int
@@ -74,5 +75,33 @@ internal fun parseCards(bytes: ByteArray, resolveTitle: (String) -> String,
         cards.add(TermCard(expression, reading, matched, deinflected, termTags, rules,
             process, groups, frequencies, pitches))
     }
-    return cards
+    return if (results.isEmpty()) cards else assignResultIndices(cards, results)
+}
+
+/**
+ * Native cards are grouped by expression and reading, and the C++ grouping walks the session's
+ * results rather than the display-ordered list. Map each card back to the result the renderer
+ * shows so Anki exports the same term and glossaries as the WebView.
+ */
+private fun assignResultIndices(cards: List<TermCard>, results: List<LookupResult>): List<TermCard> {
+    val used = BooleanArray(results.size)
+    return cards.mapIndexed { cardIndex, card ->
+        fun find(match: (LookupResult) -> Boolean): Int = results.indices.firstOrNull { index ->
+            !used[index] && match(results[index])
+        } ?: -1
+        val exact = find { result ->
+            result.term.expression == card.expression &&
+                result.term.reading == card.reading &&
+                result.matched == card.matched &&
+                result.deinflected == card.deinflected &&
+                result.term.glossaries.map { it.dictName }.toSet() ==
+                card.dictGroups.map { it.dictName }.toSet()
+        }
+        val relaxed = if (exact >= 0) exact else find { result ->
+            result.term.expression == card.expression && result.term.reading == card.reading
+        }
+        if (relaxed >= 0) used[relaxed] = true
+        val index = if (relaxed >= 0) relaxed else cardIndex.coerceAtMost(results.lastIndex.coerceAtLeast(0))
+        card.copy(resultIndex = index)
+    }
 }
