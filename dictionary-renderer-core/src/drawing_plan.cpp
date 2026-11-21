@@ -21,7 +21,7 @@
 namespace {
 constexpr uint32_t none = UINT32_MAX;
 static_assert(sizeof(dc_drawing_font) == 68 && sizeof(dc_draw_command) == 64);
-static_assert(sizeof(dc_measure_request) == 20 && sizeof(dc_drawing_hit) == 28);
+static_assert(sizeof(dc_measure_request) == 20 && sizeof(dc_drawing_hit) == 28 && sizeof(dc_drawing_disclosure) == 28);
 uint32_t index(size_t n) {
     if (n > INT32_MAX)
         throw std::length_error("Drawing buffer limit");
@@ -126,6 +126,7 @@ struct dc_drawing_plan {
     std::vector<dc_draw_command> commands;
     std::vector<dc_drawing_hit> hits;
     std::vector<dc_drawing_source> sources;
+    std::vector<dc_drawing_disclosure> disclosures;
     uint64_t lines = 0, rubies = 0;
     bool finished = false;
     std::string_view property(const dc_prepared_view &, uint32_t style, std::string_view name) const {
@@ -977,7 +978,8 @@ dc_drawing_view dc_drawing_plan_view(dc_drawing_plan *d) {
             d->text.size(),     d->requests.data(), d->requests.size(), d->contexts.data(), d->contexts.size(),
             d->metrics.data(),  d->advances.data(), d->breaks.data(),   d->levels.data(),   d->commands.data(),
             d->commands.size(), d->hits.data(),     d->hits.size(),     d->sources.data(),  d->sources.size(),
-            d->lines,           d->rubies, d->shaping_runs.data(), d->shaping_runs.size()};
+            d->lines,           d->rubies, d->shaping_runs.data(), d->shaping_runs.size(),
+            d->disclosures.data(), d->disclosures.size()};
 }
 dc_font_facts_view dc_drawing_font_facts(dc_drawing_plan *d) {
     if (!d) return {};
@@ -1093,6 +1095,13 @@ int dc_drawing_finish(dc_drawing_plan *d, dc_error *error) {
                 if (position.source != s)
                     continue;
                 const auto &paragraph = d->paragraphs[position.paragraph];
+                const auto &paragraphInput = d->v.paragraphs[position.paragraph];
+                if (paragraphInput.disclosure != none) {
+                    const float left = std::min(position.x, position.marker_x);
+                    const float right = std::max(position.x + position.width, position.marker_x);
+                    d->disclosures.push_back({s, paragraphInput.disclosure, paragraphInput.disclosure_open,
+                        left, position.y, std::max(right - left, 1.f), position.height});
+                }
                 // Paint ancestor fragments behind descendants, retaining independent padding/borders.
                 const auto& boxes=d->paragraph_boxes[position.paragraph];
                 for(auto it=boxes.rbegin();it!=boxes.rend();++it) {

@@ -22,7 +22,8 @@ import kotlin.math.roundToInt
 public class NativeCardFragment(val document: NativeGlossaryDocument, val dictionary: String = "",
     val left: Int = 0, val before: Int = 0, val after: Int = 0,
     val action: StructuredNode.Element? = null, val headword: String? = null,
-    val background: Int = 0, val stripe: Int = 0, val tint: Int? = null)
+    val background: Int = 0, val stripe: Int = 0, val tint: Int? = null,
+    val pieceIndex: Int = -1)
 
 private data class CardFill(override val x: Int, override val y: Int,
     override val width: Int, override val height: Int, val color: Int) : NativeGlossaryItem {
@@ -61,9 +62,13 @@ public fun placeNativeCard(fragments: List<NativeCardFragment>, visible: Boolean
         if (fragment.stripe ushr 24 != 0) items.add(CardFill(x, y,
             (4 * fragment.document.density.density).roundToInt(), fragment.document.height, fragment.stripe))
         fragment.document.items.forEach { item ->
-            val surface = if (item is NativeCommandSurface && fragment.tint != null) item.tinted(fragment.tint) else item
-            val moved = (if (surface is NativeCommandSurface && fragment.headword != null)
-                surface.asHeadword(fragment.headword) else surface).moved(x, y)
+            val source = when {
+                item is NativeGlossaryDetails -> item.copy(pieceIndex = fragment.pieceIndex)
+                item is NativeCommandSurface && fragment.tint != null -> item.tinted(fragment.tint)
+                else -> item
+            }
+            val moved = (if (source is NativeCommandSurface && fragment.headword != null)
+                source.asHeadword(fragment.headword) else source).moved(x, y)
             items.add(if (moved is NativeGlossaryImage) moved.copy(source = moved.source.copy(
                 attributes = moved.source.attributes.copy(properties = moved.source.attributes.properties +
                     ("cardDictionary" to fragment.dictionary)))) else moved)
@@ -94,18 +99,19 @@ private fun nativeInheritedColor(value: String?): Color? {
 public fun NativeDocumentContent(document: NativeGlossaryDocument, dictionary: String,
     onLookup: ((String) -> Unit)?, onAction: (StructuredNode.Element) -> Unit,
     modifier: Modifier = Modifier, onLongAction: ((StructuredNode.Element) -> Unit)? = null,
-    onKanjiLookup: ((String) -> Unit)? = null, onRecursiveLookup: ((NativeGlossaryHit) -> Unit)? = null) {
+    onKanjiLookup: ((String) -> Unit)? = null, onRecursiveLookup: ((NativeGlossaryHit) -> Unit)? = null,
+    onDetails: ((NativeGlossaryDetails) -> Unit)? = null) {
     val selection = LocalNativeRecursiveSelection.current
     if (document.images.isEmpty()) {
         AndroidView(modifier = modifier, factory = { createNativeGlossaryView(it, document) }, update = {
-            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup, onRecursiveLookup, selection)
+            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup, onRecursiveLookup, selection, onDetails)
         })
         return
     }
     val media = LocalMediaDataUris.current
     Layout(modifier = modifier, content = {
         AndroidView(factory = { createNativeGlossaryView(it, document) }, update = {
-            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup, onRecursiveLookup, selection)
+            it.bind(document, dictionary, onLookup, onAction, onLongAction, onKanjiLookup, onRecursiveLookup, selection, onDetails)
         })
         document.images.forEach { image ->
             val props = image.source.attributes.properties

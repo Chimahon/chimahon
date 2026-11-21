@@ -40,6 +40,7 @@ template <class T, auto Destroy> using Owned = std::unique_ptr<T, decltype(Destr
 struct Context {
     Owned<dc_stylesheets, dc_stylesheets_destroy> sheets{nullptr, dc_stylesheets_destroy};
     dc_compile_options options;
+    std::vector<uint32_t> open_details;
     std::string language = "ja";
 };
 struct Drawing {
@@ -69,7 +70,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
                                                                                    jobjectArray css, jfloat font,
                                                                                    jboolean dark, jboolean expanded,
                                                                                    jboolean compact,
-                                                                                   jstring language) {
+                                                                                   jstring language,
+                                                                                   jintArray open_details) {
     try {
         if (!css)
             throw std::invalid_argument("Null stylesheets");
@@ -98,7 +100,19 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
         // first portable batch would otherwise pay it on the plan's critical path.
         dictionary_system_fonts(result->language.c_str());
         // Match the unchanged Android WebView's default minimum text size.
-        result->options = {font, dark != 0, expanded != 0, 8.f, compact != 0};
+        result->options = {font, dark != 0, expanded != 0, 8.f, compact != 0, nullptr, 0, 0};
+        if (open_details) {
+            const auto count = env->GetArrayLength(open_details);
+            result->open_details.resize(count);
+            if (count)
+                env->GetIntArrayRegion(open_details, 0, count,
+                    reinterpret_cast<jint *>(result->open_details.data()));
+            if (env->ExceptionCheck())
+                throw std::runtime_error("Invalid open details indices");
+            result->options.open_details = result->open_details.data();
+            result->options.open_details_count = result->open_details.size();
+            result->options.open_details_set = 1;
+        }
         dc_stylesheets *sheets = nullptr;
         dc_error error{};
         if (dc_stylesheets_create(sources.data(), sources.size(), &sheets, &error))
@@ -208,16 +222,16 @@ extern "C" JNIEXPORT jintArray JNICALL Java_chimahon_renderer_DictionaryCore_dra
             v.font_count,    v.names_bytes,     v.text_count,   v.request_count, v.context_count,
             v.command_count, v.hit_count,       v.source_count, p.image_count,   p.property_count,
             p.text_bytes,    p.paragraph_count, p.ruby_count,   p.table_count,   static_cast<size_t>(v.lines), v.shaping_run_count,
-            facts.font_count, facts.punctuation_count};
-        jint values[18];
-        for (size_t i = 0; i < 18; ++i) {
+            facts.font_count, facts.punctuation_count, v.disclosure_count};
+        jint values[19];
+        for (size_t i = 0; i < 19; ++i) {
             if (sizes[i] > INT_MAX)
                 throw std::length_error("Drawing packet limit");
             values[i] = static_cast<jint>(sizes[i]);
         }
-        auto result = env->NewIntArray(18);
+        auto result = env->NewIntArray(19);
         if (result)
-            env->SetIntArrayRegion(result, 0, 18, values);
+            env->SetIntArrayRegion(result, 0, 19, values);
         return result;
     } catch (const std::exception &e) {
         failure(env, e.what());
@@ -305,6 +319,7 @@ extern "C" JNIEXPORT jobject JNICALL Java_chimahon_renderer_DictionaryCore_drawi
         case 18: data = facts.metrics; size = facts.font_count * sizeof(dc_run_metrics); break;
         case 19: data = facts.punctuation; size = facts.punctuation_count * sizeof(uint32_t) * 2; break;
         case 20: data = facts.punctuation_types; size = facts.punctuation_count; break;
+        case 21: data = v.disclosures; size = v.disclosure_count * sizeof(dc_drawing_disclosure); break;
         default:
             throw std::invalid_argument("Unknown drawing section");
         }

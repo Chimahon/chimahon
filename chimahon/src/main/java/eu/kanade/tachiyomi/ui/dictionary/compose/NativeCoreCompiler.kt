@@ -35,6 +35,7 @@ public class NativeCoreCompiler(
     private val fontFiles: List<Pair<String, Int>> = emptyList(),
     private val language: String = "ja",
     private val compactGlossary: Boolean = false,
+    private val openDetails: IntArray? = null,
 ) : Closeable {
     private data class BatchContext(val handle: Long, val sourceSheets: IntArray)
     private var batch: BatchContext? = null
@@ -56,7 +57,7 @@ public class NativeCoreCompiler(
             } else sourceSheets[i] = index
         }
         val handle = DictionaryCore.openBatch(sheets.toTypedArray(), style.fontSize.value * density.fontScale, dark,
-            expanded, compactGlossary, language)
+            expanded, compactGlossary, language, openDetails)
         check(handle != 0L)
         return BatchContext(handle, sourceSheets).also { batch = it }
     }
@@ -103,6 +104,8 @@ public class NativeCoreCompiler(
             // Commands are only needed to place image nodes; hits, selection and copy text stay native.
             val commands = if (counts[8] == 0) null else copied(9, counts[5] * 64)
             val geometry = section(11)
+            val disclosureCount = counts.getOrElse(18) { 0 }
+            val disclosures = if (disclosureCount == 0) null else copied(21, disclosureCount * 28)
             val imageNodes = if (counts[8] == 0) emptyList() else {
                 val pool = ByteArray(counts[10]).also { section(12).get(it) }
                 val properties = section(13)
@@ -137,6 +140,20 @@ public class NativeCoreCompiler(
                             (commands.getFloat(c + 24) * density.density).roundToInt(), (commands.getFloat(c + 28) * density.density).roundToInt(),
                             (commands.getFloat(c + 32) * density.density).roundToInt().coerceAtLeast(1),
                             (commands.getFloat(c + 36) * density.density).roundToInt().coerceAtLeast(1), imageNodes[commands.getInt(c + 8)]))
+                    }
+                }
+                if (disclosures != null) {
+                    for (i in 0 until disclosureCount) {
+                        val at = i * 28
+                        if (disclosures.getInt(at) != source) continue
+                        items.add(NativeGlossaryDetails(
+                            x = (disclosures.getFloat(at + 12) * density.density).roundToInt(),
+                            y = (disclosures.getFloat(at + 16) * density.density).roundToInt(),
+                            width = (disclosures.getFloat(at + 20) * density.density).roundToInt().coerceAtLeast(1),
+                            height = (disclosures.getFloat(at + 24) * density.density).roundToInt().coerceAtLeast(1),
+                            index = disclosures.getInt(at + 4),
+                            open = disclosures.getInt(at + 8) != 0,
+                        ))
                     }
                 }
                 NativeGlossaryDocument(input.identity, input.cssIdentity, style, emptyList(), density, direction, resolver,

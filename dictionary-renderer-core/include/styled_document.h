@@ -12,6 +12,12 @@ typedef struct dc_compile_options {
     int dark_mode, expand_details;
     float minimum_font_size_px; /* CSS pixels; zero disables the host minimum. */
     int compact_glossary;       /* base.css compact glossary layout on the root element. */
+    /* Per-document disclosure state. indices are the order of <details> elements
+     * in the source. A null pointer preserves the source's own open attributes;
+     * a non-null pointer (even with count 0) overrides them. */
+    const uint32_t* open_details;
+    size_t open_details_count;
+    int open_details_set;
 } dc_compile_options;
 typedef struct dc_text_run {
     uint32_t text_offset, text_bytes, style, role, ruby, paragraph;
@@ -20,6 +26,7 @@ typedef struct dc_paragraph_input {
     uint32_t first_run, run_count, source, cell;
     uint32_t style;
     uint32_t marker_offset, marker_bytes, marker_style;
+    uint32_t disclosure, disclosure_open;
 } dc_paragraph_input;
 typedef struct dc_ruby_input {
     uint32_t first_base_run, base_run_count, first_reading_run, reading_run_count;

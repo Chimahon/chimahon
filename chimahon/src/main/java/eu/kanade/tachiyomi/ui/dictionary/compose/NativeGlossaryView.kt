@@ -29,6 +29,7 @@ public class NativeGlossaryView(context: Context) : View(context) {
     private var dictionary = ""
     private var lookup: ((String) -> Unit)? = null
     private var toggle: ((StructuredNode.Element) -> Unit)? = null
+    private var detailsAction: ((NativeGlossaryDetails) -> Unit)? = null
     private var longAction: ((StructuredNode.Element) -> Unit)? = null
     private var kanjiLookup: ((String) -> Unit)? = null
     private var recursiveLookup: ((NativeGlossaryHit) -> Unit)? = null
@@ -69,9 +70,11 @@ public class NativeGlossaryView(context: Context) : View(context) {
 
     fun bind(value: NativeGlossaryDocument, name: String, onLookup: ((String) -> Unit)?, onToggle: (StructuredNode.Element) -> Unit,
         onLongAction: ((StructuredNode.Element) -> Unit)? = null, onKanjiLookup: ((String) -> Unit)? = null,
-        onRecursiveLookup: ((NativeGlossaryHit) -> Unit)? = null, selection: NativeRecursiveSelection? = null) {
+        onRecursiveLookup: ((NativeGlossaryHit) -> Unit)? = null, selection: NativeRecursiveSelection? = null,
+        onDetails: ((NativeGlossaryDetails) -> Unit)? = null) {
         lookup = onLookup
         toggle = onToggle
+        detailsAction = onDetails
         longAction = onLongAction
         kanjiLookup = onKanjiLookup
         recursiveLookup = onRecursiveLookup
@@ -202,7 +205,7 @@ public class NativeGlossaryView(context: Context) : View(context) {
                 removeCallbacks(longPress)
                 if (!dragged && !longPressed) {
                     val hit = document?.hit(event.x, event.y)
-                    hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.lookup?.let {
+                    hit?.details?.let { detailsAction?.invoke(it) } ?: hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.lookup?.let {
                         if (recursiveLookup != null) {
                             val position = IntArray(2)
                             getLocationInWindow(position)

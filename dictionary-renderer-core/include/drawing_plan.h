@@ -58,6 +58,12 @@ typedef struct dc_drawing_source {
     float width, height;
     uint32_t first_command, command_count, first_hit, hit_count;
 } dc_drawing_source;
+/* Summary control rectangle in CSS pixels. index is the details element's
+ * document-order index; open is 1 when its content is expanded. */
+typedef struct dc_drawing_disclosure {
+    uint32_t source, index, open;
+    float x, y, width, height;
+} dc_drawing_disclosure;
 typedef struct dc_drawing_view {
     const dc_drawing_font *fonts;
     size_t font_count;
@@ -82,6 +88,8 @@ typedef struct dc_drawing_view {
     uint64_t lines, ruby_groups;
     const dc_shaping_run *shaping_runs;
     size_t shaping_run_count;
+    const dc_drawing_disclosure *disclosures;
+    size_t disclosure_count;
 } dc_drawing_view;
 /* Begin exports ALL requests. Fill metrics/advances/breaks/levels in one bulk
  * platform phase, then finish without ANY platform callbacks. Buffers are stable

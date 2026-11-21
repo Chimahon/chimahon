@@ -15,7 +15,7 @@ object DictionaryCore {
 
     external fun closeContext(handle: Long)
     external fun openBatch(css: Array<String>, fontSize: Float, dark: Boolean, expandDetails: Boolean,
-        compactGlossary: Boolean, language: String): Long
+        compactGlossary: Boolean, language: String, openDetails: IntArray?): Long
     external fun prepareDrawing(context: Long, sources: Array<String>, typedSources: Array<ByteBuffer?>, sheets: IntArray, widths: FloatArray,
         foreground: Int, border: Int): Long
     external fun profileBegin(id: Long)

@@ -57,9 +57,11 @@ internal class NativeTermCard(val card: TermCard, val pieces: List<NativeCardPie
     }
 
     fun assemble(ready: Map<List<StructuredNode>, NativeGlossaryDocument>, open: Set<Int>, details: Boolean,
-        selected: String? = null): NativeGlossaryDocument {
-        val fragments = pieces.filter { visible(it, open, details) }.map { piece ->
-            val document = checkNotNull(ready[piece.nodes])
+        selected: String? = null,
+        detailsDocuments: Map<Int, NativeGlossaryDocument> = emptyMap()): NativeGlossaryDocument {
+        val fragments = pieces.mapIndexedNotNull { pieceIndex, piece ->
+            if (!visible(piece, open, details)) return@mapIndexedNotNull null
+            val document = detailsDocuments[pieceIndex] ?: checkNotNull(ready[piece.nodes])
             val action = piece.action?.let { name -> StructuredNode.Element(StructuredTag.Summary,
                 listOf(StructuredNode.Text(if (piece.group >= 0) card.dictGroups[piece.group].title else card.expression)),
                 StructuredAttributes(properties = mapOf("cardAction" to name))) }
@@ -68,7 +70,8 @@ internal class NativeTermCard(val card: TermCard, val pieces: List<NativeCardPie
                 headword = if (piece === pieces.first()) card.expression else null,
                 background = if (highlighted) appearance.hover.toArgb() else 0,
                 stripe = if (highlighted) appearance.accent.toArgb() else 0,
-                tint = if (highlighted) appearance.accent.toArgb() else null)
+                tint = if (highlighted) appearance.accent.toArgb() else null,
+                pieceIndex = pieceIndex)
         }
         return placeNativeCard(fragments, BooleanArray(fragments.size) { true },
             (layout.viewportWidth - 16 * layout.density.density).roundToInt().coerceAtLeast(1), profilingId,
@@ -357,14 +360,27 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
     var open by remember(model) { mutableStateOf(model.initiallyOpen) }
     var processDetails by remember(model) { mutableStateOf(false) }
     var selected by remember(model) { mutableStateOf<String?>(null) }
+    var detailsState by remember(model) { mutableStateOf<Map<Int, Set<Int>>>(emptyMap()) }
+    val detailsCache = remember(model) {
+        java.util.concurrent.ConcurrentHashMap<Pair<Int, Set<Int>>, NativeGlossaryDocument>()
+    }
     var document by remember(model) { mutableStateOf(model.initial) }
     var ready by remember(model) { mutableStateOf(model.documents) }
-    LaunchedEffect(model, open, processDetails, selected) {
-        if (open == model.initiallyOpen && !processDetails && selected == null && document === model.initial) return@LaunchedEffect
+
+    fun initialOpenDetails(pieceIndex: Int): Set<Int> {
+        val piece = model.pieces.getOrNull(pieceIndex) ?: return emptySet()
+        val source = ready[piece.nodes] ?: model.documents[piece.nodes] ?: return emptySet()
+        return source.details.filter { it.open }.mapTo(HashSet()) { it.index }
+    }
+
+    LaunchedEffect(model, open, processDetails, selected, detailsState) {
+        if (open == model.initiallyOpen && !processDetails && selected == null && detailsState.isEmpty() &&
+            document === model.initial) return@LaunchedEffect
         val snapshot = ready
         val wantedOpen = open
         val wantedDetails = processDetails
         val wantedSelection = selected
+        val wantedDetailsState = detailsState
         val result = withContext(glossaryPreparationDispatcher) {
             val caller = currentCoroutineContext()
             val preparedDocuments = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>().apply { putAll(snapshot) }
@@ -377,7 +393,23 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
                     checkCancellation = { caller.ensureActive() })
                 missing.forEachIndexed { i, part -> preparedDocuments[part.nodes] = prepared[i] }
             }
-            preparedDocuments to model.assemble(preparedDocuments, wantedOpen, wantedDetails, wantedSelection)
+            val detailsDocuments = HashMap<Int, NativeGlossaryDocument>()
+            for ((pieceIndex, openSet) in wantedDetailsState) {
+                val piece = model.pieces.getOrNull(pieceIndex) ?: continue
+                val key = pieceIndex to openSet
+                detailsCache[key]?.let { detailsDocuments[pieceIndex] = it; continue }
+                NativeCoreCompiler(model.layout.density, model.layout.direction, model.layout.resolver,
+                    model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles,
+                    language = model.layout.language, compactGlossary = model.layout.compactGlossary,
+                    openDetails = openSet.sorted().toIntArray()).use { core ->
+                    val prepared = core.prepareBatch(listOf(NativeDrawingInput(nativeCoreRaw(piece.nodes),
+                        piece.css.nativeSourceCss, piece.width, piece.nodes, piece.css)), model.layout.style,
+                        dark = onBg.luminance() > .5f, checkCancellation = { caller.ensureActive() }).single()
+                    detailsCache[key] = prepared
+                    detailsDocuments[pieceIndex] = prepared
+                }
+            }
+            preparedDocuments to model.assemble(preparedDocuments, wantedOpen, wantedDetails, wantedSelection, detailsDocuments)
         }
         ready = result.first
         document = result.second
@@ -400,7 +432,16 @@ internal fun NativeTermCardContent(model: NativeTermCard, index: Int, profile: A
         }, onKanjiLookup = { text -> sink.value?.invoke(text, null, null, null, null, "kanji") },
             onRecursiveLookup = { hit -> hit.lookup?.let { text ->
                 sink.value?.invoke(text, hit.sentence, hit.sentenceOffset, hit.tapX, hit.tapY, if (hit.kanji) "kanji" else "term")
-            } })
+            } },
+            onDetails = { details ->
+                val pieceIndex = details.pieceIndex
+                if (pieceIndex >= 0) {
+                    val baseline = initialOpenDetails(pieceIndex)
+                    val current = detailsState[pieceIndex] ?: baseline
+                    val next = if (details.index in current) current - details.index else current + details.index
+                    detailsState = if (next == baseline) detailsState - pieceIndex else detailsState + (pieceIndex to next)
+                }
+            })
         val headHeight = with(model.layout.density) { model.documents.getValue(model.pieces.first().nodes).height.toDp() }
         /* Chrome follows the drawing by one frame: the first composition of a card then only builds
            the native view, which is what the popup must show; the audio and Anki controls arrive on

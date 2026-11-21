@@ -40,7 +40,23 @@ public data class NativeGlossaryDisclosure(
     override fun draw(canvas: Canvas, paint: Paint) = Unit
 }
 
+/** A clickable &lt;summary&gt; control. [index] is the document-order index of its &lt;details&gt;. */
+public data class NativeGlossaryDetails(
+    override val x: Int,
+    override val y: Int,
+    override val width: Int,
+    override val height: Int,
+    val index: Int,
+    val open: Boolean,
+    /** Card piece that owns this control; -1 for a standalone glossary document. */
+    val pieceIndex: Int = -1,
+) : NativeGlossaryItem {
+    override fun moved(dx: Int, dy: Int) = copy(x = x + dx, y = y + dy)
+    override fun draw(canvas: Canvas, paint: Paint) = Unit
+}
+
 public data class NativeGlossaryHit(val lookup: String? = null, val disclosure: StructuredNode.Element? = null,
+    val details: NativeGlossaryDetails? = null,
     val kanji: Boolean = false, val sentence: String? = null, val sentenceOffset: Int? = null,
     val tapX: Float? = null, val tapY: Float? = null) {
     internal var surface: NativeCommandSurface? = null
@@ -65,6 +81,7 @@ public class NativeGlossaryDocument(
 ) {
     val images = items.filterIsInstance<NativeGlossaryImage>()
     val disclosures = items.filterIsInstance<NativeGlossaryDisclosure>()
+    val details = items.filterIsInstance<NativeGlossaryDetails>()
     val commandSurfaces: List<NativeGlossaryItem> = items.filterIsInstance<NativeCommandSurface>()
     val hasStaleFonts: Boolean get() = items.any { it is NativeCommandSurface && it.hasStaleFonts }
     val text: String by lazy {
@@ -76,6 +93,7 @@ public class NativeGlossaryDocument(
     fun hit(x: Float, y: Float): NativeGlossaryHit? {
         for (item in items.asReversed()) {
             if (x < item.x || y < item.y || x >= item.x + item.width || y >= item.y + item.height) continue
+            if (item is NativeGlossaryDetails) return NativeGlossaryHit(details = item)
             if (item is NativeGlossaryDisclosure) return NativeGlossaryHit(disclosure = item.source)
             if (item is NativeCommandSurface) item.hitAt(x, y)?.let { return it }
         }

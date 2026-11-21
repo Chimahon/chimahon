@@ -857,6 +857,7 @@ struct Element {
     bool sizing_only = false;
     float computed_font_size = 16;
     uint32_t before = none, after = none;
+    uint32_t disclosure = none;
 };
 struct SourceCompiler {
     const Storage& input;
@@ -1133,6 +1134,8 @@ struct SourceCompiler {
     uint32_t paragraph = none, cell = none, row = none, table = none, ruby = none;
     uint32_t block_style = 0;
     uint32_t marker_owner = none;
+    uint32_t disclosure_owner = none;
+    uint32_t disclosure_open = 0;
     bool pending_space = false;
     bool merge_barrier = false;
     bool structured_line_breaks = false;
@@ -1183,7 +1186,8 @@ struct SourceCompiler {
                     marker_offset=output.save(owner.marker);marker_bytes=checked_index(owner.marker.size());marker_style=owner.style;owner.marker_used=true;
                 }
             }
-            output.paragraphs.push_back({checked_index(output.runs.size()),0,source,cell,block_style,marker_offset,marker_bytes,marker_style});
+            output.paragraphs.push_back({checked_index(output.runs.size()),0,source,cell,block_style,marker_offset,marker_bytes,marker_style,
+                disclosure_owner,disclosure_open});
             output.flow.push_back({0,paragraph,source,cell});
         }
         const auto offset = output.save(normalized);
@@ -1416,6 +1420,7 @@ struct SourceCompiler {
         const size_t first = range.first_operation, last = range.end_operation;
         operation_elements.reserve(last - first);
         elements.reserve(last - first + 8);
+        uint32_t next_disclosure = 0;
         dc_profile::open(styled_dom);
         for (size_t at = first; at < last; ++at) {
             const auto& op = input.operations[at];
@@ -1494,14 +1499,31 @@ struct SourceCompiler {
             auto* node = element(doc, link?"span":tag);
             attribute(node, "class", link?"gloss-link gloss-sc-a":"gloss-sc-" + tag);
             copy_attributes(input,op.token,node);
-            if(tag=="details" && options.expand_details)attribute(node,"open","");
+            const auto& parent = elements[stack.back()];
+            uint32_t disclosure = none;
+            if (tag == "details") {
+                disclosure = next_disclosure++;
+                if (options.expand_details) {
+                    attribute(node, "open", "");
+                } else if (options.open_details_set) {
+                    bool open = false;
+                    for (size_t i = 0; i < options.open_details_count; ++i) {
+                        if (options.open_details[i] == disclosure) { open = true; break; }
+                    }
+                    if (open) attribute(node, "open", "");
+                    else lxb_dom_element_remove_attribute(node, bytes("open"), 4);
+                }
+            } else if (tag == "summary" && parent.tag == "details") {
+                disclosure = parent.disclosure;
+            }
             append(lxb_dom_interface_node(elements[stack.back()].dom),lxb_dom_interface_node(node));
             const auto id = checked_index(elements.size());
-            const auto& parent = elements[stack.back()];
             size_t attribute_length = 0;
             const bool closed = parent.tag == "details" && !lxb_dom_element_get_attribute(parent.dom,bytes("open"),4,&attribute_length);
             const bool disclosure_hidden = parent.disclosure_hidden || (closed && tag != "summary");
-            elements.push_back({node,stack.back(),op.token,0,tag,false,disclosure_hidden}); stack.push_back(id); operation_elements.push_back(id);
+            elements.push_back({node,stack.back(),op.token,0,tag,false,disclosure_hidden});
+            elements.back().disclosure = disclosure;
+            stack.push_back(id); operation_elements.push_back(id);
         }
         dc_profile::close(styled_dom);
         dc_profile::add("styled.dom", styled_dom.total);
@@ -1697,7 +1719,7 @@ struct SourceCompiler {
         block_style = elements[kRootElement].style;
         output.flow.push_back({2,block_style,source,none});
         dc_profile::open(styled_flow);
-        struct Owners { uint32_t cell,row,table,ruby,block_style,marker_owner,first_run; bool block,inline_box; };
+        struct Owners { uint32_t cell,row,table,ruby,block_style,marker_owner,first_run,disclosure,disclosure_open; bool block,inline_box; };
         std::vector<Owners> owners;
         std::unordered_map<uint32_t,uint32_t> list_counters;
         uint32_t reading_start = none;
@@ -1735,8 +1757,14 @@ struct SourceCompiler {
                 if (display == "flex" || display == "grid") ++output.unsupported;
                 const bool inline_box=!block && (display=="inline" || display=="inline-block" || display=="inline-flex" || inline_flex) &&
                     (display=="inline-block" || display=="inline-flex" || output.has_box_extra(node.style,output.base_font_size_px));
-                owners.push_back({cell,row,table,ruby,block_style,marker_owner,checked_index(output.runs.size()),block,inline_box});
+                owners.push_back({cell,row,table,ruby,block_style,marker_owner,checked_index(output.runs.size()),disclosure_owner,disclosure_open,block,inline_box});
                 if(inline_box)merge_barrier=true;
+                if (node.tag == "summary" && node.disclosure != none) {
+                    disclosure_owner = node.disclosure;
+                    size_t open_size = 0;
+                    disclosure_open = node.parent != none &&
+                        lxb_dom_element_get_attribute(elements[node.parent].dom, bytes("open"), 4, &open_size) ? 1 : 0;
+                }
                 if (block) flush();
                 const bool structural = node.tag == "table" || node.tag == "tr" || node.tag == "td" || node.tag == "th" || node.tag == "tbody" || node.tag == "thead" || node.tag == "tfoot";
                 if (block && !structural) output.flow.push_back({2,node.style,source,cell});
@@ -1825,6 +1853,8 @@ struct SourceCompiler {
                 cell=restore.cell; row=restore.row; table=restore.table; ruby=restore.ruby;
                 block_style=restore.block_style;
                 marker_owner=restore.marker_owner;
+                disclosure_owner=restore.disclosure;
+                disclosure_open=restore.disclosure_open;
             }
         }
         flush();
