@@ -300,40 +300,24 @@ int dc_split_headword(const uint16_t *expression, size_t expression_length, cons
         std::vector<dc_headword_unit> out;
         const auto runs = distribute_furigana(expression, expression_length, reading, reading_length);
         for (const auto &run : runs) {
-            size_t kanji_count = 0;
-            for (size_t i = 0; i < run.text_length; ++i)
-                if (is_kanji(expression[run.text + i]))
-                    ++kanji_count;
-            if (kanji_count == 0) {
-                const bool annotated = run.reading_length > 0 &&
-                                       !is_blank(reading + run.reading, run.reading_length);
-                out.push_back({annotated ? 2u : 0u, run.text, run.text_length,
-                               annotated ? run.reading : 0, annotated ? run.reading_length : 0});
+            const bool annotated = run.reading_length > 0 &&
+                                   !is_blank(reading + run.reading, run.reading_length);
+            if (!annotated) {
+                out.push_back({0u, run.text, run.text_length, 0, 0});
                 continue;
             }
-            size_t seen = 0;
-            size_t buffer_start = 0;
-            bool buffering = false;
+            bool has_kanji = false;
             for (size_t i = 0; i < run.text_length; ++i) {
-                const uint16_t c = expression[run.text + i];
-                if (!is_kanji(c)) {
-                    if (!buffering) {
-                        buffer_start = run.text + i;
-                        buffering = true;
-                    }
-                    continue;
+                if (is_kanji(expression[run.text + i])) {
+                    has_kanji = true;
+                    break;
                 }
-                if (buffering) {
-                    out.push_back({0u, buffer_start, (run.text + i) - buffer_start, 0, 0});
-                    buffering = false;
-                }
-                const size_t begin = (seen * run.reading_length) / kanji_count;
-                const size_t end = ((seen + 1) * run.reading_length) / kanji_count;
-                out.push_back({1u, run.text + i, 1, run.reading + begin, end - begin});
-                ++seen;
             }
-            if (buffering)
-                out.push_back({0u, buffer_start, (run.text + run.text_length) - buffer_start, 0, 0});
+            /* One ruby per furigana run, matching the WebView. Splitting the run's
+             * reading evenly across its kanji produced wrong annotations such as
+             * 今[き]日[ょう] for 今日[きょう]. */
+            out.push_back({has_kanji ? 1u : 2u, run.text, run.text_length,
+                           run.reading, run.reading_length});
         }
         if (out.empty())
             return 0;

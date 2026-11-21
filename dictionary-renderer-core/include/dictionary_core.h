@@ -51,14 +51,14 @@ DC_API void dc_profile_end(void);
  * strings and the drawing plan's text buffer. Natives own the algorithms so the
  * host keeps no word-breaking, furigana or character-class logic. */
 typedef struct dc_headword_unit {
-    uint32_t kind; /* 0 = text, 1 = kanji, 2 = ruby */
+    uint32_t kind; /* 0 = text, 1 = kanji ruby, 2 = kana ruby */
     size_t text_offset, text_length;
     size_t reading_offset, reading_length;
 } dc_headword_unit;
 /* 1 when the offset lands on a lookup word; the word is a slice of text. */
 DC_API int dc_lookup_word_at(const uint16_t *text, size_t length, int32_t offset,
                              const uint16_t **word, size_t *word_length);
-/* Splits a term into per-kanji/plain/ruby units. Slices point into the inputs. */
+/* Splits a term into plain and ruby runs. Slices point into the inputs. */
 DC_API int dc_split_headword(const uint16_t *expression, size_t expression_length,
                              const uint16_t *reading, size_t reading_length,
                              dc_headword_unit **units, size_t *count, dc_error *error);
