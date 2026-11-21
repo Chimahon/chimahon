@@ -8,6 +8,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 
 ### Added
 
+- Native dictionary popup paginated scrolling, entry navigation, floating navigation buttons, and volume-key paging matching the WebView
 - Compact tags option for dictionary popups, showing repeated grammar and usage tags only once per dictionary
 - Expandable details in the native dictionary popup, including the Japanese definition section
 
