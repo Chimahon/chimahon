@@ -9,6 +9,7 @@ The format follows a Keep a Changelog style and uses Semantic Versioning.
 ### Added
 
 - Compact tags option for dictionary popups, showing repeated grammar and usage tags only once per dictionary
+- Expandable details in the native dictionary popup, including the Japanese definition section
 
 ### Fixed
 
