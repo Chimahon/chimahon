@@ -239,7 +239,8 @@ bool is_lookup_cjk(uint16_t c) {
     return (v >= 0x3040 && v <= 0x30FF) || (v >= 0x3000 && v <= 0x9FFF) ||
            (v >= 0xF900 && v <= 0xFAFF) || (v >= 0xFF00 && v <= 0xFFEF) ||
            (v >= 0x1100 && v <= 0x11FF) || (v >= 0x3130 && v <= 0x318F) ||
-           (v >= 0x3400 && v <= 0x4DBF) || (v >= 0xAC00 && v <= 0xD7AF);
+           (v >= 0x3400 && v <= 0x4DBF) || (v >= 0xAC00 && v <= 0xD7AF) ||
+           (v >= 0xA960 && v <= 0xA97F) || (v >= 0xD7B0 && v <= 0xD7FF);
 }
 
 bool is_lookup_word(uint16_t c) {
