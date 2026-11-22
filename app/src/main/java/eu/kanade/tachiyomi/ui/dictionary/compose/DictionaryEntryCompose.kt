@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -88,6 +89,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import java.util.IdentityHashMap
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import chimahon.DictionaryStyle
@@ -97,6 +99,7 @@ import chimahon.LookupResult
 import chimahon.PitchEntry
 import chimahon.anki.AnkiProfile
 import chimahon.diagnostics.LookupProfiler
+import chimahon.renderer.DictionaryCore
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryColorScheme
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryTitle
@@ -1219,10 +1222,21 @@ private fun KanjiEntryCard(
             // so keep the numbered markers instead of a plain text column.
             Column(Modifier.padding(start = (fontSize * 1.2).dp)) {
                 kanji.definitions.forEachIndexed { i, def ->
+                    var textLayout by remember(def) { mutableStateOf<TextLayoutResult?>(null) }
                     val defModifier = if (onRecursiveLookup != null && def.isNotBlank()) {
                         Modifier
-                            .clickable { onRecursiveLookup(def, null, null, null, null, "term") }
                             .padding(vertical = 1.dp)
+                            .pointerInput(def, onRecursiveLookup) {
+                                detectTapGestures { position ->
+                                    val layout = textLayout ?: return@detectTapGestures
+                                    val offset = layout.getOffsetForPosition(position)
+                                    if (offset !in def.indices) return@detectTapGestures
+                                    val word = DictionaryCore.lookupWordAt(def, offset)
+                                    if (!word.isNullOrBlank()) {
+                                        onRecursiveLookup(word, null, null, null, null, "term")
+                                    }
+                                }
+                            }
                     } else {
                         Modifier
                     }
@@ -1246,6 +1260,7 @@ private fun KanjiEntryCard(
                             fontSize = (fontSize - 1).sp,
                             lineHeight = (fontSize + 3).sp,
                             fontFamily = textFontFamily,
+                            onTextLayout = { textLayout = it },
                             modifier = defModifier.weight(1f),
                         )
                     }
