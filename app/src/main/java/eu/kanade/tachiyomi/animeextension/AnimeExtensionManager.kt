@@ -81,7 +81,7 @@ class AnimeExtensionManager(
     }
 
     fun getExtensionPackage(sourceId: Long): String? {
-        return installedExtensionsFlow.value.find { extension ->
+        return (installedExtensionMapFlow.value + builtInYouTubeExtension).values.find { extension ->
             extension.sources.any { it.id == sourceId }
         }
             ?.pkgName

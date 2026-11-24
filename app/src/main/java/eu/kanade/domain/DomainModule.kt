@@ -23,6 +23,7 @@ import eu.kanade.domain.source.anime.interactor.GetAnimeIncognitoState
 import eu.kanade.domain.source.interactor.GetIncognitoState
 import eu.kanade.domain.source.interactor.GetLanguagesWithSources
 import eu.kanade.domain.source.anime.interactor.GetAnimeSourcesWithFavoriteCount
+import eu.kanade.domain.source.anime.interactor.ToggleAnimeIncognito
 import eu.kanade.domain.source.interactor.GetSourcesWithFavoriteCount
 import eu.kanade.domain.source.interactor.SetMigrateSorting
 import eu.kanade.domain.source.interactor.ToggleIncognito
@@ -317,6 +318,7 @@ class DomainModule : InjektModule {
         addFactory { ToggleIncognito(get()) }
         addFactory { GetIncognitoState(get(), get(), get()) }
         addFactory { GetAnimeIncognitoState(get(), get(), get()) }
+        addFactory { ToggleAnimeIncognito(get()) }
 
         addFactory { UpdateMangaFromRemote(get(), get(), get(), get(), get(), get(), get()) }
 

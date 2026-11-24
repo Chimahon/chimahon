@@ -42,6 +42,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.entries.anime.interactor.SetAnimeViewerFlags
 import eu.kanade.domain.base.BasePreferences
+import eu.kanade.domain.source.anime.interactor.GetAnimeIncognitoState
 import eu.kanade.domain.episode.model.toDbEpisode
 import eu.kanade.domain.track.interactor.TrackEpisode
 import eu.kanade.domain.track.service.TrackPreferences
@@ -198,6 +199,7 @@ class PlayerViewModel @JvmOverloads constructor(
     internal val subtitlePreferences: SubtitlePreferences = Injekt.get(),
     private val dictionaryPreferences: DictionaryPreferences = Injekt.get(),
     private val basePreferences: BasePreferences = Injekt.get(),
+    private val getAnimeIncognitoState: GetAnimeIncognitoState = Injekt.get(),
     private val syncPreferences: SyncPreferences = Injekt.get(),
     private val getCustomButtons: GetCustomButtons = Injekt.get(),
     private val trackSelect: TrackSelect = Injekt.get(),
@@ -1582,7 +1584,8 @@ class PlayerViewModel @JvmOverloads constructor(
     private val eventChannel = Channel<Event>()
     val eventFlow = eventChannel.receiveAsFlow()
 
-    val incognitoMode = basePreferences.incognitoMode().get()
+    val incognitoMode: Boolean
+        get() = getAnimeIncognitoState.await(currentAnime.value?.source)
     private val downloadAheadAmount = downloadPreferences.autoDownloadWhileReading().get()
 
     internal val relativeTime = uiPreferences.relativeTime().get()
@@ -2866,7 +2869,7 @@ class PlayerViewModel @JvmOverloads constructor(
         // KMK -->
         // No hasTrackers gate: it was a stale snapshot taken at init, so trackers bound
         // later were silently skipped. TrackEpisode.await already no-ops without tracks.
-        if (basePreferences.incognitoMode().get()) return
+        if (incognitoMode) return
         // KMK <--
         if (!trackPreferences.autoUpdateTrack().get()) return
 

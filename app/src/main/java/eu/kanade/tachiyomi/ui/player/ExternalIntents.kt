@@ -10,8 +10,8 @@ import android.os.Build
 import android.os.Bundle
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
-import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.domain.source.anime.interactor.GetAnimeIncognitoState
 import eu.kanade.domain.track.interactor.TrackEpisode
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.animesource.AnimeSource
@@ -108,7 +108,7 @@ class ExternalIntents {
             DiscordRPCService.setPlayerActivity(
                 context = context,
                 playerData = PlayerData(
-                    incognitoMode = basePreferences.incognitoMode().get(),
+                    incognitoMode = getAnimeIncognitoState.await(anime.source),
                     animeId = anime.id,
                     animeTitle = anime.ogTitle,
                     episodeNumber = episode.episodeNumber.toString(),
@@ -465,6 +465,7 @@ class ExternalIntents {
     private val updateEpisode: UpdateEpisode = Injekt.get()
     private val getAnime: GetAnime = Injekt.get()
     private val sourceManager: SourceManager = Injekt.get()
+    private val getAnimeIncognitoState: GetAnimeIncognitoState = Injekt.get()
     private val getEpisodesByAnimeId: GetEpisodesByAnimeId = Injekt.get()
     private val downloadManager: DownloadManager by injectLazy()
     private val playerPreferences: PlayerPreferences = Injekt.get()
@@ -474,7 +475,6 @@ class ExternalIntents {
     private val trackEpisode: TrackEpisode = Injekt.get()
     // KMK <--
     private val syncPreferences: SyncPreferences = Injekt.get()
-    private val basePreferences: BasePreferences by injectLazy()
 
     /**
      * Saves this episode's last seen history if incognito mode isn't on.
@@ -482,7 +482,7 @@ class ExternalIntents {
      * @param currentEpisode the episode to update.
      */
     private suspend fun saveEpisodeHistory(currentEpisode: Episode) {
-        if (basePreferences.incognitoMode().get()) return
+        if (getAnimeIncognitoState.await(anime.source)) return
         upsertAnimeHistory.await(
             AnimeHistoryUpdate(currentEpisode.id, Date(), 0),
         )
@@ -503,7 +503,7 @@ class ExternalIntents {
         lastSecondSeen: Long,
         totalSeconds: Long,
     ) {
-        if (basePreferences.incognitoMode().get()) return
+        if (getAnimeIncognitoState.await(anime.source)) return
         val currEp = currentEpisode ?: return
 
         if (totalSeconds > 0L) {

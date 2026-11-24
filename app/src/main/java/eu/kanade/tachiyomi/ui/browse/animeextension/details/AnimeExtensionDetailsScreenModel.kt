@@ -6,7 +6,7 @@ import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.domain.animeextension.interactor.AnimeExtensionSourceItem
 import eu.kanade.domain.animeextension.interactor.GetAnimeExtensionSources
-import eu.kanade.domain.source.interactor.ToggleIncognito
+import eu.kanade.domain.source.anime.interactor.ToggleAnimeIncognito
 import eu.kanade.domain.source.interactor.ToggleSource
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.animeextension.AnimeExtensionManager
@@ -40,7 +40,7 @@ class AnimeExtensionDetailsScreenModel(
     private val animeExtensionManager: AnimeExtensionManager = Injekt.get(),
     private val getAnimeExtensionSources: GetAnimeExtensionSources = Injekt.get(),
     private val toggleSource: ToggleSource = Injekt.get(),
-    private val toggleIncognito: ToggleIncognito = Injekt.get(),
+    private val toggleAnimeIncognito: ToggleAnimeIncognito = Injekt.get(),
     private val preferences: SourcePreferences = Injekt.get(),
 ) : StateScreenModel<AnimeExtensionDetailsScreenModel.State>(State()) {
 
@@ -87,7 +87,7 @@ class AnimeExtensionDetailsScreenModel(
                 }
             }
             launch {
-                preferences.incognitoExtensions()
+                preferences.incognitoAnimeExtensions()
                     .changes()
                     .map { pkgName in it }
                     .distinctUntilChanged()
@@ -135,7 +135,7 @@ class AnimeExtensionDetailsScreenModel(
 
     fun toggleIncognito(enable: Boolean) {
         state.value.extension?.pkgName?.let { packageName ->
-            toggleIncognito.await(packageName, enable)
+            toggleAnimeIncognito.await(packageName, enable)
         }
     }
 
