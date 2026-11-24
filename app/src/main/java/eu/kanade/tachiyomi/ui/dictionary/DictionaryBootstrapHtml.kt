@@ -64,12 +64,14 @@ internal fun getDictionaryBootstrapHtml(
           }
         """.trimIndent()
     } else if (fontFamily.isNotBlank()) {
-        var ff = fontFamily
-        if (ff == "System Serif") ff = "serif"
-        else if (ff == "System Sans-Serif") ff = "sans-serif"
+        val cssFamily = when (fontFamily) {
+            "System Serif" -> "serif"
+            "System Sans-Serif" -> "sans-serif"
+            else -> "'$fontFamily'"
+        }
         """
           :root, body, #entries {
-            font-family: '$ff' !important;
+            font-family: $cssFamily !important;
           }
         """.trimIndent()
     } else ""

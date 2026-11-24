@@ -118,7 +118,8 @@ inline int weight_rank(const XmlFont &font) {
 
 inline std::vector<FontCatalogFile> parse_fonts_xml(
     std::string_view xml, std::string_view base = "/system/fonts/",
-    std::string_view language = "ja") {
+    std::string_view language = "ja",
+    std::string_view generic_family = "sans-serif") {
     using namespace font_catalog;
     std::vector<XmlFamily> families;
     XmlFamily family;
@@ -227,10 +228,19 @@ inline std::vector<FontCatalogFile> parse_fonts_xml(
     };
 
     size_t default_family = families.size();
+    const std::string_view target_family = generic_family.empty() ? "sans-serif" : generic_family;
     for (size_t i = 0; i < families.size(); ++i) {
-        if (has_token(families[i].name, "sans-serif")) {
+        if (has_token(families[i].name, target_family)) {
             default_family = i;
             break;
+        }
+    }
+    if (default_family == families.size() && target_family != "sans-serif") {
+        for (size_t i = 0; i < families.size(); ++i) {
+            if (has_token(families[i].name, "sans-serif")) {
+                default_family = i;
+                break;
+            }
         }
     }
     if (default_family == families.size() && !families.empty()) default_family = 0;

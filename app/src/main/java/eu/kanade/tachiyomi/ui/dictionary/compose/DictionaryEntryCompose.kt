@@ -252,7 +252,8 @@ internal suspend fun prepareGlossaryBatch(profilingId: Long, nextWork: () -> Glo
         val stats = layout.createResources()
         val out = IdentityHashMap<List<StructuredNode>, NativeGlossaryDocument>()
         NativeCoreCompiler(layout.density, layout.direction, layout.resolver, layout.secondary, layout.border, stats,
-            profilingId, planId, workerId, layout.fontFiles, layout.language, layout.compactGlossary).use { core ->
+            profilingId, planId, workerId, layout.fontFiles, layout.language, layout.compactGlossary,
+            defaultFontFamily = layout.defaultFontFamily).use { core ->
             val documents = core.prepareBatch(pending.map { item ->
                 NativeDrawingInput(nativeCoreRaw(item.nodes), item.css.nativeSourceCss, item.width, item.nodes, item.css)
             }, layout.style, dark = layout.style.color.luminance() > 0.5f, checkCancellation = { caller.ensureActive() })
@@ -1058,6 +1059,7 @@ internal fun buildFrequencyChips(
     frequencies: List<FrequencyEntry>,
     showHarmonic: Boolean,
     showAverage: Boolean,
+    resolveTitle: (String) -> String = { it },
 ): List<FrequencyChip> {
     if (frequencies.isEmpty()) return emptyList()
 
@@ -1066,12 +1068,7 @@ internal fun buildFrequencyChips(
         val seen = mutableSetOf<String>()
         for (group in frequencies) {
             if (!seen.add(group.dictName)) continue
-            group.frequencies.forEach { freq ->
-                if (freq.value > 0) {
-                    out.add(freq.value)
-                    return@forEach
-                }
-            }
+            group.frequencies.firstOrNull { it.value > 0 }?.value?.let(out::add)
         }
         return out
     }
@@ -1112,7 +1109,7 @@ internal fun buildFrequencyChips(
 
     // Default: compact per-dictionary chips like Yomitan frequency groups.
     for (group in frequencies) {
-        val dictName = group.dictName.trim()
+        val dictName = resolveTitle(group.dictName).trim()
         val values = group.frequencies
             .mapNotNull { freq ->
                 freq.displayValue.takeIf { it.isNotBlank() } ?: freq.value.takeIf { it > 0 }?.toString()

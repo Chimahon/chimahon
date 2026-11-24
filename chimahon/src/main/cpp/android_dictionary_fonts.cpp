@@ -37,13 +37,13 @@ struct Catalog {
     std::vector<File> files;
     std::vector<dc_font_file> view;
 
-    explicit Catalog(const std::string &language) {
+    explicit Catalog(const std::string &language, const std::string &generic_family) {
         // API 30 is the proven NDK font-matcher path. API 26-29 describe the same
         // catalog in fonts.xml; parse that instead of disabling the renderer.
         if (android_get_device_api_level() >= 30) {
-            load_ndk(language);
+            load_ndk(language, generic_family);
         } else {
-            load_xml(language);
+            load_xml(language, generic_family);
         }
         if (files.empty()) throw std::runtime_error("System font catalog is empty");
         std::stable_sort(files.begin(), files.end(),
@@ -54,8 +54,8 @@ struct Catalog {
 
 private:
     /* API 30+: the platform matcher knows which files belong to the device's
-     * default sans-serif family, including vendor overrides. */
-    void load_ndk(const std::string &language) {
+     * requested generic family, including vendor overrides across scripts. */
+    void load_ndk(const std::string &language, const std::string &generic_family) {
         std::unique_ptr<void, decltype(&dlclose)> library(dlopen("libandroid.so", RTLD_NOW | RTLD_LOCAL), dlclose);
         if (!library) throw std::runtime_error("Cannot load system font catalog");
         auto open = symbol<ASystemFontIterator *(*)()>(library.get(), "ASystemFontIterator_open");
@@ -84,12 +84,18 @@ private:
             else files[entry->second].rank = std::min(files[entry->second].rank, rank);
         };
         // Enumeration includes named decorative families. Only the matcher knows
-        // which files actually belong to the device's default sans-serif family.
-        const std::vector<std::vector<uint16_t>> samples{{'A'}, {0x6f22}, {0xd83d, 0xde00}};
+        // which files actually belong to the device's default sans/serif family per script.
+        const char *targetFamily = generic_family.empty() ? "sans-serif" : generic_family.c_str();
+        const std::vector<std::vector<uint16_t>> samples{
+            {'A'}, {0x6f22}, {0xac00}, {0x0410}, {0x0627}, {0xd83d, 0xde00},
+        };
         for (size_t i = 0; i < samples.size(); ++i) {
             const auto &text = samples[i];
-            std::unique_ptr<AFont, decltype(release)> font(match(matcher.get(), "sans-serif", text.data(), text.size(), nullptr), release);
-            if (!font) throw std::runtime_error("Cannot match default system font");
+            std::unique_ptr<AFont, decltype(release)> font(match(matcher.get(), targetFamily, text.data(), text.size(), nullptr), release);
+            if (!font) {
+                if (i == 0) throw std::runtime_error("Cannot match default system font");
+                continue;
+            }
             add(font.get(), -30000 + static_cast<int>(i));
         }
         std::unique_ptr<ASystemFontIterator, decltype(close)> iterator(open(), close);
@@ -112,7 +118,7 @@ private:
     }
 
     /* API 26-29: fonts.xml (or the legacy system_fonts.xml) is the catalog. */
-    void load_xml(const std::string &language) {
+    void load_xml(const std::string &language, const std::string &generic_family) {
         static const char *const candidates[] = {
             "/system/etc/fonts.xml",
             "/system/etc/system_fonts.xml",
@@ -123,7 +129,7 @@ private:
             std::ifstream input(candidate, std::ios::binary);
             if (!input) continue;
             const std::string xml((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-            auto parsed = parse_fonts_xml(xml, "/system/fonts/", language);
+            auto parsed = parse_fonts_xml(xml, "/system/fonts/", language, generic_family);
             if (parsed.empty()) continue;
             files.reserve(parsed.size());
             for (auto &file : parsed) {
@@ -157,12 +163,14 @@ private:
 };
 }  // namespace
 
-const std::vector<dc_font_file> &dictionary_system_fonts(const char *language) {
+const std::vector<dc_font_file> &dictionary_system_fonts(const char *language, const char *generic_family) {
     static std::mutex mutex;
     static std::map<std::string, std::unique_ptr<Catalog>> catalogs;
-    const std::string key = language && *language ? language : "ja";
+    const std::string lang = language && *language ? language : "ja";
+    const std::string family = generic_family && *generic_family ? generic_family : "sans-serif";
+    const std::string key = lang + "|" + family;
     std::lock_guard<std::mutex> lock(mutex);
     auto &entry = catalogs[key];
-    if (!entry) entry = std::make_unique<Catalog>(key);
+    if (!entry) entry = std::make_unique<Catalog>(lang, family);
     return entry->view;
 }

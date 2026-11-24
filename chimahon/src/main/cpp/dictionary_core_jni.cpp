@@ -42,12 +42,14 @@ struct Context {
     dc_compile_options options;
     std::vector<uint32_t> open_details;
     std::string language = "ja";
+    std::string default_font_family = "sans-serif";
 };
 struct Drawing {
     Owned<dc_prepared_document, dc_prepared_document_destroy> prepared{nullptr, dc_prepared_document_destroy};
     Owned<dc_drawing_plan, dc_drawing_plan_destroy> plan{nullptr, dc_drawing_plan_destroy};
     Owned<dc_portable_document, dc_portable_destroy> portable{nullptr, dc_portable_destroy};
     std::string language = "ja";
+    std::string default_font_family = "sans-serif";
     float parse_ms = 0, style_ms = 0, begin_ms = 0;
 };
 void failure(JNIEnv *env, const char *message) {
@@ -71,7 +73,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
                                                                                    jboolean dark, jboolean expanded,
                                                                                    jboolean compact,
                                                                                    jstring language,
-                                                                                   jintArray open_details) {
+                                                                                   jintArray open_details,
+                                                                                   jstring default_font_family) {
     try {
         if (!css)
             throw std::invalid_argument("Null stylesheets");
@@ -96,9 +99,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_openBat
         auto result = std::make_unique<Context>();
         result->language = language ? utf8(env, language) : "ja";
         if (result->language.empty()) result->language = "ja";
+        result->default_font_family = default_font_family ? utf8(env, default_font_family) : "sans-serif";
+        if (result->default_font_family.empty()) result->default_font_family = "sans-serif";
         // Enumerate the system font catalog while the popup is still composing; the
         // first portable batch would otherwise pay it on the plan's critical path.
-        dictionary_system_fonts(result->language.c_str());
+        dictionary_system_fonts(result->language.c_str(), result->default_font_family.c_str());
         // Match the unchanged Android WebView's default minimum text size.
         result->options = {font, dark != 0, expanded != 0, 8.f, compact != 0, nullptr, 0, 0};
         if (open_details) {
@@ -189,6 +194,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_chimahon_renderer_DictionaryCore_prepare
         Owned<dc_document, dc_document_destroy> raw(parsed, dc_document_destroy);
         auto result = std::make_unique<Drawing>();
         result->language = c.language;
+        result->default_font_family = c.default_font_family;
         dc_prepared_document *prepared = nullptr;
         if (dc_compile_styled_configured(parsed, c.sheets.get(), mapping.data(), mapping.size(), &c.options, &prepared,
                                          &error))
@@ -372,7 +378,7 @@ extern "C" JNIEXPORT void JNICALL Java_chimahon_renderer_DictionaryCore_measureP
         std::vector<dc_font_file> files;
         for (jsize i = 0; i < count; ++i) files.push_back({names[i].c_str(), static_cast<uint32_t>(collections[i])});
         // The selected app font comes first; system faces fill in missing glyphs.
-        for (const auto &system : dictionary_system_fonts(drawing.language.c_str())) {
+        for (const auto &system : dictionary_system_fonts(drawing.language.c_str(), drawing.default_font_family.c_str())) {
             const bool present = std::any_of(files.begin(), files.end(), [&](const dc_font_file &file) {
                 return file.collection_index == system.collection_index && std::strcmp(file.path, system.path) == 0;
             });

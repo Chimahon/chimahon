@@ -92,15 +92,18 @@ internal fun rememberDictionaryPlanBuilder(width: Int, fontSize: Int, eInkMode: 
             ?.takeIf { runCatching { Typeface.createFromFile(it) }.isSuccess }
     }
     val fontFiles = customFont?.let { listOf(it.absolutePath to 0) } ?: emptyList()
-    val customFamily = remember(customFont) {
+    val isSystemSerif = fontFamily == "System Serif"
+    val defaultFontFamily = if (isSystemSerif) "serif" else "sans-serif"
+    val customFamily = remember(customFont, isSystemSerif) {
         customFont?.let { runCatching { FontFamily(Font(it)) }.getOrNull() }
+            ?: if (isSystemSerif) FontFamily.Serif else null
     }
     val language = nativeLanguageTag(profile.languageCode)
-    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont, customFamily, compactGlossary, compactTags) {
+    return remember(context, environment, appearance, density, direction, resolver, width, fontSize, customCss, profile, groupTerms, cardOptions, fontFamily, customFont, customFamily, defaultFontFamily, compactGlossary, compactTags) {
         DictionaryPlanBuilder(context, appearance,
             NativeGlossaryLayoutContext(dictionaryBaseStyle(appearance.onBg, fontSize, customFamily), density, direction,
                 resolver, appearance.secondary, appearance.border, width, fontFiles, language, customFamily,
-                compactGlossary, compactTags), customCss, profile, groupTerms, cardOptions) { name ->
+                compactGlossary, compactTags, defaultFontFamily), customCss, profile, groupTerms, cardOptions) { name ->
             if (environment == null) getDictionaryTitle(context, name) else environment.dictionaryTitles[name] ?: name
         }
     }
@@ -176,6 +179,7 @@ internal class DictionaryPlanBuilder(
         if (layout.border != other.layout.border) add("borderColor")
         if (layout.fontFiles != other.layout.fontFiles) add("fontFiles")
         if (layout.language != other.layout.language) add("language")
+        if (layout.defaultFontFamily != other.layout.defaultFontFamily) add("defaultFontFamily")
         if (layout.compactGlossary != other.layout.compactGlossary) add("compactGlossary")
         if (layout.compactTags != other.layout.compactTags) add("compactTags")
     }
@@ -186,6 +190,7 @@ internal class DictionaryPlanBuilder(
         layout.resolver === other.layout.resolver && layout.viewportWidth == other.layout.viewportWidth &&
         layout.secondary == other.layout.secondary && layout.border == other.layout.border &&
         layout.fontFiles == other.layout.fontFiles && layout.language == other.layout.language &&
+        layout.defaultFontFamily == other.layout.defaultFontFamily &&
         layout.compactGlossary == other.layout.compactGlossary && layout.compactTags == other.layout.compactTags
 
     fun start(scope: CoroutineScope, results: List<LookupResult>, styles: List<DictionaryStyle>, id: Long,
@@ -235,7 +240,7 @@ internal class DictionaryPlanBuilder(
             NativeRenderDiagnostics.elapsed(id, planId, "plan.work.build") {
                 val cardTheme = NativeCardTheme(appearance)
                 for (card in planCards) {
-                    val built = buildCard(card, cssMap, layout, profile, cardTheme, cardOptions)
+                    val built = buildCard(card, cssMap, layout, profile, cardTheme, cardOptions, resolveTitle)
                     presentation.add(built.shown)
                     cardPieces.add(built.pieces)
                     val items = ArrayList<GlossaryLayoutWork>()
@@ -332,7 +337,8 @@ private class BuiltCard(
 /** One card's presentation and native pieces; independent of every other card. */
 private fun buildCard(card: TermCard, cssMap: Map<String, ParsedCss>,
     layout: NativeGlossaryLayoutContext, profile: AnkiProfile,
-    cardTheme: NativeCardTheme, cardOptions: NativeCardOptions): BuiltCard {
+    cardTheme: NativeCardTheme, cardOptions: NativeCardOptions,
+    resolveTitle: (String) -> String): BuiltCard {
     val customOpen = customOpenDictionaryNames(card, profile)
     val groups = ArrayList<GlossaryPresentation>(card.dictGroups.size)
     for ((groupIndex, group) in card.dictGroups.withIndex()) {
@@ -354,5 +360,5 @@ private fun buildCard(card: TermCard, cssMap: Map<String, ParsedCss>,
         groups.add(GlossaryPresentation(css, width, expanded, definitionTags))
     }
     val shown = TermCardPresentation(customOpen, groups)
-    return BuiltCard(shown, groups, nativeCardPieces(card, shown, layout, cardTheme, cardOptions))
+    return BuiltCard(shown, groups, nativeCardPieces(card, shown, layout, cardTheme, cardOptions, resolveTitle))
 }

@@ -251,8 +251,8 @@ fun OcrLookupPopup(
     val lookupInputRef = rememberUpdatedState(lookupInput)
     data class LookupPublication(val generation: Int, val input: Any)
     var lookupPublication by remember { mutableStateOf<LookupPublication?>(null) }
-    val nativeFrameCurrent = rendererMode != DictionaryPreferences.RENDERER_COMPOSE ||
-        lookupPublication?.let { it.generation == lookupGeneration && it.input === lookupInput } == true
+    val frameCurrent = lookupPublication?.let { it.generation == lookupGeneration && it.input === lookupInput } == true
+    val nativeFrameCurrent = rendererMode != DictionaryPreferences.RENDERER_COMPOSE || frameCurrent
     // The lookup this popup started itself, so a newer keystroke can abandon it instead of letting a
     // stale query run to completion. Caller-supplied deferreds are never cancelled - the caller may
     // still want that result.
@@ -1035,6 +1035,10 @@ fun OcrLookupPopup(
             renderPreparation?.cancel()
             renderPreparation = null
             webView?.let { stopDictionaryAudio(it) }
+            if (rendererMode != DictionaryPreferences.RENDERER_COMPOSE) {
+                lookupStackState = LookupStackState()
+                contentReady = false
+            }
             if (!isRecursiveChild) {
                 childPopupRequest = null
                 webView?.evaluateJavascript(
@@ -1254,8 +1258,13 @@ fun OcrLookupPopup(
         { ready ->
             if (ready) {
                 // A flush of the pre-result empty page also reports ready; only take the ready
-                // edge once a frame has actually been published.
-                if (lookupStackState.currentFrame != null) {
+                // edge once a frame for the current lookup has actually been published.
+                val pub = lookupPublication
+                if (lookupStackState.currentFrame != null &&
+                    pub != null &&
+                    pub.generation == lookupGeneration &&
+                    pub.input === lookupInputRef.value
+                ) {
                     contentReady = true
                     lastRenderedLookupGeneration = lookupGeneration
                 }
@@ -1448,8 +1457,14 @@ fun OcrLookupPopup(
                 .height(actualHeightDp)
                 // Reveal state is read in the draw phase on purpose: flipping `contentReady` must
                 // repaint, not recompose the popup (it was one of the 4.25 compositions per open).
-                .graphicsLayer { alpha = if ((currentFrame != null && contentReady && nativeFrameCurrent &&
-                    (rendererMode != DictionaryPreferences.RENDERER_COMPOSE || readyNativeFrameId == currentFrame.id)) || errorMessage != null) 1f else 0f }
+                .graphicsLayer {
+                    val readyForRenderer = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) {
+                        readyNativeFrameId == currentFrame?.id
+                    } else {
+                        lastRenderedLookupGeneration == lookupGeneration
+                    }
+                    alpha = if ((currentFrame != null && contentReady && frameCurrent && readyForRenderer) || errorMessage != null) 1f else 0f
+                }
                 .drawWithContent {
                     drawContent()
                     val requestId = if (visible && contentReady &&
@@ -1649,8 +1664,14 @@ fun OcrLookupPopup(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = if (visible && ((currentFrame != null && contentReady && nativeFrameCurrent &&
-                    (rendererMode != DictionaryPreferences.RENDERER_COMPOSE || readyNativeFrameId == currentFrame.id)) || errorMessage != null)) 1f else 0f }
+                .graphicsLayer {
+                    val readyForRenderer = if (rendererMode == DictionaryPreferences.RENDERER_COMPOSE) {
+                        readyNativeFrameId == currentFrame?.id
+                    } else {
+                        lastRenderedLookupGeneration == lookupGeneration
+                    }
+                    alpha = if (visible && ((currentFrame != null && contentReady && frameCurrent && readyForRenderer) || errorMessage != null)) 1f else 0f
+                }
                 .offset(
                     x = with(LocalDensity.current) { if (visible) layoutResult.x.toDp() else hideOffset },
                     y = with(LocalDensity.current) { if (visible) layoutResult.y.toDp() else hideOffset },

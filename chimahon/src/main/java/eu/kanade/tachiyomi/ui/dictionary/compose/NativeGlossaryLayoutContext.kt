@@ -9,11 +9,17 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 
 /** Immutable popup facts shared by preparation and mounting, never mutable worker resources. */
-public fun nativeLanguageTag(code: String): String = when {
-    code.startsWith("zh") -> if (code.contains("TW") || code.contains("HK") ||
-        code.contains("MO") || code.contains("Hant")) "zh-Hant" else "zh-Hans"
-    code.startsWith("ko") -> "ko"
-    else -> "ja"
+public fun nativeLanguageTag(code: String): String {
+    val trimmed = code.trim()
+    return when {
+        trimmed.isEmpty() -> "ja"
+        trimmed.startsWith("zh", ignoreCase = true) -> if (trimmed.contains("TW", ignoreCase = true) ||
+            trimmed.contains("HK", ignoreCase = true) || trimmed.contains("MO", ignoreCase = true) ||
+            trimmed.contains("Hant", ignoreCase = true)) "zh-Hant" else "zh-Hans"
+        trimmed.startsWith("ko", ignoreCase = true) -> "ko"
+        trimmed.startsWith("ja", ignoreCase = true) -> "ja"
+        else -> trimmed
+    }
 }
 
 public class NativeGlossaryLayoutContext(
@@ -32,6 +38,8 @@ public class NativeGlossaryLayoutContext(
     val compactGlossary: Boolean = false,
     /** Show each definition tag once per dictionary, mirroring the WebView compact tags mode. */
     val compactTags: Boolean = false,
+    /** Generic platform font family ("sans-serif" or "serif") matching the WebView base font. */
+    val defaultFontFamily: String = "sans-serif",
 ) {
     init { require(viewportWidth >= 0 && viewportWidth != Constraints.Infinity) }
 

@@ -1,6 +1,15 @@
 package chimahon.dictionary.ru
 
+import java.util.Locale
+
 object RussianTextPreprocessors {
+
+    private val RUSSIAN_LOCALE = Locale.forLanguageTag("ru")
+
+    fun decapitalize(text: String): List<String> {
+        val lower = text.lowercase(RUSSIAN_LOCALE)
+        return if (lower != text) listOf(text, lower) else listOf(text)
+    }
 
     fun yoToE(text: String): List<String> = listOf(
         text,
@@ -14,6 +23,9 @@ object RussianTextPreprocessors {
     )
 
     fun allVariants(text: String): List<String> {
-        return removeRussianDiacritics(text).flatMap { yoToE(it) }.distinct()
+        return decapitalize(text)
+            .flatMap { removeRussianDiacritics(it) }
+            .flatMap { yoToE(it) }
+            .distinct()
     }
 }

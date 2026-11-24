@@ -2213,7 +2213,7 @@ object AnkiCardCreator {
     private fun buildFrequencyAverageRank(result: LookupResult): String {
         val numbers = collectFrequencyNumbers(result)
         if (numbers.isEmpty()) return "9999999"
-        return (numbers.sum() / numbers.size).toString()
+        return Math.floor(numbers.sum() / numbers.size).toInt().toString()
     }
 
     private fun collectFrequencyNumbers(result: LookupResult): List<Double> {

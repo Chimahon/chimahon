@@ -132,7 +132,8 @@ private fun NativeCardBuilder.chip(value: String) { element("span", "chip") { te
 
 internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation,
     layout: NativeGlossaryLayoutContext, theme: NativeCardTheme,
-    options: NativeCardOptions): List<NativeCardPiece> {
+    options: NativeCardOptions,
+    resolveTitle: (String) -> String = { it }): List<NativeCardPiece> {
     val parts = ArrayList<NativeCardPiece>()
     val scale = layout.density.density
     fun px(dp: Int) = (dp * scale).roundToInt()
@@ -173,7 +174,7 @@ internal fun nativeCardPieces(card: TermCard, presentation: TermCardPresentation
             }
         }
     }
-    val frequencies = buildFrequencyChips(card.frequencies, options.harmonic, options.average)
+    val frequencies = buildFrequencyChips(card.frequencies, options.harmonic, options.average, resolveTitle)
     if (frequencies.isNotEmpty()) add(before = 4) {
         element("div") { frequencies.forEach {
             element("span", "freq-label") { text(it.label) }
@@ -387,7 +388,8 @@ internal fun NativeTermCardContent(model: NativeTermCard, profile: AnkiProfile,
             val missing = model.pieces.filter { model.visible(it, wantedOpen, wantedDetails) && !preparedDocuments.containsKey(it.nodes) }
             if (missing.isNotEmpty()) NativeCoreCompiler(model.layout.density, model.layout.direction, model.layout.resolver,
                 model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles,
-                language = model.layout.language, compactGlossary = model.layout.compactGlossary).use { core ->
+                language = model.layout.language, compactGlossary = model.layout.compactGlossary,
+                defaultFontFamily = model.layout.defaultFontFamily).use { core ->
                 val prepared = core.prepareBatch(missing.map { NativeDrawingInput(nativeCoreRaw(it.nodes), it.css.nativeSourceCss,
                     it.width, it.nodes, it.css) }, model.layout.style, dark = onBg.luminance() > .5f,
                     checkCancellation = { caller.ensureActive() })
@@ -401,7 +403,8 @@ internal fun NativeTermCardContent(model: NativeTermCard, profile: AnkiProfile,
                 NativeCoreCompiler(model.layout.density, model.layout.direction, model.layout.resolver,
                     model.layout.secondary, model.layout.border, fontFiles = model.layout.fontFiles,
                     language = model.layout.language, compactGlossary = model.layout.compactGlossary,
-                    openDetails = openSet.sorted().toIntArray()).use { core ->
+                    openDetails = openSet.sorted().toIntArray(),
+                    defaultFontFamily = model.layout.defaultFontFamily).use { core ->
                     val prepared = core.prepareBatch(listOf(NativeDrawingInput(nativeCoreRaw(piece.nodes),
                         piece.css.nativeSourceCss, piece.width, piece.nodes, piece.css)), model.layout.style,
                         dark = onBg.luminance() > .5f, checkCancellation = { caller.ensureActive() }).single()
