@@ -411,11 +411,13 @@ object SettingsReaderScreen : SearchableSettings {
         val dualPageSplitPref = readerPreferences.dualPageSplitWebtoon()
         val rotateToFitPref = readerPreferences.dualPageRotateToFitWebtoon()
         val webtoonSidePaddingPref = readerPreferences.webtoonSidePadding()
+        val webtoonScrollDistancePref = readerPreferences.webtoonScrollDistancePercent()
 
         val navMode by navModePref.collectAsState()
         val dualPageSplit by dualPageSplitPref.collectAsState()
         val rotateToFit by rotateToFitPref.collectAsState()
         val webtoonSidePadding by webtoonSidePaddingPref.collectAsState()
+        val webtoonScrollDistance by webtoonScrollDistancePref.collectAsState()
 
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.webtoon_viewer),
@@ -462,6 +464,16 @@ object SettingsReaderScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_webtoon_side_padding),
                     valueString = numberFormat.format(webtoonSidePadding / 100f),
                     onValueChanged = { webtoonSidePaddingPref.set(it) },
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = webtoonScrollDistance,
+                    valueRange = ReaderPreferences.let {
+                        it.WEBTOON_SCROLL_DISTANCE_MIN..it.WEBTOON_SCROLL_DISTANCE_MAX
+                    },
+                    title = stringResource(KMR.strings.pref_webtoon_scroll_distance),
+                    subtitle = stringResource(KMR.strings.pref_webtoon_scroll_distance_summary),
+                    valueString = numberFormat.format(webtoonScrollDistance / 100f),
+                    onValueChanged = { webtoonScrollDistancePref.set(it) },
                 ),
                 Preference.PreferenceItem.ListPreference(
                     preference = readerPreferences.readerHideThreshold(),

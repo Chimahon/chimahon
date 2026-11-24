@@ -99,12 +99,24 @@ class WebtoonViewer(
     /**
      * Distance to scroll when the user taps on one side of the recycler view.
      */
-    private val scrollDistance = activity.resources.displayMetrics.heightPixels * 3 / 4
+    private val scrollDistance: Int
+        get() = (
+            activity.resources.displayMetrics.heightPixels *
+                readerPreferences.webtoonScrollDistancePercent().get().coerceIn(
+                    ReaderPreferences.WEBTOON_SCROLL_DISTANCE_MIN,
+                    ReaderPreferences.WEBTOON_SCROLL_DISTANCE_MAX,
+                ) / 100
+            ).coerceAtLeast(1)
 
     /**
      * Layout manager of the recycler view.
      */
-    private val layoutManager = WebtoonLayoutManager(activity, scrollDistance)
+    private val layoutManager = WebtoonLayoutManager(
+        activity,
+        // Keep the original preload distance as a floor; the jump preference controls only the
+        // scroll amount, not how far ahead pages are retained.
+        max(activity.resources.displayMetrics.heightPixels * 3 / 4, scrollDistance),
+    )
 
     /**
      * Configuration used by this viewer, like allow taps, or crop image borders.

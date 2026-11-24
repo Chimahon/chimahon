@@ -97,6 +97,11 @@ class ReaderPreferences(
 
     fun webtoonSidePadding() = preferenceStore.getInt("webtoon_side_padding", WEBTOON_PADDING_MIN)
 
+    fun webtoonScrollDistancePercent() = preferenceStore.getInt(
+        "webtoon_scroll_distance_percent",
+        WEBTOON_SCROLL_DISTANCE_DEFAULT,
+    )
+
     fun readerHideThreshold() = preferenceStore.getEnum("reader_hide_threshold", ReaderHideThreshold.LOW)
 
     fun folderPerManga() = preferenceStore.getBoolean("create_folder_per_manga", false)
@@ -292,6 +297,10 @@ class ReaderPreferences(
     companion object {
         const val WEBTOON_PADDING_MIN = 0
         const val WEBTOON_PADDING_MAX = 25
+
+        const val WEBTOON_SCROLL_DISTANCE_MIN = 25
+        const val WEBTOON_SCROLL_DISTANCE_MAX = 100
+        const val WEBTOON_SCROLL_DISTANCE_DEFAULT = 75
 
         const val MILLI_CONVERSION = 100
 

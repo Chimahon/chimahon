@@ -36,6 +36,8 @@
     <string name="pref_landscape_zoom_type">Wide images zoom mode</string>
     <string name="scale_type_double">Double zoom</string>
     <string name="pref_webtoon_scale_type">Smart scale on wide screen</string>
+    <string name="pref_webtoon_scroll_distance">Prev/next jump size</string>
+    <string name="pref_webtoon_scroll_distance_summary">How far a tap or key press moves through a long strip</string>
     <string name="pref_smart_scale_long_strip_gap">Apply Smart scale to Long strip with gaps</string>
     <string name="scale_type_16_9">16:9</string>
     <string name="scale_type_20_9">20:9</string>
