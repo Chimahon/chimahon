@@ -13,6 +13,10 @@ import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
@@ -42,6 +46,7 @@ class PanelDetectionRepositoryImpl(
 
     private var engine: YoloPanelDetectionEngine? = null
     private val engineMutex = Mutex()
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private fun getEngine(): YoloPanelDetectionEngine? {
         engine?.let { return it }
@@ -111,6 +116,7 @@ class PanelDetectionRepositoryImpl(
         originalHeight: Int,
         direction: ReadingDirection,
     ): PanelDetectionResult = engineMutex.withLock {
+        if (image.isRecycled) return@withLock PanelDetectionResult.EMPTY
         try {
             val engine = getEngine()
             if (engine == null) {
@@ -136,10 +142,16 @@ class PanelDetectionRepositoryImpl(
     }
 
     override suspend fun invalidateModels() {
-        engineMutex.withLock { cleanup() }
+        engineMutex.withLock { closeEngineLocked() }
     }
 
     override fun cleanup() {
+        cleanupScope.launch {
+            engineMutex.withLock { closeEngineLocked() }
+        }
+    }
+
+    private fun closeEngineLocked() {
         try {
             engine?.close()
             engine = null

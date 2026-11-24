@@ -47,7 +47,27 @@ internal class MediaCaptureService(
         )
     }
 
-    suspend fun captureVideoFrameForOcr(): Bitmap? = captureFrameViaFfmpeg(getTimeSeconds())
+    suspend fun captureVideoFrameForOcr(): Bitmap? =
+        captureFrameViaMpv() ?: captureFrameViaFfmpeg(getTimeSeconds())
+
+    /** Grabs the current frame directly from mpv without subtitles; falls back to FFmpeg if null. */
+    private suspend fun captureFrameViaMpv(): Bitmap? {
+        val frameFile = File(cachePath, "${System.nanoTime()}_mpv_ocr_frame.png")
+        return withIOContext {
+            runCatching {
+                frameFile.delete()
+                MPVLib.command(arrayOf("screenshot-to-file", frameFile.absolutePath, "video"))
+                if (!frameFile.isFile || frameFile.length() <= 0L) {
+                    return@runCatching null
+                }
+                BitmapFactory.decodeFile(frameFile.absolutePath)
+            }.onFailure {
+                logcat(LogPriority.WARN, it) { "Failed to capture OCR frame via mpv" }
+            }.getOrNull().also {
+                frameFile.delete()
+            }
+        }
+    }
 
     /** FFmpeg fallback for the screenshot sheet when mpv can't write images; returns a JPEG stream. */
     suspend fun captureScreenshotStreamViaFfmpeg(): InputStream? {
@@ -69,19 +89,19 @@ internal class MediaCaptureService(
 
     private fun ffmpegInput(): FfmpegSource? {
         val video = getVideo() ?: return null
-        val rawInput = MPVLib.getPropertyString("path")
-            ?.takeIf { it.isNotBlank() }
-            ?: video.videoUrl
+        val rawInput = selectFfmpegRawInput(MPVLib.getPropertyString("path"), video.videoUrl)
+            ?: return null
         val input = when {
             rawInput.startsWith("content://", ignoreCase = true) -> Uri.parse(rawInput).toFFmpegReadString(context)
-            rawInput.startsWith("file:", ignoreCase = true) -> Uri.parse(rawInput).path ?: rawInput
+            rawInput.startsWith("file:", ignoreCase = true) ->
+                runCatching { File(URI(rawInput)).absolutePath }.getOrElse { Uri.parse(rawInput).path ?: rawInput }
             else -> rawInput
         }
         val source = getSource() as? AnimeHttpSource
         val headers = (video.headers ?: source?.headers)?.toList().orEmpty()
         return FfmpegSource(
             input,
-            if (input.startsWith("http")) headers else emptyList(),
+            if (input.startsWith("http", ignoreCase = true)) headers else emptyList(),
             video.ffmpegStreamArgs.orEmpty().any { it.first == "force_mpegts" && it.second == "1" },
         )
     }
@@ -281,4 +301,23 @@ internal class MediaCaptureService(
     private fun Double.formatSeconds(): String {
         return String.format(Locale.US, "%.3f", this)
     }
+}
+
+/**
+ * Selects the best FFmpeg-readable input between mpv's active `path` and the episode's `videoUrl`.
+ * Skips schemes FFmpeg cannot open (notably `fd://` used by local SAF playback) so callers fall
+ * back to the underlying `content://` URI.
+ */
+internal fun selectFfmpegRawInput(mpvPath: String?, videoUrl: String?): String? {
+    for (raw in sequenceOf(mpvPath, videoUrl)) {
+        val candidate = raw?.trim()?.takeIf { it.isNotEmpty() } ?: continue
+        val supported = candidate.startsWith("content://", ignoreCase = true) ||
+            candidate.startsWith("http://", ignoreCase = true) ||
+            candidate.startsWith("https://", ignoreCase = true) ||
+            candidate.startsWith("file:", ignoreCase = true) ||
+            candidate.startsWith("/") ||
+            File(candidate).isAbsolute
+        if (supported) return candidate
+    }
+    return null
 }

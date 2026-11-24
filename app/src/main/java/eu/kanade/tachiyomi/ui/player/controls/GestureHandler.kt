@@ -50,13 +50,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextAlign
@@ -164,16 +161,15 @@ fun GestureHandler(
     val haptics = LocalHapticFeedback.current
     val subtitleSwipeDistance = with(LocalDensity.current) { 30.dp.toPx() }
     var subtitleViewport by remember { mutableStateOf(IntSize.Zero) }
-    var subtitleOrigin by remember { mutableStateOf(Offset.Zero) }
     val subtitleTap by rememberUpdatedState(onSubtitleTap)
     val subtitleLongPress by rememberUpdatedState(onSubtitleLongPress)
 
+    // Keep tap/long-press hit-testing full-bleed so top-aligned secondary subtitles inside the
+    // gesture inset remain clickable, while drag gestures stay inset by safeGestures.
     Box(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { subtitleViewport = it }
-            .windowInsetsPadding(WindowInsets.safeGestures)
-            .onGloballyPositioned { subtitleOrigin = it.positionInRoot() }
             .pointerInput(Unit) {
                 coroutineScope {
                     val originalSpeed = viewModel.playbackSpeed.value
@@ -187,8 +183,8 @@ fun GestureHandler(
                     detectTapGestures(
                         onTap = { position ->
                             if (subtitleTap(
-                                    position.x + subtitleOrigin.x,
-                                    position.y + subtitleOrigin.y,
+                                    position.x,
+                                    position.y,
                                     subtitleViewport.width,
                                     subtitleViewport.height,
                                 )
@@ -285,8 +281,8 @@ fun GestureHandler(
                             if (!isLongPressing) {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (subtitleLongPress(
-                                        it.x + subtitleOrigin.x,
-                                        it.y + subtitleOrigin.y,
+                                        it.x,
+                                        it.y,
                                         subtitleViewport.width,
                                         subtitleViewport.height,
                                     )
@@ -301,8 +297,13 @@ fun GestureHandler(
                         },
                     )
                 }
-            }
-            .pointerInput(areControlsLocked, subtitleSwipeControls, subtitleSwipeDistance) {
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeGestures)
+                .pointerInput(areControlsLocked, subtitleSwipeControls, subtitleSwipeDistance) {
                 if (!subtitleSwipeControls || areControlsLocked) return@pointerInput
                 var startedAt = 0L
                 var totalDragX = 0f
@@ -456,7 +457,8 @@ fun GestureHandler(
                     }
                 }
             },
-    )
+        )
+    }
 }
 
 @Composable
