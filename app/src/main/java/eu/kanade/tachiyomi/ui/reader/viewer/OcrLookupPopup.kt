@@ -1083,8 +1083,9 @@ fun OcrLookupPopup(
     val onRecursiveLookupImpl: (String, String?, Int?, Float?, Float?, String?) -> Unit = { word, sentence, offset, x, y, type ->
         val targetSentence = recursiveSentence(sentence)
         val targetOffset = recursiveOffset(sentence, offset)
-        if (type == "kanji") {
-            val paths = getDictionaryPaths(context, activeProfile)
+        val dictionaryPaths = runCatching { getDictionaryPaths(context, activeProfile) }
+            .getOrElse { chimahon.DictionaryPaths() }
+        if (type == "kanji" && dictionaryPaths.kanjiPaths.isNotEmpty()) {
             val kanjiResult = runCatching {
                 repository.queryKanji(word)
             }.getOrNull()
@@ -1127,9 +1128,8 @@ fun OcrLookupPopup(
             // then create a child popup with the results — no parent WebView update.
             val cleanQuery = word.replace(Regex("[\\s\\p{Punct}「」『』【】（）〔〕［］｛｝〈〉《》…、。！？!?]+"), "").trim()
             if (cleanQuery.isNotBlank() && cleanQuery.any { it.code > 127 }) {
-                val termPaths = getDictionaryPaths(context, activeProfile)
                 val result = runCatching {
-                    repository.lookup(cleanQuery, termPaths, activeProfile.languageCode)
+                    repository.lookup(cleanQuery, dictionaryPaths, activeProfile.languageCode)
                 }.getOrElse {
                     chimahon.DictionaryRepository.LookupResult2(
                         results = emptyList(),
