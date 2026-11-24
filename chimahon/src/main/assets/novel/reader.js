@@ -186,14 +186,29 @@ window.hoshiReader = {
             window.scrollTo(0, 0);
             didScroll = true;
         }
+        if (!this.continuousMode && document.body) {
+            if (this.isVertical()) {
+                if (document.body.scrollLeft !== 0) {
+                    document.body.scrollLeft = 0;
+                    didScroll = true;
+                }
+            } else {
+                if (document.body.scrollTop !== 0) {
+                    document.body.scrollTop = 0;
+                    didScroll = true;
+                }
+            }
+        }
         return didScroll;
     },
 
     assignPagePosition: function(context, position) {
         if (context.vertical) {
             context.scrollEl.scrollTop = position;
+            if (context.scrollEl.scrollLeft !== 0) context.scrollEl.scrollLeft = 0;
         } else {
             context.scrollEl.scrollLeft = position;
+            if (context.scrollEl.scrollTop !== 0) context.scrollEl.scrollTop = 0;
         }
         this.lockRootViewport();
     },
@@ -249,10 +264,11 @@ window.hoshiReader = {
     },
 
     registerSnapScroll: function(initialScroll) {
-        if (this.continuousMode || window.snapScrollRegistered) return;
-        window.snapScrollRegistered = true;
+        if (this.continuousMode) return;
         window.lastPageScroll = initialScroll;
         this.lockRootViewport();
+        if (window.snapScrollRegistered) return;
+        window.snapScrollRegistered = true;
         window.addEventListener('scroll', () => {
             if (this.lockRootViewport()) {
                 requestAnimationFrame(() => this.lockRootViewport());
@@ -308,6 +324,69 @@ window.hoshiReader = {
         return totalChars > 0 ? exploredChars / totalChars : 0;
     },
 
+    findPagedTargetScroll: function(context, p) {
+        var walker = this.createWalker();
+        var totalChars = 0;
+        var node;
+        while (node = walker.nextNode()) {
+            totalChars += this.countChars(node.textContent);
+        }
+        if (totalChars <= 0) {
+            return { hasText: false, scroll: Math.round(context.maxScroll * p) };
+        }
+        var targetCharCount = Math.ceil(totalChars * p);
+        var runningSum = 0;
+        var targetNode = null;
+        var targetOffset = 0;
+        walker = this.createWalker();
+        while (node = walker.nextNode()) {
+            var nodeLen = this.countChars(node.textContent);
+            if ((runningSum + nodeLen) > targetCharCount) {
+                targetNode = node;
+                targetOffset = this.textOffsetForCharCount(node, Math.max(0, targetCharCount - runningSum));
+                break;
+            }
+            runningSum += nodeLen;
+        }
+        if (!targetNode) return { hasText: true, scroll: 0, found: false };
+        var range = document.createRange();
+        var targetText = targetNode.textContent || '';
+        var targetChar = String.fromCodePoint(targetText.codePointAt(targetOffset));
+        range.setStart(targetNode, targetOffset);
+        range.setEnd(targetNode, Math.min(targetText.length, targetOffset + Math.max(1, targetChar.length)));
+        var rect = this.getRect(range);
+        var currentScroll = this.getPagePosition(context);
+        var anchor = (context.vertical ? rect.top : rect.left) + currentScroll;
+        return { hasText: true, scroll: this.alignToPage(context, anchor), found: true };
+    },
+
+    realignAfterLayout: async function(progress, isRtl) {
+        if (this.continuousMode) return;
+        this.isRtl = !!isRtl;
+        if (document.fonts && document.fonts.ready) {
+            try { await document.fonts.ready; } catch (e) {}
+        }
+        var context = this.getScrollContext();
+        if (context.pageSize <= 0) return;
+        if (typeof progress === 'number' && isFinite(progress)) {
+            var p = Math.min(1, Math.max(0, progress));
+            if (p >= 0.99) {
+                this.setPagePosition(context, context.maxScroll);
+                requestAnimationFrame(() => {
+                    this.setPagePosition(this.getScrollContext(), this.getScrollContext().maxScroll);
+                });
+                return;
+            }
+            var target = this.findPagedTargetScroll(context, p);
+            if (!target.hasText || target.found) {
+                this.setPagePosition(context, target.scroll);
+                return;
+            }
+        }
+        var current = this.getPagePosition(context);
+        this.setPagePosition(context, this.alignToPage(context, current));
+    },
+
     restoreProgress: async function(progress, isRtl) {
         this.isRtl = !!isRtl;
         var p = Math.min(1, Math.max(0, progress));
@@ -333,46 +412,16 @@ window.hoshiReader = {
                 return;
             }
 
-            var walker = this.createWalker();
-            var totalChars = 0;
-            var node;
-            while (node = walker.nextNode()) {
-                totalChars += this.countChars(node.textContent);
-            }
-
-            if (totalChars <= 0) {
-                var fallbackPage = this.setPagePosition(context, Math.round(context.maxScroll * p));
+            var target = this.findPagedTargetScroll(context, p);
+            if (!target.hasText) {
+                var fallbackPage = this.setPagePosition(context, target.scroll);
                 this.registerSnapScroll(fallbackPage);
                 this.notifyRestoreComplete();
                 return;
             }
 
-            var targetCharCount = Math.ceil(totalChars * p);
-            var runningSum = 0;
-            var targetNode = null;
-            var targetOffset = 0;
-
-            walker = this.createWalker();
-            while (node = walker.nextNode()) {
-                var nodeLen = this.countChars(node.textContent);
-                if ((runningSum + nodeLen) > targetCharCount) {
-                    targetNode = node;
-                    targetOffset = this.textOffsetForCharCount(node, Math.max(0, targetCharCount - runningSum));
-                    break;
-                }
-                runningSum += nodeLen;
-            }
-
-            if (targetNode) {
-                var range = document.createRange();
-                var targetText = targetNode.textContent || '';
-                var targetChar = String.fromCodePoint(targetText.codePointAt(targetOffset));
-                range.setStart(targetNode, targetOffset);
-                range.setEnd(targetNode, Math.min(targetText.length, targetOffset + Math.max(1, targetChar.length)));
-                var rect = this.getRect(range);
-                var currentScroll = this.getPagePosition(context);
-                var anchor = (context.vertical ? rect.top : rect.left) + currentScroll;
-                var targetScroll = this.alignToPage(context, anchor);
+            if (target.found) {
+                var targetScroll = target.scroll;
                 this.setPagePosition(context, targetScroll);
                 requestAnimationFrame(() => {
                     targetScroll = this.setPagePosition(context, targetScroll);

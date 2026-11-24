@@ -108,6 +108,8 @@ fun ReaderWebView(
                 onTap = onTap,
                 onTapTop = { if (!isPopupActive) onTapTop() },
                 onTapBottom = { if (!isPopupActive) onTapBottom() },
+                swipeThreshold = swipeThreshold,
+                tapZonePx = tapZonePx,
                 isPopupActive = isPopupActive,
                 onTextSelectedCallback = onTextSelected,
                 onSentenceReadyCallback = onSentenceReady,
@@ -191,7 +193,13 @@ fun ReaderWebView(
                                     (function() {
                                         var el = document.getElementById('$escapedId')
                                             || document.querySelector('[name="$escapedId"]');
-                                        if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
+                                        if (el) {
+                                            el.scrollIntoView({ behavior: 'instant', block: 'start' });
+                                            if (window.hoshiReader && !window.hoshiReader.continuousMode) {
+                                                var ctx = window.hoshiReader.getScrollContext();
+                                                window.hoshiReader.setPagePosition(ctx, window.hoshiReader.alignToPage(ctx, window.hoshiReader.getPagePosition(ctx)));
+                                            }
+                                        }
                                     })();
                                 """.trimIndent()
                                 post { evaluateJavascript(js, null) }
@@ -327,7 +335,7 @@ fun ReaderWebView(
                             try {
                                 val loc = IntArray(2)
                                 v.getLocationOnScreen(loc)
-                                val scale = v.scale.coerceAtLeast(0.1f)
+                                val scale = v.cssScale()
                                 val arr = org.json.JSONArray(json)
                                 for (i in 0 until arr.length()) {
                                     val obj = arr.getJSONObject(i)
@@ -475,10 +483,10 @@ private class ReaderAndroidWebView(
         },
         onTextSelectedCallback = { word, sentence, x, y, w, h ->
             post {
-                val density = context.resources.displayMetrics.density
+                val viewScale = cssScale()
                 val loc = IntArray(2)
                 getLocationOnScreen(loc)
-                onTextSelectedCallback(word, sentence, x * density + loc[0], y * density + loc[1], w * density, h * density)
+                onTextSelectedCallback(word, sentence, x * viewScale + loc[0], y * viewScale + loc[1], w * viewScale, h * viewScale)
             }
         },
         onBackgroundTap = { x, y ->
@@ -486,9 +494,9 @@ private class ReaderAndroidWebView(
                 if (isPopupActive) {
                     onDismissPopupRequested()
                 } else {
-                    val density = context.resources.displayMetrics.density
-                    val eventX = x * density
-                    val eventY = y * density
+                    val viewScale = cssScale()
+                    val eventX = x * viewScale
+                    val eventY = y * viewScale
                     when {
                         eventY < tapZonePx || eventY > height - tapZonePx -> onTapTop()
                         eventX < width * (readerSettings.tapZonePercent / 100f) ->
@@ -511,6 +519,18 @@ private class ReaderAndroidWebView(
         setLayerType(LAYER_TYPE_HARDWARE, null)
         addJavascriptInterface(jsBridge, "ReaderAndroid")
         setBackgroundColor(readerSettings.backgroundColor)
+    }
+
+    @Suppress("DEPRECATION")
+    internal fun cssScale(): Float = scale.coerceAtLeast(0.1f)
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && h > 0 && (w != oldw || h != oldh) && lastLoadedUrl != null && !isImageOnly) {
+            lastLoadedWidth = w
+            lastLoadedHeight = h
+            post { applySettings(readerSettings) }
+        }
     }
 
     /** Set callback for selection rects from JS (used by Compose highlight overlay). */
@@ -596,12 +616,46 @@ private class ReaderAndroidWebView(
             } else {
                 null
             }
-            loadDataWithBaseURL(baseUrl, html, "text/html", "utf-8", url)
+            loadDataWithBaseURL(baseUrl, ensureReaderViewportMeta(html), "text/html", "utf-8", url)
         } catch (e: Exception) {
             Log.e("ReaderWebView", "loadChapterHtml error", e)
             onLoadFailed(e.message ?: "Failed to load chapter")
         }
     }
+
+    private fun ensureReaderViewportMeta(html: String): String {
+        val viewportMeta =
+            """<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />"""
+        val existingMetaRegex = Regex(
+            """<meta\b[^>]*\bname\s*=\s*["']viewport["'][^>]*/?>""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+        if (existingMetaRegex.containsMatchIn(html)) {
+            return existingMetaRegex.replaceFirst(html, Regex.escapeReplacement(viewportMeta))
+        }
+        val headOpenRegex = Regex("""<head\b[^>]*>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val headMatch = headOpenRegex.find(html) ?: return html
+        return buildString(html.length + viewportMeta.length + 1) {
+            append(html, 0, headMatch.range.last + 1)
+            append('\n')
+            append(viewportMeta)
+            append(html, headMatch.range.last + 1, html.length)
+        }
+    }
+
+    private fun viewportSizeJS(): String = """
+        var dpr = window.devicePixelRatio || 1;
+        var viewW = Math.ceil(${width} / dpr);
+        var viewH = Math.ceil(${height} / dpr);
+        var iw = (window.visualViewport && window.visualViewport.width > 0)
+            ? Math.round(window.visualViewport.width)
+            : window.innerWidth;
+        var ih = (window.visualViewport && window.visualViewport.height > 0)
+            ? Math.round(window.visualViewport.height)
+            : window.innerHeight;
+        if (!iw || iw > viewW + 2) iw = viewW;
+        if (!ih || ih > viewH + 2) ih = viewH;
+    """.trimIndent()
 
     fun jumpToFragment(fragment: String) {
         val escapedId = fragment.replace("\\", "\\\\").replace("'", "\\'")
@@ -609,7 +663,13 @@ private class ReaderAndroidWebView(
             (function() {
                 var el = document.getElementById('$escapedId')
                     || document.querySelector('[name="$escapedId"]');
-                if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' });
+                if (el) {
+                    el.scrollIntoView({ behavior: 'instant', block: 'start' });
+                    if (window.hoshiReader && !window.hoshiReader.continuousMode) {
+                        var ctx = window.hoshiReader.getScrollContext();
+                        window.hoshiReader.setPagePosition(ctx, window.hoshiReader.alignToPage(ctx, window.hoshiReader.getPagePosition(ctx)));
+                    }
+                }
             })();
         """.trimIndent()
         evaluateJavascript(js, null)
@@ -626,6 +686,11 @@ private class ReaderAndroidWebView(
 
         appendLine("html, body { margin: 0 !important; padding: 0 !important; }")
         appendLine("html { -webkit-line-box-contain: block glyphs replaced; }")
+        appendLine("*, *::before, *::after { box-sizing: border-box !important; }")
+        appendLine("body * { max-inline-size: 100% !important; }")
+        appendLine("p, div, span, a, li, td, th, blockquote, h1, h2, h3, h4, h5, h6 { overflow-wrap: anywhere !important; word-wrap: break-word !important; }")
+        appendLine("pre, code { white-space: pre-wrap !important; overflow-wrap: anywhere !important; }")
+        appendLine("table { table-layout: fixed !important; inline-size: 100% !important; }")
         appendLine("::highlight(hoshi-selection) { background-color: rgba(130, 150, 200, 0.4); color: inherit; }")
         appendLine("p { margin-block-start: 0 !important; margin-block-end: ${readerSettings.paragraphSpacing}em !important; }")
         appendLine("body * { font-family: inherit !important; }")
@@ -824,8 +889,7 @@ private class ReaderAndroidWebView(
                 nvp.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
                 document.head.appendChild(nvp);
 
-                var ih = window.innerHeight;
-                var iw = window.innerWidth;
+                ${viewportSizeJS()}
 
                 var hPad = Math.round(iw * ${readerSettings.horizontalPadding} / 200);
                 var vPad = Math.round(ih * ${readerSettings.verticalPadding} / 200);
@@ -946,6 +1010,7 @@ private class ReaderAndroidWebView(
                             resolve();
                         };
                         if (tag === 'img') {
+                            if (el.loading === 'lazy') el.loading = 'eager';
                             if (el.complete) {
                                 if (el.naturalWidth > 0) { classify(); }
                                 else { resolve(); }
@@ -976,7 +1041,7 @@ private class ReaderAndroidWebView(
         val css = buildBaseCSS()
         val bg = readerSettings.resolvedBgHex()
         val tc = readerSettings.resolvedTextHex()
-        val bottomOverlapPx = if (vw) readerSettings.fontSize else 0
+        val bottomOverlapPx = if (vw) kotlin.math.ceil(readerSettings.fontSize).toInt() else 0
 
         return """
             (function() {
@@ -997,8 +1062,7 @@ private class ReaderAndroidWebView(
                 nvp.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
                 document.head.appendChild(nvp);
 
-                var ih = window.innerHeight;
-                var iw = window.innerWidth;
+                ${viewportSizeJS()}
 
                 var hPad = Math.round(iw * ${readerSettings.horizontalPadding} / 200);
                 var vPad = Math.round(ih * ${readerSettings.verticalPadding} / 200);
@@ -1085,9 +1149,12 @@ private class ReaderAndroidWebView(
         }}
                 b.style.setProperty('text-align', ${if (readerSettings.justifyText) "'justify'" else "'left'"}, 'important');
 
+                var prevAbStyle = document.getElementById('hoshi-avoid-page-break-style');
+                if (prevAbStyle) prevAbStyle.remove();
                 ${if (readerSettings.avoidPageBreak) {
             """
                 var abStyle = document.createElement('style');
+                abStyle.id = 'hoshi-avoid-page-break-style';
                 abStyle.textContent = [
                     'img, svg, figure, table, tr, td, th,',
                     'p:has(> img:only-child), div:has(> img:only-child), span.img, div.img, p.img {',
@@ -1161,16 +1228,26 @@ private class ReaderAndroidWebView(
                                 }
                                 if (isLarge) {
                                     el.classList.add('block-img');
-                                    var wrapH = ih - 2 * vPad - bottomOverlap;
-                                    var wrapper = document.createElement('div');
-                                    wrapper.style.cssText = 'display:flex !important;align-items:center !important;justify-content:center !important;min-height:' + wrapH + 'px !important;width:100% !important;max-width:100% !important;break-inside:avoid !important;-webkit-column-break-inside:avoid !important';
-                                    el.parentNode.insertBefore(wrapper, el);
-                                    wrapper.appendChild(el);
+                                    var wrapH = Math.max(1, ih - 2 * vPad - bottomOverlap);
+                                    var existingWrapper = el.parentNode && el.parentNode.classList &&
+                                        el.parentNode.classList.contains('hoshi-block-img-wrapper')
+                                        ? el.parentNode
+                                        : null;
+                                    if (existingWrapper) {
+                                        existingWrapper.style.setProperty('min-height', wrapH + 'px', 'important');
+                                    } else {
+                                        var wrapper = document.createElement('div');
+                                        wrapper.className = 'hoshi-block-img-wrapper';
+                                        wrapper.style.cssText = 'display:flex !important;align-items:center !important;justify-content:center !important;min-height:' + wrapH + 'px !important;width:100% !important;max-width:100% !important;break-inside:avoid !important;-webkit-column-break-inside:avoid !important';
+                                        el.parentNode.insertBefore(wrapper, el);
+                                        wrapper.appendChild(el);
+                                    }
                                 }
                             }
                             resolve();
                         };
                         if (tag === 'img') {
+                            if (el.loading === 'lazy') el.loading = 'eager';
                             if (el.complete) {
                                 if (el.naturalWidth > 0) { classify(); }
                                 else { resolve(); }
@@ -1216,11 +1293,13 @@ private class ReaderAndroidWebView(
             (function() {
                 var b = document.body;
                 if (!b) return;
-                var iw = window.innerWidth;
-                var ih = window.innerHeight;
+                var prevProgress = (window.hoshiReader && typeof window.hoshiReader.calculateProgress === 'function')
+                    ? window.hoshiReader.calculateProgress()
+                    : null;
+                ${viewportSizeJS()}
                 var hPad = Math.round(iw * ${settings.horizontalPadding} / 200);
                 var vPad = Math.round(ih * ${settings.verticalPadding} / 200);
-                var bottomOverlap = ${if (settings.verticalWriting && !continuousMode) settings.fontSize else 0};
+                var bottomOverlap = ${if (settings.verticalWriting && !continuousMode) kotlin.math.ceil(settings.fontSize).toInt() else 0};
                 var pageHeight = ih + bottomOverlap;
                 var contentW = Math.max(1, Math.round(iw * (100 - ${settings.horizontalPadding}) / 100)${if (settings.verticalWriting) " - 1" else ""});
                 var contentH = Math.max(1, Math.round(ih * (100 - ${settings.verticalPadding}) / 100) - bottomOverlap - 2);
@@ -1231,6 +1310,10 @@ private class ReaderAndroidWebView(
                 document.documentElement.style.setProperty('--page-width', iw + 'px');
                 document.documentElement.style.setProperty('--hoshi-vertical-padding-block', vPad + 'px');
                 document.documentElement.style.setProperty('--hoshi-vertical-padding-gap', (2 * vPad) + 'px');
+                if (window.hoshiReader) {
+                    window.hoshiReader.pageHeight = pageHeight;
+                    window.hoshiReader.pageWidth = iw;
+                }
                 b.style.setProperty(
                     'padding',
                     vPad + 'px ' + hPad + 'px ' + (vPad + bottomOverlap) + 'px ' + hPad + 'px',
@@ -1239,6 +1322,10 @@ private class ReaderAndroidWebView(
                 b.style.setProperty('margin', '0', 'important');
                 b.style.setProperty('box-sizing', 'border-box', 'important');
                 if (!${if (continuousMode) "true" else "false"}) {
+                    var wrapH = Math.max(1, ih - 2 * vPad - bottomOverlap);
+                    document.querySelectorAll('.hoshi-block-img-wrapper').forEach(function(w) {
+                        w.style.setProperty('min-height', wrapH + 'px', 'important');
+                    });
                     b.style.setProperty(
                         'column-gap',
                         (${if (settings.verticalWriting) "2 * vPad + bottomOverlap" else "2 * hPad"}) + 'px',
@@ -1259,6 +1346,9 @@ private class ReaderAndroidWebView(
                     b.style.setProperty('column-width', iw + 'px', 'important');
                     b.style.setProperty('height', pageHeight + 'px', 'important');
                     """}
+                } else {
+                    b.style.setProperty('width', iw + 'px', 'important');
+                    b.style.setProperty('min-height', ih + 'px', 'important');
                 }
 
                 b.style.setProperty('font-size', '${settings.fontSize}px', 'important');
@@ -1282,6 +1372,10 @@ private class ReaderAndroidWebView(
                 document.documentElement.style.setProperty('background-color', '$bg', 'important');
 
                 ${furiganaJS(settings)}
+
+                if (window.hoshiReader && typeof window.hoshiReader.realignAfterLayout === 'function') {
+                    window.hoshiReader.realignAfterLayout(prevProgress, ${if (settings.verticalWriting) "true" else "false"});
+                }
             })();
         """.trimIndent()
 
@@ -1302,8 +1396,9 @@ private class ReaderAndroidWebView(
             }
             MotionEvent.ACTION_UP -> {
                 if (totalMovement < 20f) {
-                    val cssX = event.x / resources.displayMetrics.density
-                    val cssY = event.y / resources.displayMetrics.density
+                    val viewScale = cssScale()
+                    val cssX = event.x / viewScale
+                    val cssY = event.y / viewScale
                     evaluateJavascript(
                         "if (window.hoshiReader && window.hoshiReader.handleTap) { window.hoshiReader.handleTap($cssX, $cssY); }",
                         null,
@@ -1494,11 +1589,13 @@ private fun jsEscape(value: String): String = value
     .replace("\r", "\\r")
 
 private fun fontJS(settings: ReaderSettings, targetVar: String): String = buildString {
+    appendLine("var prevCustomFont = document.getElementById('hoshi-custom-font-style'); if (prevCustomFont) prevCustomFont.remove();")
     val fontUrl = settings.fontUrl
     if (!fontUrl.isNullOrBlank()) {
         appendLine(
             """
             var fontFace = document.createElement('style');
+            fontFace.id = 'hoshi-custom-font-style';
             fontFace.textContent = "@font-face { font-family: 'HoshiCustomFont'; src: url('${jsEscape(fontUrl)}'); }";
             document.head.appendChild(fontFace);
             $targetVar.style.setProperty('font-family', 'HoshiCustomFont', 'important');

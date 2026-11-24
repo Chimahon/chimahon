@@ -15,7 +15,7 @@ internal fun sanitizeReaderResource(mediaType: String, bytes: ByteArray): ByteAr
  * cannot remove the first declaration of the next rule.
  */
 internal fun sanitizeReaderCss(css: String): String =
-    stripPublisherWritingModeCss(sanitizeEpubPrivateCss(sanitizeCalibreCss(css)))
+    stripNoWrapCss(stripPublisherWritingModeCss(sanitizeEpubPrivateCss(sanitizeCalibreCss(css))))
 
 private fun sanitizeCalibreCss(css: String): String {
     var didStripLineHeight = false
@@ -48,6 +48,9 @@ private fun sanitizeEpubPrivateCss(css: String): String =
 
 private fun stripPublisherWritingModeCss(css: String): String =
     publisherWritingModeDeclarationRegex.replace(css) { match -> match.groupValues[1] }
+
+private fun stripNoWrapCss(css: String): String =
+    whiteSpaceNoWrapDeclarationRegex.replace(css) { match -> match.groupValues[1] }
 
 private fun String.sanitizeCalibreDeclaration(stripHeight: Boolean): String? =
     when (propertyName()) {
@@ -117,12 +120,22 @@ private fun declarations(indent: String, vararg pairs: Pair<String, String>): St
  * of the document — head remainder included — is consumed as script text
  * and the page renders blank. Everything else is left byte-identical.
  */
-internal fun sanitizeReaderHtml(html: String): String =
-    readerScriptRegex.replace(html, "")
+internal fun sanitizeReaderHtml(html: String): String {
+    val withoutScripts = readerScriptRegex.replace(html, "")
+    return readerStyleBlockRegex.replace(withoutScripts) { match ->
+        "${match.groupValues[1]}${sanitizeReaderCss(match.groupValues[2])}${match.groupValues[3]}"
+    }
+}
 
 private val readerScriptRegex =
     Regex(
         """<script\b[^>]*?(?:/>|>.*?</script\s*>)""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+    )
+
+private val readerStyleBlockRegex =
+    Regex(
+        """(<style\b[^>]*>)(.*?)(</style\s*>)""",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     )
 
@@ -143,3 +156,6 @@ private val epubPrivateDeclarationRegex =
 
 private val publisherWritingModeDeclarationRegex =
     Regex("""(?i)(^|[;{])\s*(?:-webkit-)?writing-mode\s*:\s*[^;{}]+;?""")
+
+private val whiteSpaceNoWrapDeclarationRegex =
+    Regex("""(?i)(^|[;{])\s*white-space\s*:\s*nowrap(?:\s*!\s*important)?\s*;?""")
