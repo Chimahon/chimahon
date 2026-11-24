@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.data.notification.NotificationReceiver
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.util.system.notificationBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -248,10 +249,30 @@ class DiscordRPCService : Service() {
 
         private var since = 0L
 
+        @Volatile
+        private var novelSession = 0L
+
+        /** Starts a novel reading session so late updates from an older reader are ignored. */
+        internal fun beginNovelSession(): Long {
+            novelSession += 1
+            return novelSession
+        }
+
+        /** Ends the novel session and restores the previous screen unless a newer session started. */
+        internal fun endNovelSession(context: Context) {
+            novelSession += 1
+            val session = novelSession
+            discordScope.launchIO {
+                if (session == novelSession) {
+                    runCatching { setScreen(context) }
+                }
+            }
+        }
+
         private var lastUsedScreen = DiscordScreen.APP
             set(value) {
                 // Only update if the new screen is not a media/webview screen
-                if (value !in listOf(DiscordScreen.MANGA, DiscordScreen.VIDEO, DiscordScreen.WEBVIEW)) {
+                if (value !in listOf(DiscordScreen.MANGA, DiscordScreen.NOVEL, DiscordScreen.VIDEO, DiscordScreen.WEBVIEW)) {
                     field = value
                 }
             }
@@ -272,6 +293,7 @@ class DiscordRPCService : Service() {
             discordScreen: DiscordScreen = lastUsedScreen,
             readerData: ReaderData = ReaderData(),
             playerData: PlayerData = PlayerData(),
+            novelData: NovelData = NovelData(),
             sinceTime: Long = since,
         ) {
             rpc ?: return
@@ -294,6 +316,11 @@ class DiscordRPCService : Service() {
                     playerData.episodeNumber.takeIf { showProgress },
                     playerData.thumbnailUrl ?: discordScreen.imageUrl,
                 )
+                DiscordScreen.NOVEL -> Triple(
+                    novelData.novelTitle,
+                    novelData.chapterLabel.takeIf { showProgress },
+                    novelData.thumbnailUrl ?: discordScreen.imageUrl,
+                )
                 else -> Triple(
                     null,
                     context.getString(discordScreen.text),
@@ -309,6 +336,9 @@ class DiscordRPCService : Service() {
                     DiscordScreen.VIDEO -> Activity.Timestamps(
                         start = playerData.startTimestamp ?: since,
                         end = playerData.endTimestamp,
+                    )
+                    DiscordScreen.NOVEL -> Activity.Timestamps(
+                        start = novelData.startTimestamp ?: since,
                     )
                     else -> Activity.Timestamps(start = sinceTime)
                 }
@@ -499,6 +529,46 @@ class DiscordRPCService : Service() {
                 }
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Error setting player activity: ${e.message}")
+            }
+        }
+
+        internal suspend fun setNovelActivity(
+            context: Context,
+            novelData: NovelData = NovelData(),
+            session: Long = 0L,
+        ) {
+            if (rpc == null) return
+            if (session != 0L && session != novelSession) return
+            if (novelData.novelTitle.isNullOrBlank() && novelData.chapterLabel.isNullOrBlank()) return
+
+            try {
+                val discordIncognito = isIncognito(emptyList(), novelData.incognitoMode)
+                val novelTitle = novelData.novelTitle?.takeUnless { discordIncognito }
+                val chapterLabel = novelData.chapterLabel?.takeUnless { discordIncognito }
+                val startTime = novelData.startTimestamp ?: System.currentTimeMillis()
+
+                withIOContext {
+                    if (session != 0L && session != novelSession) return@withIOContext
+                    val rpcExternalAsset = getRPCExternalAsset()
+                    val novelThumbnail =
+                        getDiscordThumbnail(rpcExternalAsset, novelData.thumbnailUrl, discordIncognito)
+
+                    if (session != 0L && session != novelSession) return@withIOContext
+                    setScreen(
+                        context = context,
+                        discordScreen = DiscordScreen.NOVEL,
+                        novelData = novelData.copy(
+                            novelTitle = novelTitle,
+                            chapterLabel = chapterLabel,
+                            thumbnailUrl = novelThumbnail,
+                            startTimestamp = startTime,
+                        ),
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Error setting novel activity: ${e.message}")
             }
         }
 

@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -37,20 +38,32 @@ import chimahon.DictionaryRepository
 import chimahon.ocr.OcrLanguage
 import chimahon.ocr.OcrResult
 import chimahon.novel.ui.reader.NovelReaderActivity
+import chimahon.novel.ui.reader.ReaderViewModel
+import eu.kanade.domain.connections.service.ConnectionsPreferences
+import eu.kanade.domain.source.interactor.GetIncognitoState
+import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
+import eu.kanade.tachiyomi.data.connections.discord.NovelData
 import eu.kanade.tachiyomi.data.ocr.recognizePage
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPopupWebViewWarmup
 import eu.kanade.tachiyomi.ui.dictionary.DictionaryPreferences
 import eu.kanade.tachiyomi.ui.dictionary.getDictionaryPaths
 import eu.kanade.tachiyomi.ui.reader.viewer.OcrLookupPopup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.util.system.UrlUtils
+import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import uy.kohesive.injekt.injectLazy
 
 /**
  * App-side subclass of [NovelReaderActivity] that wires text-selection events
@@ -70,6 +83,10 @@ class ChimaReaderActivity : NovelReaderActivity() {
 
     private var cachedActiveProfile: chimahon.anki.AnkiProfile? = null
     private var cachedTermPaths: chimahon.DictionaryPaths? = null
+    private val connectionsPreferences: ConnectionsPreferences by injectLazy()
+    private var discordRpcJob: Job? = null
+    private var discordRpcSession = 0L
+    private var discordRpcStart = 0L
 
     private fun getOrRefreshLookupPaths(): Pair<chimahon.anki.AnkiProfile, chimahon.DictionaryPaths> {
         val prefs = Injekt.get<DictionaryPreferences>()
@@ -543,7 +560,66 @@ class ChimaReaderActivity : NovelReaderActivity() {
         }
     }
 
+    override fun onReaderViewModelReady(viewModel: ReaderViewModel) {
+        discordRpcJob?.cancel()
+        discordRpcStart = System.currentTimeMillis()
+        discordRpcSession = DiscordRPCService.beginNovelSession()
+        discordRpcJob = lifecycleScope.launch {
+            snapshotFlow { viewModel.index to viewModel.bridge.chapterTitle }
+                .distinctUntilChanged()
+                .collect { updateNovelDiscordRPC(viewModel) }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        readerViewModel?.let { viewModel ->
+            lifecycleScope.launch { updateNovelDiscordRPC(viewModel) }
+        }
+    }
+
+    private suspend fun updateNovelDiscordRPC(viewModel: ReaderViewModel) {
+        if (!connectionsPreferences.enableDiscordRPC().get()) return
+        val book = bookMetadata ?: return
+
+        try {
+            val incognito = Injekt.get<GetIncognitoState>().await(book.novelSourceId)
+            val title = book.title?.takeIf { it.isNotBlank() }
+                ?: viewModel.document.title?.takeIf { it.isNotBlank() }
+                ?: book.folder?.takeIf { it.isNotBlank() }
+                ?: "Novel"
+            val chapterTitle = viewModel.getCurrentChapterTitle()
+                ?.takeIf { it.isNotBlank() }
+                ?.take(120)
+            val chapterLabel = if (connectionsPreferences.useChapterTitles().get() && chapterTitle != null) {
+                chapterTitle
+            } else {
+                stringResource(MR.strings.notification_chapters_single, "${viewModel.index + 1}")
+            }
+
+            DiscordRPCService.setNovelActivity(
+                context = applicationContext,
+                novelData = NovelData(
+                    incognitoMode = incognito,
+                    novelTitle = title.take(120),
+                    chapterLabel = chapterLabel,
+                    thumbnailUrl = book.cover?.takeIf { UrlUtils.isOnlineUrl(it) },
+                    startTimestamp = discordRpcStart.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                ),
+                session = discordRpcSession,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w("ChimaReaderActivity", "Discord RPC update failed", e)
+        }
+    }
+
     override fun onDestroy() {
+        discordRpcJob?.cancel()
+        if (connectionsPreferences.enableDiscordRPC().get()) {
+            DiscordRPCService.endNovelSession(applicationContext)
+        }
         super.onDestroy()
         cancelActiveLookup()
         DictionaryPopupWebViewWarmup.recycle(this, popupWebView)

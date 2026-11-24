@@ -67,6 +67,9 @@ open class NovelReaderActivity : ComponentActivity() {
         return true
     }
 
+    /** Called once the novel reader view model is available. */
+    protected open fun onReaderViewModelReady(viewModel: ReaderViewModel) = Unit
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
         if (isPopupActive) return super.onKeyDown(keyCode, event)
 
@@ -237,7 +240,10 @@ open class NovelReaderActivity : ComponentActivity() {
                     onSentenceReady = { sentence -> onSentenceReady(sentence) },
                     onDismissPopupRequested = { onDismissPopupRequested() },
                     isPopupActive = isPopupActive,
-                    onViewModelReady = { readerViewModel = it },
+                    onViewModelReady = { viewModel ->
+                        readerViewModel = viewModel
+                        viewModel?.let { onReaderViewModelReady(it) }
+                    },
                     additionalSettings = { AdditionalAppearanceSettings() },
                     settingsNamespace = getSettingsNamespace(),
                     onSelectionRectsReceived = getSelectionRectsCallback(),
