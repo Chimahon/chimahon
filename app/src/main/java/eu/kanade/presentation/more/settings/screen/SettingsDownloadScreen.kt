@@ -300,6 +300,8 @@ private val EXTERNAL_DOWNLOADERS = listOf(
     "idm.internet.download.manager.adm.lite",
     "com.dv.adm",
     "com.dv.adm.premium",
+    "com.deniscerri.ytdl",
+    "com.junkfood.seal",
 )
 
 private val PACKAGE_NAME = Regex("""^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$""")

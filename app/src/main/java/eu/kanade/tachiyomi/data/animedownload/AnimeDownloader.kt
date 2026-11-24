@@ -479,38 +479,13 @@ class AnimeDownloader(
             .ifEmpty { downloadPreferences.externalDownloaderSelection().get() }
         val headers = video.headers ?: download.source.headers
 
-        val intent = if (pkgName.isNotEmpty()) {
-            when {
-                pkgName.startsWith(ONE_DOWNLOAD_MANAGER) -> Intent(Intent.ACTION_VIEW).apply {
-                    component = ComponentName(pkgName, "$ONE_DOWNLOAD_MANAGER.Downloader")
-                    data = video.videoUrl.toUri()
-                    putExtra("extra_filename", "$filename.mkv")
-                    putExtra("extra_headers", headers.toBundle())
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-
-                pkgName.startsWith(ADM_DOWNLOAD_MANAGER) -> Intent().apply {
-                    component = ComponentName(pkgName, "$pkgName.AEditor")
-                    putExtra(
-                        ADM_ACTION_LIST_ADD,
-                        "${video.videoUrl.toUri()}<info>$filename.mkv",
-                    )
-                    putExtra("android.media.intent.extra.HTTP_HEADERS", headers.toAdmBundle())
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-
-                else -> Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(video.videoUrl.toUri(), "video/*")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            }
-        } else {
-            Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(video.videoUrl.toUri(), "video/*")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                putExtra("extra_filename", filename)
-            }
-        }
+        val intent = buildExternalDownloadIntent(
+            pkgName = pkgName,
+            videoUrl = video.videoUrl,
+            filename = filename,
+            headers = headers,
+            canHandleView = { viewIntent -> viewIntent.resolveActivity(context.packageManager) != null },
+        )
 
         withUIContext {
             try {
@@ -525,8 +500,55 @@ class AnimeDownloader(
         }
     }
 
-    private fun Headers.toBundle(): Bundle = Bundle().apply {
-        forEach { (name, value) -> putString(name, value) }
+    private fun buildExternalDownloadIntent(
+        pkgName: String,
+        videoUrl: String,
+        filename: String,
+        headers: Headers?,
+        canHandleView: (Intent) -> Boolean,
+    ): Intent = when (val spec = resolveExternalDownloadSpec(pkgName, videoUrl, filename)) {
+        is ExternalDownloadSpec.OneDm -> Intent(Intent.ACTION_VIEW).apply {
+            component = ComponentName(spec.packageName, "$ONE_DOWNLOAD_MANAGER.Downloader")
+            data = spec.videoUrl.toUri()
+            putExtra("extra_filename", spec.filename)
+            putExtra("extra_headers", headers.toBundle())
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        is ExternalDownloadSpec.Adm -> Intent().apply {
+            component = ComponentName(spec.packageName, "${spec.packageName}.AEditor")
+            putExtra(ADM_ACTION_LIST_ADD, "${spec.videoUrl.toUri()}<info>${spec.filename}")
+            putExtra("android.media.intent.extra.HTTP_HEADERS", headers.toAdmBundle())
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        is ExternalDownloadSpec.ShareText -> buildShareDownloadIntent(spec.packageName, spec.videoUrl)
+
+        is ExternalDownloadSpec.ViewVideo -> {
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(spec.videoUrl.toUri(), "video/*")
+                spec.packageName?.let { setPackage(it) }
+                putExtra("extra_filename", spec.filename)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            if (spec.packageName != null && !canHandleView(viewIntent)) {
+                buildShareDownloadIntent(spec.packageName, spec.videoUrl)
+            } else {
+                viewIntent
+            }
+        }
+    }
+
+    private fun buildShareDownloadIntent(pkgName: String, videoUrl: String): Intent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, videoUrl)
+            setPackage(pkgName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+    private fun Headers?.toBundle(): Bundle = Bundle().apply {
+        this@toBundle?.forEach { (name, value) -> putString(name, value) }
     }
 
     // The scheme is obfuscated in this header bundle by the receiving app's convention.
@@ -1038,6 +1060,35 @@ private const val MIN_DISK_SPACE = 500L * 1024 * 1024
 private const val ONE_DOWNLOAD_MANAGER = "idm.internet.download.manager"
 private const val ADM_DOWNLOAD_MANAGER = "com.dv.adm"
 private const val ADM_ACTION_LIST_ADD = "com.dv.get.ACTION_LIST_ADD"
+private val SHARE_EXTERNAL_DOWNLOADERS = setOf(
+    "com.deniscerri.ytdl",
+    "com.junkfood.seal",
+)
+
+internal sealed interface ExternalDownloadSpec {
+    data class OneDm(val packageName: String, val videoUrl: String, val filename: String) : ExternalDownloadSpec
+    data class Adm(val packageName: String, val videoUrl: String, val filename: String) : ExternalDownloadSpec
+    data class ShareText(val packageName: String, val videoUrl: String) : ExternalDownloadSpec
+    data class ViewVideo(val packageName: String?, val videoUrl: String, val filename: String) : ExternalDownloadSpec
+}
+
+internal fun resolveExternalDownloadSpec(
+    pkgName: String,
+    videoUrl: String,
+    filename: String,
+): ExternalDownloadSpec {
+    val normalizedPkg = pkgName.trim()
+    return when {
+        normalizedPkg.isEmpty() -> ExternalDownloadSpec.ViewVideo(null, videoUrl, filename)
+        normalizedPkg.startsWith(ONE_DOWNLOAD_MANAGER) ->
+            ExternalDownloadSpec.OneDm(normalizedPkg, videoUrl, "$filename.mkv")
+        normalizedPkg.startsWith(ADM_DOWNLOAD_MANAGER) ->
+            ExternalDownloadSpec.Adm(normalizedPkg, videoUrl, "$filename.mkv")
+        normalizedPkg in SHARE_EXTERNAL_DOWNLOADERS ->
+            ExternalDownloadSpec.ShareText(normalizedPkg, videoUrl)
+        else -> ExternalDownloadSpec.ViewVideo(normalizedPkg, videoUrl, filename)
+    }
+}
 
 private val VIDEO_EXTENSIONS = setOf("mp4", "mkv", "webm", "avi", "m4v", "ts")
 
