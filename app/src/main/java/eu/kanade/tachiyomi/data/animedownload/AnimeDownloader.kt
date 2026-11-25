@@ -428,7 +428,7 @@ class AnimeDownloader(
                     try {
                         downloadVideoFile(resolvedVideo, tmpDir, download)
                     } catch (_: HlsStreamRequiresFFmpegException) {
-                        ffmpegDownloadVideo(resolvedVideo, tmpDir, download)
+                        ffmpegDownloadVideo(resolvedVideo, tmpDir, download, forceHls = true)
                     }
                 }
                 resolvedVideo.videoUrl.startsWith("http") -> {
@@ -581,7 +581,12 @@ class AnimeDownloader(
         video.videoUrl = TorrentServerUtils.getTorrentPlayLink(torrent, index)
     }
 
-    private suspend fun ffmpegDownloadVideo(video: Video, tmpDir: UniFile, download: AnimeDownload) {
+    private suspend fun ffmpegDownloadVideo(
+        video: Video,
+        tmpDir: UniFile,
+        download: AnimeDownload,
+        forceHls: Boolean = false,
+    ) {
         withContext(Dispatchers.IO) {
             val filename = DiskUtil.buildValidFilename(download.episode.name)
             // Plain cache path: ffkitsaf output handles don't survive across retry sessions
@@ -594,9 +599,9 @@ class AnimeDownloader(
                     "${it.first}: ${it.second.replace("'", "'\\''")}\r\n"
                 }
 
-                val ffmpegOptions = buildFFmpegOptions(video, headerOptions, tmpFile.absolutePath)
+                val ffmpegOptions = buildFFmpegOptions(video, headerOptions, tmpFile.absolutePath, forceHls)
 
-                val ffprobeCommand = buildFFprobeDurationCommand(video, headers)
+                val ffprobeCommand = buildFFprobeDurationCommand(video, headers, forceHls)
                 val inputDuration = getDuration(ffprobeCommand) ?: 0F
                 val duration = inputDuration.toLong().coerceAtLeast(1L)
 
@@ -685,67 +690,14 @@ class AnimeDownloader(
         throw IllegalStateException("Unreachable")
     }
 
-    private fun buildFFmpegOptions(video: Video, headerOptions: String, ffmpegFilename: String): Array<String> {
-        val streamOptions = video.ffmpegStreamArgs.joinToString(" ") { (key, value) -> "-$key \"$value\"" }
-
-        fun formatInputs(tracks: List<Track>) = tracks.joinToString(" ", postfix = " ") {
-            buildList {
-                if (it.url.startsWith("http")) {
-                    if (headerOptions.isNotBlank()) add(headerOptions)
-                }
-                add("-i")
-                add("\"${it.url}\"")
-            }.joinToString(" ")
-        }
-
-        fun formatMaps(tracks: List<Track>, type: String, offset: Int = 0) = tracks.indices.joinToString(" ") {
-            "-map ${it + 1 + offset}:$type"
-        }
-
-        fun formatMetadata(tracks: List<Track>, type: String) = tracks.mapIndexed { i, track ->
-            "-metadata:s:$type:$i \"title=${track.lang}\""
-        }.joinToString(" ")
-
-        val subtitleInputs = formatInputs(video.subtitleTracks)
-        val subtitleMaps = formatMaps(video.subtitleTracks, "s")
-        val subtitleMetadata = formatMetadata(video.subtitleTracks, "s")
-
-        val audioInputs = formatInputs(video.audioTracks)
-        val audioMaps = formatMaps(video.audioTracks, "a", video.subtitleTracks.size)
-        val audioMetadata = formatMetadata(video.audioTracks, "a")
-
-        val videoInput = buildList {
-            if (video.videoUrl.startsWith("http")) {
-                if (headerOptions.isNotBlank()) add(headerOptions)
-                if (streamOptions.isNotBlank()) add(streamOptions)
-                // HLS-only: extension proxies serve extensionless segment URLs, which this
-                // FFmpeg build rejects under its default allowed_segment_extensions list.
-                // discardcorrupt drops the mangled/ad-junk packets proxies emit instead of
-                // letting them abort the copy-mux at the bitstream filter.
-                if (isHlsLikeInput(video.videoUrl)) {
-                    add("-allowed_extensions ALL -allowed_segment_extensions ALL -extension_picky 0")
-                    add("-fflags +discardcorrupt")
-                }
-            }
-            add("-i")
-            add("\"${video.videoUrl}\"")
-        }.joinToString(" ")
-
-        val videoOptions = video.ffmpegVideoArgs.joinToString(" ") { (key, value) -> "-$key \"$value\"" }
-
-        val command = listOf(
-            videoInput, subtitleInputs, audioInputs,
-            "-map 0:v", audioMaps, "-map 0:a?", subtitleMaps, "-map 0:s? -map 0:t?",
-            "-f matroska -c:a copy -c:v copy -c:s copy",
-            subtitleMetadata, audioMetadata,
-            videoOptions,
-            "\"$ffmpegFilename\" -y",
-        )
-            .filter(String::isNotBlank)
-            .joinToString(" ")
-
-        return FFmpegKitConfig.parseArguments(command)
-    }
+    private fun buildFFmpegOptions(
+        video: Video,
+        headerOptions: String,
+        ffmpegFilename: String,
+        forceHls: Boolean = false,
+    ): Array<String> = FFmpegKitConfig.parseArguments(
+        buildFFmpegCommandString(video, headerOptions, ffmpegFilename, forceHls),
+    )
 
     private suspend fun getDuration(ffprobeCommand: Array<String>): Float? {
         return try {
@@ -770,14 +722,18 @@ class AnimeDownloader(
         }
     }
 
-    private fun buildFFprobeDurationCommand(video: Video, headers: Headers): Array<String> = buildList {
+    private fun buildFFprobeDurationCommand(
+        video: Video,
+        headers: Headers,
+        forceHls: Boolean = false,
+    ): Array<String> = buildList {
         if (headers.size > 0) {
             add("-headers")
             add(headers.joinToString("") { "${it.first}: ${it.second}\r\n" })
         }
         add("-rw_timeout")
         add("15000000")
-        if (isHlsLikeInput(video.videoUrl)) {
+        if (forceHls || isHlsLikeInput(video.videoUrl)) {
             add("-allowed_extensions")
             add("ALL")
             add("-allowed_segment_extensions")
@@ -1021,6 +977,84 @@ private fun String.isHlsContentType(): Boolean {
 }
 
 private class HlsStreamRequiresFFmpegException : Exception()
+
+internal fun buildFFmpegCommandString(
+    video: Video,
+    headerOptions: String,
+    ffmpegFilename: String,
+    forceHls: Boolean = false,
+): String {
+    val streamOptions = video.ffmpegStreamArgs.joinToString(" ") { (key, value) -> "-$key \"$value\"" }
+
+    fun formatInputs(tracks: List<Track>) = tracks.joinToString(" ", postfix = " ") {
+        formatFFmpegInput(it.url, headerOptions)
+    }
+
+    fun formatMaps(tracks: List<Track>, type: String, offset: Int = 0) = tracks.indices.joinToString(" ") {
+        "-map ${it + 1 + offset}:$type"
+    }
+
+    fun formatMetadata(tracks: List<Track>, type: String) = tracks.mapIndexed { i, track ->
+        "-metadata:s:$type:$i \"title=${track.lang}\""
+    }.joinToString(" ")
+
+    val subtitleInputs = formatInputs(video.subtitleTracks)
+    val subtitleMaps = formatMaps(video.subtitleTracks, "s")
+    val subtitleMetadata = formatMetadata(video.subtitleTracks, "s")
+
+    val audioInputs = formatInputs(video.audioTracks)
+    val audioMaps = formatMaps(video.audioTracks, "a", video.subtitleTracks.size)
+    val audioMetadata = formatMetadata(video.audioTracks, "a")
+
+    val videoInput = formatFFmpegInput(
+        url = video.videoUrl,
+        headerOptions = headerOptions,
+        extraOptions = streamOptions,
+        isHls = forceHls || isHlsLikeInput(video.videoUrl),
+    )
+
+    val videoOptions = video.ffmpegVideoArgs.joinToString(" ") { (key, value) -> "-$key \"$value\"" }
+
+    return listOf(
+        videoInput,
+        subtitleInputs,
+        audioInputs,
+        "-map 0:v",
+        audioMaps,
+        "-map 0:a?",
+        subtitleMaps,
+        "-map 0:s? -map 0:t?",
+        "-f matroska -c:a copy -c:v copy -c:s copy",
+        subtitleMetadata,
+        audioMetadata,
+        videoOptions,
+        "\"$ffmpegFilename\" -y",
+    )
+        .filter(String::isNotBlank)
+        .joinToString(" ")
+}
+
+private fun formatFFmpegInput(
+    url: String,
+    headerOptions: String,
+    extraOptions: String = "",
+    isHls: Boolean = isHlsLikeInput(url),
+): String = buildList {
+    if (url.startsWith("http")) {
+        if (headerOptions.isNotBlank()) add(headerOptions)
+        if (extraOptions.isNotBlank()) add(extraOptions)
+        // HLS-only: extension proxies/hosts serve extensionless or disguised (.png, etc.) segment
+        // URLs, which FFmpeg rejects under its default allowed_segment_extensions list, and
+        // demuxer options apply per -i input. discardcorrupt drops mangled/ad-junk packets
+        // instead of letting them abort the copy-mux at the bitstream filter.
+        if (isHls) {
+            add("-allowed_extensions ALL -allowed_segment_extensions ALL -extension_picky 0")
+            add("-fflags +discardcorrupt")
+        }
+    }
+    add("-i")
+    add("\"$url\"")
+}.joinToString(" ")
 
 internal fun buildFFmpegFailureMessage(
     exitCode: String,

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -29,6 +30,8 @@ suspend fun CoroutineWorker.setForegroundSafely() {
     try {
         setForeground(getForegroundInfo())
         delay(500)
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: IllegalStateException) {
         logcat(LogPriority.ERROR, e) { "Not allowed to set foreground job" }
     }
