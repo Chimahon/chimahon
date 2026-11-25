@@ -1,5 +1,6 @@
 ﻿#include "dictionary_core.h"
 #include "drawing_plan.h"
+#include "prepared_links.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -47,6 +48,42 @@ uint16_t *copy(const uint16_t *text, size_t length, size_t *out_length) {
     return storage;
 }
 
+uint16_t *utf8_to_utf16(std::string_view input, size_t *out_length) {
+    std::vector<uint16_t> out;
+    out.reserve(input.size());
+    for (size_t i = 0; i < input.size();) {
+        uint32_t c = static_cast<uint8_t>(input[i++]);
+        unsigned more = 0;
+        if (c >= 0xf0) {
+            c &= 7;
+            more = 3;
+        } else if (c >= 0xe0) {
+            c &= 15;
+            more = 2;
+        } else if (c >= 0xc0) {
+            c &= 31;
+            more = 1;
+        }
+        while (more--) {
+            if (i >= input.size() || (static_cast<uint8_t>(input[i]) & 0xc0) != 0x80) {
+                c = 0xfffd;
+                break;
+            }
+            c = (c << 6) | (static_cast<uint8_t>(input[i++]) & 63);
+        }
+        if (c > 0x10ffff)
+            c = 0xfffd;
+        if (c > 0xffff) {
+            c -= 0x10000;
+            out.push_back(static_cast<uint16_t>(0xd800 + (c >> 10)));
+            out.push_back(static_cast<uint16_t>(0xdc00 + (c & 1023)));
+        } else {
+            out.push_back(static_cast<uint16_t>(c));
+        }
+    }
+    return copy(out.data(), out.size(), out_length);
+}
+
 } // namespace
 
 int dc_hit_lookup(dc_drawing_plan *plan, uint32_t source, float x, float y,
@@ -54,13 +91,17 @@ int dc_hit_lookup(dc_drawing_plan *plan, uint32_t source, float x, float y,
     if (result)
         *result = {};
     if (result)
-        result->character = -1, result->text_offset = -1;
+        result->character = -1, result->text_offset = -1, result->offset = -1;
     if (!plan || !result)
         return -1;
     try {
         const auto view = dc_drawing_plan_view(plan);
         if (source >= view.source_count)
             return 0;
+        if (const auto href = dictionary_core::lookup_link_at(plan, source, x, y); !href.empty()) {
+            result->href = utf8_to_utf16(href, &result->href_length);
+            return 1;
+        }
         const auto &item = view.sources[source];
         int32_t offset = -1;
         for (uint32_t i = item.first_hit + item.hit_count; i-- > item.first_hit;) {
@@ -142,6 +183,7 @@ void dc_hit_lookup_result_destroy(dc_hit_lookup_result *result) {
         return;
     std::free(result->word);
     std::free(result->sentence);
+    std::free(result->href);
     *result = {};
 }
 

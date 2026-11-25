@@ -41,6 +41,8 @@ internal class NativeCommandSurface(
 
     fun hitAt(px: Float, py: Float): NativeGlossaryHit? {
         val result = drawing.hitAt(source, (px - x) / scale, (py - y) / scale) ?: return null
+        val href = result.getOrNull(6).orEmpty()
+        if (href.isNotEmpty()) return NativeGlossaryHit(href = href)
         val character = result[5].toInt()
         if (headword != null) {
             if (character < 0) return null

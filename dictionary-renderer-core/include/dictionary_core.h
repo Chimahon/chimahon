@@ -84,6 +84,8 @@ typedef struct dc_hit_lookup_result {
     size_t word_length;
     uint16_t *sentence;
     size_t sentence_length;
+    uint16_t *href;
+    size_t href_length;
 } dc_hit_lookup_result;
 DC_API int dc_hit_lookup(dc_drawing_plan *plan, uint32_t source, float x, float y,
                          dc_hit_lookup_result *result, dc_error *error);

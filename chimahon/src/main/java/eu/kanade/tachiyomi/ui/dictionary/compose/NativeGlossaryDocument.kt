@@ -58,7 +58,7 @@ public data class NativeGlossaryDetails(
 public data class NativeGlossaryHit(val lookup: String? = null, val disclosure: StructuredNode.Element? = null,
     val details: NativeGlossaryDetails? = null,
     val kanji: Boolean = false, val sentence: String? = null, val sentenceOffset: Int? = null,
-    val tapX: Float? = null, val tapY: Float? = null) {
+    val tapX: Float? = null, val tapY: Float? = null, val href: String? = null) {
     internal var surface: NativeCommandSurface? = null
     internal var textOffset: Int = 0
 }

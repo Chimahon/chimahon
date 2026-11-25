@@ -1,5 +1,6 @@
 ﻿#include "drawing_plan.h"
 #include "profile.hpp"
+#include "prepared_links.hpp"
 #include "css_color.hpp"
 #include "css_numeric.hpp"
 #include "resolved_style.hpp"
@@ -93,6 +94,7 @@ struct dc_drawing_plan {
     const dc_prepared_document *input;
     dc_prepared_view v;
     const dictionary_core::ResolvedStyles &resolved;
+    const dictionary_core::PreparedLinks &links;
     std::vector<float> widths;
     std::vector<dc_drawing_font> fonts;
     /* Underline/strike color per style. Text commands carry it in `border`, which text commands
@@ -139,7 +141,8 @@ struct dc_drawing_plan {
         return resolved.length(style, s, basis).value_or(fallback);
     }
     explicit dc_drawing_plan(const dc_prepared_document *d, const float *w, size_t n, uint32_t fg, uint32_t border)
-        : input(d), v(dc_prepared_document_view(d)), resolved(dictionary_core::resolved_styles(d)), widths(w, w + n), run_requests(v.run_count, none),
+        : input(d), v(dc_prepared_document_view(d)), resolved(dictionary_core::resolved_styles(d)),
+          links(dictionary_core::prepared_links(d)), widths(w, w + n), run_requests(v.run_count, none),
           image_by_run(v.run_count, none), paragraphs(v.paragraph_count), block_padding(v.paragraph_count) {
         if (n != v.source_count)
             throw std::invalid_argument("Drawing source widths mismatch");
@@ -1171,4 +1174,23 @@ float dc_card_place(const float *parts, size_t count, float *rectangles) {
         y += p[0] + p[4];
     }
     return y;
+}
+
+std::string_view dictionary_core::lookup_link_at(const dc_drawing_plan *plan, uint32_t source, float x, float y) {
+    if (!plan || plan->links.spans.empty() || source >= plan->sources.size()) return {};
+    const auto &src = plan->sources[source];
+    for (uint32_t i = src.first_command + src.command_count; i-- > src.first_command;) {
+        const auto &cmd = plan->commands[i];
+        if ((cmd.kind != 0 && cmd.kind != 2) ||
+            x < cmd.x || y < cmd.y || x >= cmd.x + cmd.width || y >= cmd.y + cmd.height) continue;
+        const uint32_t run = cmd.kind == 2
+            ? (cmd.resource < plan->v.image_count ? plan->v.images[cmd.resource].run : none)
+            : (cmd.resource < plan->request_runs.size() ? plan->request_runs[cmd.resource] : none);
+        if (run == none) continue;
+        for (const auto &span : plan->links.spans) {
+            if (run >= span.first_run && run < span.first_run + span.run_count)
+                return std::string_view(plan->links.text).substr(span.href_offset, span.href_bytes);
+        }
+    }
+    return {};
 }

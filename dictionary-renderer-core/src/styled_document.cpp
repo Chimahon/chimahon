@@ -1,5 +1,6 @@
 #include "styled_document.h"
 #include "profile.hpp"
+#include "prepared_links.hpp"
 #include "resolved_style.hpp"
 #include "document_storage.hpp"
 #include "css_color.hpp"
@@ -781,6 +782,7 @@ struct dc_prepared_document {
     std::vector<dc_flow_input> flow;
     std::vector<dc_image_input> images;
     std::vector<dc_inline_box> inline_boxes;
+    dictionary_core::PreparedLinks links;
     std::vector<Properties> computed;
     std::unique_ptr<dictionary_core::ResolvedStyles> resolved;
     std::vector<StyleInfo> info;
@@ -1139,6 +1141,18 @@ struct SourceCompiler {
     bool pending_space = false;
     bool merge_barrier = false;
     bool structured_line_breaks = false;
+
+    static std::string_view sanitize_href(std::string_view raw) {
+        while (!raw.empty() && static_cast<unsigned char>(raw.front()) <= ' ') raw.remove_prefix(1);
+        while (!raw.empty() && static_cast<unsigned char>(raw.back()) <= ' ') raw.remove_suffix(1);
+        if (raw.size() >= 11) {
+            bool is_js = raw[10] == ':';
+            for (size_t i = 0; is_js && i < 10; ++i)
+                if ((raw[i] | 32) != "javascript"[i]) is_js = false;
+            if (is_js) return {};
+        }
+        return raw;
+    }
 
     void flush() { paragraph = none; pending_space = false; }
     void add_text(std::string_view text, uint32_t style, uint32_t role, bool forced_break=false) {
@@ -1719,7 +1733,7 @@ struct SourceCompiler {
         block_style = elements[kRootElement].style;
         output.flow.push_back({2,block_style,source,none});
         dc_profile::open(styled_flow);
-        struct Owners { uint32_t cell,row,table,ruby,block_style,marker_owner,first_run,disclosure,disclosure_open; bool block,inline_box; };
+        struct Owners { uint32_t cell,row,table,ruby,block_style,marker_owner,first_run,disclosure,disclosure_open,href_offset,href_bytes; bool block,inline_box; };
         std::vector<Owners> owners;
         std::unordered_map<uint32_t,uint32_t> list_counters;
         uint32_t reading_start = none;
@@ -1757,7 +1771,19 @@ struct SourceCompiler {
                 if (display == "flex" || display == "grid") ++output.unsupported;
                 const bool inline_box=!block && (display=="inline" || display=="inline-block" || display=="inline-flex" || inline_flex) &&
                     (display=="inline-block" || display=="inline-flex" || output.has_box_extra(node.style,output.base_font_size_px));
-                owners.push_back({cell,row,table,ruby,block_style,marker_owner,checked_index(output.runs.size()),disclosure_owner,disclosure_open,block,inline_box});
+                uint32_t href_offset = 0, href_bytes = 0;
+                if(node.tag=="a") {
+                    size_t href_size=0;
+                    const auto* href_raw=lxb_dom_element_get_attribute(node.dom,bytes("href"),4,&href_size);
+                    const auto clean=href_raw?sanitize_href({reinterpret_cast<const char*>(href_raw),href_size}):std::string_view{};
+                    if(!clean.empty()) {
+                        href_offset=checked_index(output.links.text.size());
+                        href_bytes=checked_index(clean.size());
+                        output.links.text.append(clean);
+                        merge_barrier=true;
+                    }
+                }
+                owners.push_back({cell,row,table,ruby,block_style,marker_owner,checked_index(output.runs.size()),disclosure_owner,disclosure_open,href_offset,href_bytes,block,inline_box});
                 if(inline_box)merge_barrier=true;
                 if (node.tag == "summary" && node.disclosure != none) {
                     disclosure_owner = node.disclosure;
@@ -1848,6 +1874,11 @@ struct SourceCompiler {
                 if(restore.inline_box) {
                     const auto count=checked_index(output.runs.size())-restore.first_run;
                     if(count)output.inline_boxes.push_back({restore.first_run,count,node.style});
+                    merge_barrier=true;
+                }
+                if(restore.href_bytes) {
+                    const auto count=checked_index(output.runs.size())-restore.first_run;
+                    if(count)output.links.spans.push_back({restore.first_run,count,restore.href_offset,restore.href_bytes});
                     merge_barrier=true;
                 }
                 cell=restore.cell; row=restore.row; table=restore.table; ruby=restore.ruby;
@@ -1968,4 +1999,7 @@ uint64_t dc_prepared_document_digest(const dc_prepared_document* d) {
 void dc_prepared_document_destroy(dc_prepared_document* document) { delete document; }
 const dictionary_core::ResolvedStyles &dictionary_core::resolved_styles(const dc_prepared_document *document) {
     return *document->resolved;
+}
+const dictionary_core::PreparedLinks &dictionary_core::prepared_links(const dc_prepared_document *document) {
+    return document->links;
 }

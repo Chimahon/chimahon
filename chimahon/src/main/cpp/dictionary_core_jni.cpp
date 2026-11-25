@@ -634,13 +634,15 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_chimahon_renderer_DictionaryCore_
         if (status < 0) throw std::runtime_error(error.message);
         if (status == 0) return nullptr;
         jclass string_class = env->FindClass("java/lang/String");
-        jobjectArray result = env->NewObjectArray(6, string_class, nullptr);
+        jobjectArray result = env->NewObjectArray(7, string_class, nullptr);
         if (result) {
             static const jchar empty_char = 0;
             jstring word = env->NewString(hit.word ? reinterpret_cast<const jchar *>(hit.word) : &empty_char,
                                           static_cast<jsize>(hit.word_length));
             jstring sentence = env->NewString(hit.sentence ? reinterpret_cast<const jchar *>(hit.sentence) : &empty_char,
                                               static_cast<jsize>(hit.sentence_length));
+            jstring href = env->NewString(hit.href ? reinterpret_cast<const jchar *>(hit.href) : &empty_char,
+                                          static_cast<jsize>(hit.href_length));
             jstring values[] = {
                 word,
                 sentence,
@@ -648,8 +650,9 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_chimahon_renderer_DictionaryCore_
                 env->NewStringUTF(std::to_string(hit.text_offset).c_str()),
                 env->NewStringUTF(std::to_string(hit.sentence_offset).c_str()),
                 env->NewStringUTF(std::to_string(hit.character).c_str()),
+                href,
             };
-            for (int i = 0; i < 6 && !env->ExceptionCheck(); ++i) {
+            for (int i = 0; i < 7 && !env->ExceptionCheck(); ++i) {
                 env->SetObjectArrayElement(result, i, values[i]);
                 env->DeleteLocalRef(values[i]);
             }

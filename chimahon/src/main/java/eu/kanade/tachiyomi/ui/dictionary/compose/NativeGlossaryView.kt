@@ -1,9 +1,13 @@
 package eu.kanade.tachiyomi.ui.dictionary.compose
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
+import android.net.Uri
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -11,6 +15,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.toArgb
 import chimahon.diagnostics.LookupProfiler
+import java.net.URLDecoder
 import kotlin.math.abs
 
 public val LocalNativeGlossaryDocuments = compositionLocalOf<Map<List<StructuredNode>, NativeGlossaryDocument>> { emptyMap() }
@@ -205,12 +210,14 @@ public class NativeGlossaryView(context: Context) : View(context) {
                 removeCallbacks(longPress)
                 if (!dragged && !longPressed) {
                     val hit = document?.hit(event.x, event.y)
-                    hit?.details?.let { detailsAction?.invoke(it) } ?: hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.lookup?.let {
+                    hit?.details?.let { detailsAction?.invoke(it) } ?: hit?.disclosure?.let { toggle?.invoke(it) } ?: hit?.href?.let { href ->
+                        recursiveSelection?.clear()
+                        val (tapX, tapY) = windowTapDp(event.x, event.y)
+                        openStructuredLink(href, tapX, tapY)
+                    } ?: hit?.lookup?.let {
                         if (recursiveLookup != null) {
-                            val position = IntArray(2)
-                            getLocationInWindow(position)
-                            val tapped = hit.copy(tapX = (position[0] + event.x) / resources.displayMetrics.density,
-                                tapY = (position[1] + event.y) / resources.displayMetrics.density)
+                            val (tapX, tapY) = windowTapDp(event.x, event.y)
+                            val tapped = hit.copy(tapX = tapX, tapY = tapY)
                             tapped.surface = hit.surface
                             tapped.textOffset = hit.textOffset
                             recursiveSelection?.select(this, tapped)
@@ -224,6 +231,13 @@ public class NativeGlossaryView(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> { removeCallbacks(longPress); dragged = true; return true }
         }
         return super.onTouchEvent(event)
+    }
+
+    private fun windowTapDp(x: Float, y: Float): Pair<Float, Float> {
+        val position = IntArray(2)
+        getLocationInWindow(position)
+        val density = resources.displayMetrics.density
+        return (position[0] + x) / density to (position[1] + y) / density
     }
 
     override fun performClick(): Boolean { super.performClick(); return true }
@@ -252,8 +266,48 @@ public class NativeGlossaryView(context: Context) : View(context) {
         return super.performAccessibilityAction(action, arguments)
     }
 
+    private fun openStructuredLink(href: String, tapX: Float, tapY: Float) {
+        val clean = href.trim()
+        if (clean.isEmpty() || clean.startsWith("javascript:", ignoreCase = true)) return
+        if (clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true)) {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(clean)).apply {
+                if (generateSequence(context) { (it as? ContextWrapper)?.baseContext }.none { it is Activity }) {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            runCatching { context.startActivity(intent) }
+            return
+        }
+        val query = parseInternalLookupQuery(clean) ?: return
+        if (recursiveLookup != null) recursiveLookup?.invoke(NativeGlossaryHit(lookup = query, tapX = tapX, tapY = tapY))
+        else lookup?.invoke(query)
+    }
+
     companion object {
         private const val DISCLOSURE_ACTION = 0x01020000
-        private const val LINK_ACTION = 0x01030000
     }
+}
+
+internal fun parseInternalLookupQuery(href: String): String? {
+    val clean = href.trim()
+    if (clean.isEmpty() || clean.startsWith("javascript:", ignoreCase = true) ||
+        clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true)
+    ) return null
+    val queryString = clean.substringAfter('?', "").substringBefore('#')
+    if (queryString.isEmpty()) return null
+    var q: String? = null
+    var term: String? = null
+    for (pair in queryString.split('&')) {
+        val sep = pair.indexOf('=')
+        if (sep <= 0) continue
+        val key = runCatching { URLDecoder.decode(pair.substring(0, sep), "UTF-8") }.getOrDefault(pair.substring(0, sep))
+        val value = runCatching { URLDecoder.decode(pair.substring(sep + 1), "UTF-8") }.getOrDefault(pair.substring(sep + 1))
+        if (value.isBlank()) continue
+        when (key) {
+            "query" -> return value
+            "q" -> if (q == null) q = value
+            "term" -> if (term == null) term = value
+        }
+    }
+    return q ?: term
 }
