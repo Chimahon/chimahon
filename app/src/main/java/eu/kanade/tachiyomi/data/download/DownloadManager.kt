@@ -290,8 +290,8 @@ class DownloadManager(
 
             val (mangaDir, chapterDirs) = provider.findChapterDirs(filteredChapters, manga, source)
             chapterDirs.forEach { chapterDir ->
-                // Delete OCR sidecar files for CBZ
-                if (chapterDir.name?.endsWith(".cbz") == true) {
+                // Delete OCR sidecar files for archive chapters
+                if (chapterDir.isFile) {
                     chapterDir.parentFile?.findFile("${chapterDir.name}.ocr.json")?.delete()
                 }
                 chapterDir.delete()

@@ -106,6 +106,7 @@ fun MangaChapterListItem(
         backgroundUntilSwipeThreshold = MaterialTheme.colorScheme.surfaceContainerLowest,
     ) {
         Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .selectedBackground(selected)
                 .combinedClickable(

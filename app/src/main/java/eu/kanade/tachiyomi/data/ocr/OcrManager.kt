@@ -293,14 +293,14 @@ class OcrManager(
         chapters
             .filterNot { it.isOcrReady }
             .forEach { chapter ->
-                val isDownloaded = downloadManager.isChapterDownloaded(
+                val isOnDisk = source.isLocal() || downloadManager.isChapterDownloaded(
                     chapter.name,
                     chapter.scanlator,
                     chapter.url,
                     manga.ogTitle,
                     source.id,
                 )
-                if (isDownloaded && ocrCacheManager.hasOcrData(manga, chapter, source)) {
+                if (isOnDisk && ocrCacheManager.hasOcrData(manga, chapter, source)) {
                     readyChapterIds += chapter.id
                 }
             }
@@ -899,7 +899,8 @@ class OcrManager(
             ?: return null
         return when {
             chapterFile.isDirectory -> DirectoryImageProvider(chapterFile)
-            chapterFile.name?.endsWith(".cbz") == true -> CbzImageProvider(context, chapterFile)
+            chapterFile.isFile && chapterFile.name.orEmpty().substringAfterLast('.', "").lowercase() in SUPPORTED_ARCHIVE_EXTENSIONS ->
+                CbzImageProvider(context, chapterFile)
             else -> null
         }
     }
@@ -922,6 +923,8 @@ class OcrManager(
         val lineGeometries: List<OcrLineGeometry>? = null,
     )
 }
+
+private val SUPPORTED_ARCHIVE_EXTENSIONS = setOf("cbz", "zip", "cbr", "rar", "cb7", "7z", "tar", "cbt")
 
 interface ChapterImageProvider : AutoCloseable {
     val pageCount: Int

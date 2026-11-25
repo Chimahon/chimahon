@@ -20,6 +20,8 @@ import mihon.core.archive.archiveReader
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.storage.service.StorageManager
+import tachiyomi.source.local.isLocal
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -39,11 +41,13 @@ class OcrCacheManager(
     private val json: Json,
     private val downloadManager: DownloadManager = Injekt.get(),
     private val downloadProvider: DownloadProvider = Injekt.get(),
+    private val storageManager: StorageManager = Injekt.get(),
 ) {
     private val mutex = Mutex()
 
     companion object {
-        private const val OCR_CACHE_FILE = ".ocr_cache.json"
+        private const val OCR_CACHE_FILE = "ocr_cache.json"
+        private const val LEGACY_OCR_CACHE_FILE = ".ocr_cache.json"
         private const val OCR_SIDECAR_SUFFIX = ".ocr.json"
         private const val CURRENT_VERSION = 2
         private const val INTERNAL_OCR_DIR = "ocr_cache"
@@ -165,7 +169,7 @@ class OcrCacheManager(
 
             val downloadCacheFile = if (chapterLocation != null && isDownloaded) {
                 when (chapterLocation) {
-                    is ChapterLocation.Directory -> chapterLocation.dir.findFile(OCR_CACHE_FILE)
+                    is ChapterLocation.Directory -> findDirectoryCacheFile(chapterLocation.dir)
                     is ChapterLocation.Cbz -> findSidecarFile(chapterLocation.file)
                 }
             } else {
@@ -193,9 +197,10 @@ class OcrCacheManager(
                 when (chapterLocation) {
                     is ChapterLocation.Directory -> {
                         chapterLocation.dir.findFile(OCR_CACHE_FILE)?.delete()
+                        chapterLocation.dir.findFile(LEGACY_OCR_CACHE_FILE)?.delete()
                     }
                     is ChapterLocation.Cbz -> {
-                        getSidecarFile(chapterLocation.file)?.delete()
+                        findSidecarFile(chapterLocation.file)?.delete()
                     }
                 }
             }
@@ -212,15 +217,25 @@ class OcrCacheManager(
         source: Source,
     ) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val mangaDir = downloadProvider.findMangaDir(manga.ogTitle, source)
-                ?: if (source.id == 0L) Injekt.get<tachiyomi.source.local.io.LocalSourceFileSystem>().getMangaDirectory(manga.ogTitle) else null
+            val mangaDir = if (source.isLocal()) {
+                storageManager.getLocalSourceDirectory()?.findFile(manga.url)
+                    ?: downloadProvider.findMangaDir(manga.ogTitle, source)
+            } else {
+                downloadProvider.findMangaDir(manga.ogTitle, source)
+            }
             mangaDir?.listFiles()?.forEach { chapterEntry ->
                 when {
                     chapterEntry.isDirectory -> {
                         chapterEntry.findFile(OCR_CACHE_FILE)?.delete()
+                        chapterEntry.findFile(LEGACY_OCR_CACHE_FILE)?.delete()
                     }
-                    chapterEntry.name?.endsWith(".cbz") == true -> {
-                        chapterEntry.parentFile?.findFile("${chapterEntry.name}$OCR_SIDECAR_SUFFIX")?.delete()
+                    chapterEntry.isFile -> {
+                        val name = chapterEntry.name.orEmpty()
+                        if (name.endsWith(OCR_SIDECAR_SUFFIX)) {
+                            chapterEntry.delete()
+                        } else {
+                            chapterEntry.parentFile?.findFile("$name$OCR_SIDECAR_SUFFIX")?.delete()
+                        }
                     }
                 }
             }
@@ -259,6 +274,7 @@ class OcrCacheManager(
     // ========== Private helpers ==========
 
     private fun isChapterDownloaded(manga: Manga, chapter: Chapter, source: Source): Boolean {
+        if (source.isLocal()) return true
         return downloadManager.isChapterDownloaded(
             chapterName = chapter.name,
             chapterScanlator = chapter.scanlator,
@@ -274,7 +290,14 @@ class OcrCacheManager(
     }
 
     private fun findChapterLocation(manga: Manga, chapter: Chapter, source: Source): ChapterLocation? {
-        val chapterDir = downloadProvider.findChapterDir(
+        val chapterDir = if (source.isLocal()) {
+            val splitUrl = chapter.url.split('/', limit = 2)
+            splitUrl.takeIf { it.size == 2 }?.let { (mangaDirName, chapterName) ->
+                storageManager.getLocalSourceDirectory()?.findFile(mangaDirName)?.findFile(chapterName)
+            }
+        } else {
+            null
+        } ?: downloadProvider.findChapterDir(
             chapter.name,
             chapter.scanlator,
             chapter.url,
@@ -284,13 +307,16 @@ class OcrCacheManager(
 
         return when {
             chapterDir.isDirectory -> ChapterLocation.Directory(chapterDir)
-            chapterDir.name?.endsWith(".cbz") == true -> ChapterLocation.Cbz(chapterDir)
+            chapterDir.isFile -> ChapterLocation.Cbz(chapterDir)
             else -> {
                 logcat(LogPriority.WARN) { "OcrCache: Unknown chapter format: ${chapterDir.name}" }
                 null
             }
         }
     }
+
+    private fun findDirectoryCacheFile(dir: UniFile): UniFile? =
+        dir.findFile(OCR_CACHE_FILE) ?: dir.findFile(LEGACY_OCR_CACHE_FILE)
 
     /**
      * Save OCR data to a directory-based chapter.
@@ -302,13 +328,14 @@ class OcrCacheManager(
         language: String,
         cacheVariant: String?,
     ) {
+        val existingFile = findDirectoryCacheFile(dir)
         val cacheFile = dir.findFile(OCR_CACHE_FILE) ?: dir.createFile(OCR_CACHE_FILE)
         if (cacheFile == null) {
             logcat(LogPriority.ERROR) { "OcrCache: Failed to create cache file in directory" }
             return
         }
 
-        val chapterData = readOcrData(cacheFile)
+        val chapterData = if (existingFile != null) readOcrData(existingFile) else OcrChapterData(pages = emptyMap(), version = CURRENT_VERSION)
 
         val pageData = OcrPageData(
             blocks = blocks.map { it.toBlockData() },
@@ -318,13 +345,16 @@ class OcrCacheManager(
 
         val newData = chapterData.withPage(pageIndex, pageData, cacheVariant)
         writeJson(cacheFile, json.encodeToString(newData))
+        if (existingFile?.name == LEGACY_OCR_CACHE_FILE) {
+            existingFile.delete()
+        }
     }
 
     /**
      * Load OCR data from a directory-based chapter.
      */
     private fun loadFromDirectory(dir: UniFile, pageIndex: Int, cacheVariant: String?): List<OcrTextBlock>? {
-        val cacheFile = dir.findFile(OCR_CACHE_FILE) ?: return null
+        val cacheFile = findDirectoryCacheFile(dir) ?: return null
 
         return try {
             val content = cacheFile.openInputStream().bufferedReader().use { it.readText() }

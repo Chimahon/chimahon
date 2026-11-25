@@ -1,6 +1,7 @@
 package eu.kanade.presentation.manga.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
@@ -12,7 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import tachiyomi.i18n.MR
@@ -40,7 +44,7 @@ fun ChapterOcrIndicator(
 
     Box(
         modifier = modifier
-            .size(24.dp)
+            .defaultMinSize(minWidth = 24.dp, minHeight = 24.dp)
             .semantics {
                 this.contentDescription = contentDescription
             },
@@ -60,10 +64,14 @@ fun ChapterOcrIndicator(
             ) {
                 Text(
                     text = "OCR",
-                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 1.dp),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 8.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    style = TextStyle(
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 9.sp,
+                        textAlign = TextAlign.Center,
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    ),
                     maxLines = 1,
                     softWrap = false,
                 )
