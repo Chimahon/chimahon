@@ -35,6 +35,7 @@ import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.SubtitleAssOverride
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
 import eu.kanade.tachiyomi.ui.player.utils.NativeSubtitleTextFilter
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleBlurShader
 import `is`.xyz.mpv.BaseMPVView
 import `is`.xyz.mpv.KeyMapping
 import `is`.xyz.mpv.MPVLib
@@ -94,6 +95,7 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
 
     fun destroyPlayer() {
         playbackLoadGate.close()
+        SubtitleBlurShader.resetSession()
         destroy()
     }
 
@@ -213,6 +215,7 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
     }
 
     override fun postInitOptions() {
+        SubtitleBlurShader.applyFromPreferences(context, subtitlePreferences)
         advancedPreferences.playerStatisticsPage().get().let {
             if (it != 0) {
                 MPVLib.command(arrayOf("script-binding", "stats/display-stats-toggle"))

@@ -83,6 +83,13 @@ class SubtitlePreferences(
     fun subtitleJustification() = preferenceStore.getEnum("pref_sub_justify", SubtitleJustification.Auto)
     fun subtitlePos() = preferenceStore.getInt("pref_sub_pos", POSITION_DEFAULT)
 
+    fun subtitleBlurEnabled() = preferenceStore.getBoolean("pref_sub_blur_enabled", false)
+    fun subtitleBlurHeight() = preferenceStore.getInt("pref_sub_blur_height", BLUR_HEIGHT_DEFAULT)
+    fun subtitleBlurPosition() = preferenceStore.getInt("pref_sub_blur_position", BLUR_POSITION_DEFAULT)
+    fun subtitleBlurWidth() = preferenceStore.getInt("pref_sub_blur_width", BLUR_WIDTH_DEFAULT)
+    fun subtitleBlurStrength() = preferenceStore.getInt("pref_sub_blur_strength", BLUR_STRENGTH_DEFAULT)
+    fun subtitleBlurDimOpacity() = preferenceStore.getInt("pref_sub_blur_dim_opacity", BLUR_DIM_DEFAULT)
+
     fun overrideSubsASS() = preferenceStore.getEnum("pref_override_subtitles_ass_enum", SubtitleAssOverride.Force)
 
     fun subtitlesDelay() = preferenceStore.getInt("pref_subtitles_delay", 0)
@@ -131,6 +138,22 @@ class SubtitlePreferences(
         const val POSITION_MIN = 0
         const val POSITION_DEFAULT = 100
         const val POSITION_MAX = 150
+
+        const val BLUR_HEIGHT_MIN = 5
+        const val BLUR_HEIGHT_DEFAULT = 14
+        const val BLUR_HEIGHT_MAX = 50
+        const val BLUR_POSITION_MIN = 0
+        const val BLUR_POSITION_DEFAULT = 90
+        const val BLUR_POSITION_MAX = 100
+        const val BLUR_WIDTH_MIN = 20
+        const val BLUR_WIDTH_DEFAULT = 100
+        const val BLUR_WIDTH_MAX = 100
+        const val BLUR_STRENGTH_MIN = 0
+        const val BLUR_STRENGTH_DEFAULT = 60
+        const val BLUR_STRENGTH_MAX = 100
+        const val BLUR_DIM_MIN = 0
+        const val BLUR_DIM_DEFAULT = 25
+        const val BLUR_DIM_MAX = 100
 
         private const val JIMAKU_API_KEY = "pref_jimaku_api_key"
     }
