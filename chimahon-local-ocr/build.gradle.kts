@@ -5,6 +5,7 @@ plugins {
 
 android {
     namespace = "chimahon.local.ocr"
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         externalNativeBuild {
