@@ -75,7 +75,7 @@ internal object OpdsParser {
 
     fun expandSearch(template: String, query: String): String {
         val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-        return Regex("\\{([^}]+)}").replace(template) { match ->
+        return Regex("\\{([^}]+)\\}").replace(template) { match ->
             when (match.groupValues[1].removeSuffix("?")) {
                 "searchTerms" -> encoded
                 "startIndex", "startPage" -> "1"

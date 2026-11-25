@@ -61,9 +61,10 @@ class OpdsSource(
     }
 
     suspend fun searchUrl(catalog: OpdsCatalog, feed: OpdsFeed, query: String): String {
-        val advertised = feed.search ?: loadFeed(catalog, catalog.url).search
+        val searchFeed = if (feed.search != null) feed else loadFeed(catalog, catalog.url)
+        val advertised = searchFeed.search
             ?: error(context.getString(eu.kanade.tachiyomi.R.string.opds_search_unavailable))
-        val template = if (feed.searchDescription || !advertised.contains('{')) {
+        val template = if (searchFeed.searchDescription || !advertised.contains('{')) {
             val (text, responseUrl) = fetchText(catalog, advertised)
             OpdsParser.searchTemplate(text, responseUrl)
         } else advertised
