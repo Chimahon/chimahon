@@ -261,6 +261,40 @@ class MangaScreen(
         }
         // SY <--
 
+        // Chimahon -->
+        var pendingMokuroExport by remember { mutableStateOf<MangaScreenModel.MokuroExportPayload?>(null) }
+        val createMokuroDocument = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
+        ) { uri ->
+            val payload = pendingMokuroExport
+            pendingMokuroExport = null
+            if (uri == null || payload == null) return@rememberLauncherForActivityResult
+            scope.launch {
+                val ok = withIOContext {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(payload.content.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        } ?: error("Cannot open destination")
+                    }.isSuccess
+                }
+                if (ok) {
+                    context.toast(context.stringResource(MR.strings.export_mokuro_success, payload.fileName))
+                } else {
+                    context.toast(MR.strings.unknown_error)
+                }
+            }
+        }
+        LaunchedEffect(Unit) {
+            screenModel.mokuroExportFlow
+                .onEach { payload ->
+                    pendingMokuroExport = payload
+                    createMokuroDocument.launch(payload.fileName)
+                }
+                .launchIn(this)
+        }
+        // Chimahon <--
+
         // KMK -->
         val coverRatio = remember { mutableFloatStateOf(1f) }
         val hazeState = remember { HazeState() }
@@ -477,6 +511,7 @@ class MangaScreen(
                         successState.processedChapters.any { !it.chapter.isOcrReady }
                 },
             onOcrChapters = { screenModel.runChapterDownloadActions(it, ChapterDownloadAction.OCR) },
+            onExportMokuro = { screenModel.exportMokuroForChapter(it.chapter) },
             // KMK <--
         )
 

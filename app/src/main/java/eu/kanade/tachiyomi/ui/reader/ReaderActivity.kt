@@ -300,6 +300,45 @@ class ReaderActivity : BaseActivity() {
         }
     }
 
+    private var pendingMokuroExport: Pair<String, String>? = null
+    private val createMokuroDocumentLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { uri ->
+        val payload = pendingMokuroExport
+        pendingMokuroExport = null
+        if (uri == null || payload == null) return@registerForActivityResult
+        val (fileName, content) = payload
+        lifecycleScope.launchIO {
+            val ok = runCatching {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(content.toByteArray(Charsets.UTF_8))
+                    out.flush()
+                } ?: error("Cannot open destination")
+            }.isSuccess
+            withUIContext {
+                if (ok) {
+                    toast(stringResource(MR.strings.export_mokuro_success, fileName))
+                } else {
+                    toast(MR.strings.unknown_error)
+                }
+            }
+        }
+    }
+
+    private fun exportCurrentChapterMokuro() {
+        lifecycleScope.launchIO {
+            val exported = viewModel.exportCurrentChapterMokuro()
+            withUIContext {
+                if (exported == null) {
+                    toast(MR.strings.export_mokuro_empty)
+                } else {
+                    pendingMokuroExport = exported
+                    createMokuroDocumentLauncher.launch(exported.first)
+                }
+            }
+        }
+    }
+
     data class OcrPopupState(
         val lookupString: String,
         val fullText: String,
@@ -1646,6 +1685,7 @@ class ReaderActivity : BaseActivity() {
             onToggleOcr = ::toggleOcrFromReader,
             onSelectOcrSource = ::selectOcrSourceFromReader,
             onSearchOcr = viewModel::openOcrSearchDialog,
+            onExportMokuro = ::exportCurrentChapterMokuro.takeIf { state.currentChapter != null },
             onClickSettings = viewModel::openSettingsDialog,
             onClickMangaStats = viewModel::openMangaStatsSheet,
             // SY -->

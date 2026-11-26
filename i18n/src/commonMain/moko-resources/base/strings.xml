@@ -458,6 +458,9 @@
     <string name="action_download_and_ocr">Download &amp; OCR</string>
     <string name="action_run_ocr">Run OCR</string>
     <string name="action_delete_ocr">Delete OCR data</string>
+    <string name="action_export_mokuro">Export .mokuro</string>
+    <string name="export_mokuro_success">Exported %1$s</string>
+    <string name="export_mokuro_empty">No OCR data found for this chapter</string>
     <string name="model_update_notification_channel">Model updates</string>
     <string name="model_update_notification_title">Model updates available</string>
     <string name="model_update_notification_text">Update %1$s over Wi-Fi.</string>

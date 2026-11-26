@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.ui.reader
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.RectF
 import android.net.Uri
 import android.os.SystemClock
@@ -15,6 +16,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import chimahon.ocr.OcrBitmapDecoder
+import chimahon.ocr.OcrTextBlock as CacheOcrTextBlock
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.chapter.model.toDbChapter
 import eu.kanade.domain.manga.interactor.SetMangaViewerFlags
@@ -27,6 +29,7 @@ import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.reader.stats.MangaStatsEstimate
+import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.database.models.toDomainChapter
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
@@ -37,6 +40,7 @@ import eu.kanade.tachiyomi.data.ocr.retryWithBackoff
 import eu.kanade.tachiyomi.data.ocr.LocalOcrBridge
 import eu.kanade.tachiyomi.data.ocr.ModelDownloader
 import eu.kanade.tachiyomi.data.ocr.OcrEngineType
+import eu.kanade.tachiyomi.data.ocr.OcrManager
 import eu.kanade.tachiyomi.data.ocr.PaddleOcrBridge
 import eu.kanade.tachiyomi.data.ocr.recognizePage
 import eu.kanade.tachiyomi.data.saver.Image
@@ -287,6 +291,7 @@ class ReaderViewModel @JvmOverloads constructor(
             ChapterDownloadAction.DELETE -> deleteChapter(chapter)
             ChapterDownloadAction.OCR -> runOcrForChapter(chapter)
             ChapterDownloadAction.DELETE_OCR -> deleteOcrForChapter(chapter)
+            ChapterDownloadAction.EXPORT_MOKURO -> {}
         }
     }
 
@@ -2893,16 +2898,18 @@ class ReaderViewModel @JvmOverloads constructor(
         val texts: List<String>,
     )
 
-    suspend fun loadCurrentChapterOcrSearchPages(): List<OcrSearchPage> = withContext(Dispatchers.IO) {
-        val currentChapter = state.value.currentChapter ?: return@withContext emptyList()
-        val domainChapter = currentChapter.chapter.toDomainChapter() ?: return@withContext emptyList()
-        val chapterId = domainChapter.id ?: return@withContext emptyList()
-        val manga = state.value.manga ?: return@withContext emptyList()
+    private suspend fun collectCurrentChapterOcrBlocks(
+        includeFallbackSources: Boolean,
+    ): Map<Int, List<CacheOcrTextBlock>> {
+        val currentChapter = state.value.currentChapter ?: return emptyMap()
+        val domainChapter = currentChapter.chapter.toDomainChapter() ?: return emptyMap()
+        val chapterId = domainChapter.id
+        val manga = state.value.manga ?: return emptyMap()
         val source = sourceManager.getOrStub(manga.source)
         val ocrSource = state.value.ocrSource
         val totalPages = currentChapter.pages?.size ?: 0
 
-        val blocksByPage = mutableMapOf<Int, List<OcrTextBlock>>()
+        val blocksByPage = mutableMapOf<Int, List<CacheOcrTextBlock>>()
 
         if (ocrSource.persistsOcrResults) {
             ocrCacheManager.loadChapterOcrBlocks(
@@ -2911,7 +2918,18 @@ class ReaderViewModel @JvmOverloads constructor(
                 source = source,
                 cacheVariant = ocrSource.persistentCacheVariant,
             ).forEach { (pageIndex, blocks) ->
-                blocksByPage[pageIndex] = blocks.map { it.toViewerBlock() }
+                blocksByPage[pageIndex] = blocks
+            }
+        }
+
+        if (includeFallbackSources && blocksByPage.isEmpty() && ocrSource.persistentCacheVariant != null) {
+            ocrCacheManager.loadChapterOcrBlocks(
+                manga = manga,
+                chapter = domainChapter,
+                source = source,
+                cacheVariant = null,
+            ).forEach { (pageIndex, blocks) ->
+                blocksByPage[pageIndex] = blocks
             }
         }
 
@@ -2934,7 +2952,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 for (pageIndex in 0 until totalPages) {
                     if (pageIndex !in blocksByPage) {
                         getMokuroBlocksForPage(mokuroData, pageIndex)?.let { blocks ->
-                            blocksByPage[pageIndex] = blocks
+                            blocksByPage[pageIndex] = blocks.map { it.toCacheBlock() }
                         }
                     }
                 }
@@ -2944,17 +2962,78 @@ class ReaderViewModel @JvmOverloads constructor(
         ocrCacheMutex.withLock {
             for ((key, blocks) in ocrCache) {
                 if (key.chapterId == chapterId && key.ocrSource == ocrSource) {
-                    blocksByPage[key.pageIndex] = blocks
+                    blocksByPage[key.pageIndex] = blocks.map { it.toCacheBlock() }
+                }
+            }
+            if (includeFallbackSources && blocksByPage.isEmpty()) {
+                for ((key, blocks) in ocrCache) {
+                    if (key.chapterId == chapterId) {
+                        blocksByPage[key.pageIndex] = blocks.map { it.toCacheBlock() }
+                    }
                 }
             }
         }
 
-        blocksByPage.entries
+        return blocksByPage
+    }
+
+    suspend fun loadCurrentChapterOcrSearchPages(): List<OcrSearchPage> = withContext(Dispatchers.IO) {
+        collectCurrentChapterOcrBlocks(includeFallbackSources = false).entries
             .sortedBy { it.key }
             .mapNotNull { (pageIndex, blocks) ->
-                val texts = blocks.map { it.orderedDisplayText.trim() }.filter { it.isNotEmpty() }
+                val texts = blocks.map { it.toViewerBlock().orderedDisplayText.trim() }.filter { it.isNotEmpty() }
                 if (texts.isEmpty()) null else OcrSearchPage(pageIndex = pageIndex, texts = texts)
             }
+    }
+
+    suspend fun exportCurrentChapterMokuro(): Pair<String, String>? = withContext(Dispatchers.IO) {
+        val currentChapter = state.value.currentChapter ?: return@withContext null
+        val domainChapter = currentChapter.chapter.toDomainChapter() ?: return@withContext null
+        val manga = state.value.manga ?: return@withContext null
+        val pages = currentChapter.pages.orEmpty()
+
+        val blocksByPage = collectCurrentChapterOcrBlocks(includeFallbackSources = true)
+        if (blocksByPage.isEmpty()) return@withContext null
+
+        val chapterCache = Injekt.get<ChapterCache>()
+        val fallbackPageMeta: (Int) -> OcrManager.MokuroExportPageMeta? = { pageIndex ->
+            val page = pages.getOrNull(pageIndex)
+            val stream = runCatching { page?.stream?.invoke() }.getOrNull()
+                ?: page?.imageUrl?.takeIf { chapterCache.isImageInCache(it) }?.let { url ->
+                    runCatching { chapterCache.getImageFile(url).inputStream() }.getOrNull()
+                }
+            stream?.let { input ->
+                runCatching {
+                    input.use {
+                        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeStream(it, null, opts)
+                        if (opts.outWidth > 0 && opts.outHeight > 0) {
+                            val ext = when (opts.outMimeType) {
+                                "image/png" -> "png"
+                                "image/webp" -> "webp"
+                                "image/gif" -> "gif"
+                                else -> "jpg"
+                            }
+                            OcrManager.MokuroExportPageMeta(
+                                imgPath = "%03d.$ext".format(pageIndex + 1),
+                                width = opts.outWidth,
+                                height = opts.outHeight,
+                            )
+                        } else {
+                            null
+                        }
+                    }
+                }.getOrNull()
+            }
+        }
+
+        ocrManager.exportChapterMokuro(
+            manga = manga,
+            chapter = domainChapter,
+            overrideBlocksByPage = blocksByPage,
+            fallbackPageCount = pages.size.takeIf { it > 0 },
+            fallbackPageMeta = fallbackPageMeta,
+        )
     }
 
     sealed interface Dialog {

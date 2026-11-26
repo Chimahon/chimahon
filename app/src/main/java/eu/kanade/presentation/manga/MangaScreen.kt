@@ -214,6 +214,7 @@ fun MangaScreen(
     onClickDictionaryProfile: (() -> Unit)?,
     onClickPreOcr: (() -> Unit)?,
     onOcrChapters: ((List<ChapterList.Item>) -> Unit)? = null,
+    onExportMokuro: ((ChapterList.Item) -> Unit)? = null,
     onClickMangaStats: (() -> Unit)?,
     // KMK <--
 ) {
@@ -288,6 +289,7 @@ fun MangaScreen(
             onClickDictionaryProfile = onClickDictionaryProfile,
             onClickPreOcr = onClickPreOcr,
             onOcrChapters = onOcrChapters,
+            onExportMokuro = onExportMokuro,
             onClickMangaStats = onClickMangaStats,
             // KMK <--
         )
@@ -355,6 +357,7 @@ fun MangaScreen(
             onClickDictionaryProfile = onClickDictionaryProfile,
             onClickPreOcr = onClickPreOcr,
             onOcrChapters = onOcrChapters,
+            onExportMokuro = onExportMokuro,
             onClickMangaStats = onClickMangaStats,
             // KMK <--
         )
@@ -439,6 +442,7 @@ private fun MangaScreenSmallImpl(
     onClickDictionaryProfile: (() -> Unit)?,
     onClickPreOcr: (() -> Unit)?,
     onOcrChapters: ((List<ChapterList.Item>) -> Unit)? = null,
+    onExportMokuro: ((ChapterList.Item) -> Unit)? = null,
     onClickMangaStats: (() -> Unit)?,
     // KMK <--
 ) {
@@ -552,6 +556,7 @@ private fun MangaScreenSmallImpl(
                 onDownloadChapter = onDownloadChapter,
                 onMultiDeleteClicked = onMultiDeleteClicked,
                 onOcrChapters = onOcrChapters,
+            onExportMokuro = onExportMokuro,
                 fillFraction = 1f,
             )
         },
@@ -913,6 +918,7 @@ private fun MangaScreenLargeImpl(
     onClickDictionaryProfile: (() -> Unit)?,
     onClickPreOcr: (() -> Unit)?,
     onOcrChapters: ((List<ChapterList.Item>) -> Unit)? = null,
+    onExportMokuro: ((ChapterList.Item) -> Unit)? = null,
     onClickMangaStats: (() -> Unit)?,
     // KMK <--
 ) {
@@ -1021,6 +1027,7 @@ private fun MangaScreenLargeImpl(
                     onDownloadChapter = onDownloadChapter,
                     onMultiDeleteClicked = onMultiDeleteClicked,
                     onOcrChapters = onOcrChapters,
+            onExportMokuro = onExportMokuro,
                     fillFraction = 0.5f,
                 )
             }
@@ -1295,6 +1302,7 @@ private fun SharedMangaBottomActionMenu(
     onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
     onMultiDeleteClicked: (List<Chapter>) -> Unit,
     onOcrChapters: ((List<ChapterList.Item>) -> Unit)?,
+    onExportMokuro: ((ChapterList.Item) -> Unit)?,
     fillFraction: Float,
     modifier: Modifier = Modifier,
 ) {
@@ -1319,6 +1327,9 @@ private fun SharedMangaBottomActionMenu(
         onRunOcrClicked = {
             onOcrChapters!!(selected.pendingDownloadedOcrChapters())
         }.takeIf { onOcrChapters != null && selected.pendingDownloadedOcrChapters().isNotEmpty() },
+        onExportMokuroClicked = {
+            onExportMokuro!!(selected[0])
+        }.takeIf { onExportMokuro != null && selected.size == 1 && selected[0].isOcrReady },
         onDownloadClicked = {
             onDownloadChapter!!(selected.toList(), ChapterDownloadAction.START)
         }.takeIf {

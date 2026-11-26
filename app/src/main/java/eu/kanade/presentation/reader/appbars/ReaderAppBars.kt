@@ -111,6 +111,7 @@ fun ReaderAppBars(
     onToggleOcr: (() -> Unit)? = null,
     onSelectOcrSource: (ReaderOcrSource) -> Unit = {},
     onSearchOcr: (() -> Unit)? = null,
+    onExportMokuro: (() -> Unit)? = null,
     // Chimahon <--
 ) {
     val isRtl = viewer is R2LPagerViewer
@@ -151,6 +152,7 @@ fun ReaderAppBars(
                     onToggleOcr = onToggleOcr,
                     onSelectOcrSource = onSelectOcrSource,
                     onSearchOcr = onSearchOcr,
+                    onExportMokuro = onExportMokuro,
                     // Chimahon <--
                 )
                 // SY -->

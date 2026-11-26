@@ -47,6 +47,7 @@ enum class ChapterDownloadAction {
     DELETE,
     OCR,
     DELETE_OCR,
+    EXPORT_MOKURO,
 }
 
 @Composable
@@ -263,6 +264,19 @@ private fun DownloadedIndicator(
                         onClick = { },
                     )
                 } else if (isOcrReady) {
+                    DropdownMenuItem(
+                        text = { Text(text = stringResource(MR.strings.action_export_mokuro)) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.ArrowDownward,
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            onClick(ChapterDownloadAction.EXPORT_MOKURO)
+                            isMenuExpanded = false
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text(text = stringResource(MR.strings.action_delete_ocr)) },
                         leadingIcon = {

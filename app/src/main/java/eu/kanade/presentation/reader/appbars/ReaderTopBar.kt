@@ -53,6 +53,7 @@ fun ReaderTopBar(
     onToggleOcr: (() -> Unit)? = null,
     onSelectOcrSource: (ReaderOcrSource) -> Unit = {},
     onSearchOcr: (() -> Unit)? = null,
+    onExportMokuro: (() -> Unit)? = null,
 ) {
     AppBar(
         modifier = modifier,
@@ -120,6 +121,14 @@ fun ReaderTopBar(
                             add(
                                 AppBar.OverflowAction(
                                     title = stringResource(MR.strings.action_share),
+                                    onClick = it,
+                                ),
+                            )
+                        }
+                        onExportMokuro?.let {
+                            add(
+                                AppBar.OverflowAction(
+                                    title = stringResource(MR.strings.action_export_mokuro),
                                     onClick = it,
                                 ),
                             )

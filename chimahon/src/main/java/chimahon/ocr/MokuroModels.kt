@@ -15,6 +15,7 @@ data class MokuroVolume(
 
 @Serializable
 data class MokuroPage(
+    val version: String = "0.2.0",
     @SerialName("img_path") val imgPath: String,
     @SerialName("img_width") val imgWidth: Int,
     @SerialName("img_height") val imgHeight: Int,
@@ -25,6 +26,7 @@ data class MokuroPage(
 data class MokuroBlock(
     val box: List<Float>,
     val vertical: Boolean,
+    @SerialName("font_size") val fontSize: Int = 16,
     val lines: List<String>,
     @SerialName("lines_coords") val linesCoords: List<List<List<Float>>> = emptyList(),
 )

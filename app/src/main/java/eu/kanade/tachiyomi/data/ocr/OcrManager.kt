@@ -1,7 +1,10 @@
 package eu.kanade.tachiyomi.data.ocr
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import chimahon.ocr.LensClient
+import chimahon.ocr.MokuroExportPageInput
+import chimahon.ocr.MokuroExporter
 import chimahon.ocr.OcrCacheManager
 import chimahon.ocr.OcrLanguage
 import chimahon.ocr.OcrResult
@@ -12,6 +15,8 @@ import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.lang.compareToCaseInsensitiveNaturalOrder
+import eu.kanade.tachiyomi.util.storage.DiskUtil
+import java.io.InputStream
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.source.local.isLocal
 import kotlinx.coroutines.CancellationException
@@ -275,6 +280,77 @@ class OcrManager(
         val source = sourceManager.get(manga.source) ?: return
         ocrCacheManager.deleteOcrForChapter(manga, chapter, source)
         chapterRepository.update(ChapterUpdate(id = chapter.id, isOcrReady = false))
+    }
+
+    data class MokuroExportPageMeta(
+        val imgPath: String?,
+        val width: Int,
+        val height: Int,
+    )
+
+    suspend fun exportChapterMokuro(
+        manga: Manga,
+        chapter: Chapter,
+        overrideBlocksByPage: Map<Int, List<ChimahonOcrTextBlock>>? = null,
+        fallbackPageCount: Int? = null,
+        fallbackPageMeta: ((pageIndex: Int) -> MokuroExportPageMeta?)? = null,
+    ): Pair<String, String>? = withContext(ioDispatcher) {
+        val source = sourceManager.getOrStub(manga.source)
+        val cachedPages = overrideBlocksByPage ?: ocrCacheManager.loadChapterOcrBlocks(manga, chapter, source)
+        if (cachedPages.isEmpty()) return@withContext null
+
+        val imageProvider = if (source.isLocal()) {
+            getLocalChapterImageProvider(manga, chapter)
+        } else {
+            getChapterImageProvider(manga, chapter, source)
+        }
+
+        val exportPages = if (imageProvider != null) {
+            imageProvider.use { provider ->
+                (0 until provider.pageCount).map { pageIndex ->
+                    val imgPath = provider.getPageName(pageIndex)?.ifBlank { null }
+                        ?: "%03d.jpg".format(pageIndex + 1)
+                    val (w, h) = provider.getPageDimensions(pageIndex) ?: (1000 to 1500)
+                    MokuroExportPageInput(
+                        imgPath = imgPath,
+                        imgWidth = w,
+                        imgHeight = h,
+                        blocks = cachedPages[pageIndex].orEmpty(),
+                    )
+                }
+            }
+        } else {
+            val pageIndices = if (fallbackPageCount != null && fallbackPageCount > 0) {
+                0 until maxOf(fallbackPageCount, (cachedPages.keys.maxOrNull() ?: -1) + 1)
+            } else {
+                cachedPages.keys.sorted()
+            }
+            val metaByIndex = pageIndices.associateWith { idx -> fallbackPageMeta?.invoke(idx) }
+            val defaultDims = metaByIndex.values.firstNotNullOfOrNull { meta ->
+                meta?.takeIf { it.width > 0 && it.height > 0 }?.let { it.width to it.height }
+            } ?: (1000 to 1500)
+            pageIndices.map { pageIndex ->
+                val meta = metaByIndex[pageIndex]
+                val imgPath = meta?.imgPath?.ifBlank { null } ?: "%03d.jpg".format(pageIndex + 1)
+                val (w, h) = meta?.takeIf { it.width > 0 && it.height > 0 }
+                    ?.let { it.width to it.height }
+                    ?: defaultDims
+                MokuroExportPageInput(
+                    imgPath = imgPath,
+                    imgWidth = w,
+                    imgHeight = h,
+                    blocks = cachedPages[pageIndex].orEmpty(),
+                )
+            }
+        }
+
+        val volume = MokuroExporter.buildMokuroVolume(
+            title = manga.title,
+            volumeName = chapter.name,
+            pages = exportPages,
+        )
+        val fileName = "${DiskUtil.buildValidFilename(chapter.name)}.mokuro"
+        fileName to MokuroExporter.encode(volume)
     }
 
     suspend fun deleteOcrForManga(manga: Manga) {
@@ -929,6 +1005,8 @@ private val SUPPORTED_ARCHIVE_EXTENSIONS = setOf("cbz", "zip", "cbr", "rar", "cb
 interface ChapterImageProvider : AutoCloseable {
     val pageCount: Int
     fun getPageBytes(pageIndex: Int): ByteArray?
+    fun getPageName(pageIndex: Int): String? = null
+    fun getPageDimensions(pageIndex: Int): Pair<Int, Int>? = null
 }
 
 class DirectoryImageProvider(private val chapterDir: UniFile) : ChapterImageProvider {
@@ -944,6 +1022,17 @@ class DirectoryImageProvider(private val chapterDir: UniFile) : ChapterImageProv
         return try {
             imageFiles[pageIndex].openInputStream().use { it.readBytes() }
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    override fun getPageName(pageIndex: Int): String? = imageFiles.getOrNull(pageIndex)?.name
+
+    override fun getPageDimensions(pageIndex: Int): Pair<Int, Int>? {
+        val file = imageFiles.getOrNull(pageIndex) ?: return null
+        return try {
+            file.openInputStream().use(::decodeImageBounds)
+        } catch (_: Exception) {
             null
         }
     }
@@ -981,9 +1070,26 @@ class CbzImageProvider(
         }
     }
 
+    override fun getPageName(pageIndex: Int): String? = imageEntries.getOrNull(pageIndex)
+
+    override fun getPageDimensions(pageIndex: Int): Pair<Int, Int>? {
+        val entry = imageEntries.getOrNull(pageIndex) ?: return null
+        return try {
+            archiveReader.getInputStream(entry)?.use(::decodeImageBounds)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override fun close() {
         archiveReader.close()
     }
+}
+
+private fun decodeImageBounds(stream: InputStream): Pair<Int, Int>? {
+    val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeStream(stream, null, opts)
+    return if (opts.outWidth > 0 && opts.outHeight > 0) opts.outWidth to opts.outHeight else null
 }
 
 internal enum class OcrTaskResult {

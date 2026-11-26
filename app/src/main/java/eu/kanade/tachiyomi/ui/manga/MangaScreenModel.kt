@@ -290,6 +290,11 @@ class MangaScreenModel(
     data class EXHRedirect(val mangaId: Long)
     // EXH <--
 
+    // Chimahon -->
+    data class MokuroExportPayload(val fileName: String, val content: String)
+    val mokuroExportFlow: MutableSharedFlow<MokuroExportPayload> = MutableSharedFlow()
+    // Chimahon <--
+
     // SY -->
     private data class CombineState(
         val manga: Manga,
@@ -1435,6 +1440,24 @@ class MangaScreenModel(
             }
             ChapterDownloadAction.DELETE_OCR -> {
                 deleteOcrForChapters(items)
+            }
+            ChapterDownloadAction.EXPORT_MOKURO -> {
+                items.firstOrNull()?.chapter?.let { exportMokuroForChapter(it) }
+            }
+        }
+    }
+
+    fun exportMokuroForChapter(chapter: Chapter) {
+        val state = successState ?: return
+        val targetManga = state.mergedData?.manga?.get(chapter.mangaId)
+            ?: state.manga.takeIf { it.id == chapter.mangaId }
+            ?: state.manga
+        screenModelScope.launchIO {
+            val exported = runCatching { ocrManager.exportChapterMokuro(targetManga, chapter) }.getOrNull()
+            if (exported == null) {
+                withUIContext { context.toast(MR.strings.export_mokuro_empty) }
+            } else {
+                mokuroExportFlow.emit(MokuroExportPayload(exported.first, exported.second))
             }
         }
     }
