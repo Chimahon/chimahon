@@ -4,6 +4,48 @@ All notable changes to Chimahon are documented here.
 
 The format follows a Keep a Changelog style and uses Semantic Versioning.
 
+## [v2.5.5]
+
+### Added
+
+- Adjustable subtitle blur box in player subtitle settings to cover hardcoded subtitles
+- Discord Rich Presence for novels
+- Configurable long-strip prev/next jump distance
+- YTDLnis and Seal support in external downloader settings
+- Hyperlink navigation in the native dictionary popup, supporting internal cross-references and external URLs
+- Option to keep the dictionary popup from covering the tapped word (with configurable offset distance)
+- In-chapter OCR text search from the manga reader toolbar when OCR is enabled
+- `{cover}` Anki field marker for series/book covers with media deduplication
+- Anime immersion stats tracking watch time and mined Anki cards in the stats screen and widget
+- Export chapter OCR results as `.mokuro` files from the chapter menu, multi-select bar, and reader three-dot menu (including cached chapters)
+
+### Changed
+
+- Anime screenshots and OCR frame capture now capture directly from mpv first, with FFmpeg as a fallback
+- Downloaded and local chapters now save visible OCR cache files beside the chapter files
+- Tapping a headword in the dictionary popup now falls back to a normal word lookup when no kanji dictionaries are installed
+
+### Fixed
+
+- OPDS catalog search failing on Android
+- Clear error message when a standard Yomitan/Yomichan dictionary zip is imported into Data & Storage dictionary backup import
+- Anime downloads failing on streams with separate audio tracks using disguised segment extensions (e.g., `.png`)
+- Cancelled background jobs logging spurious foreground errors instead of stopping cleanly
+- Chapter OCR indicator alignment in the chapter list
+- Anime extension incognito mode not applying to playback, history, progress, sync triggers, or Discord Rich Presence
+- Native kanji card recursive lookup using the word under the tap instead of the first word in the definition
+- Extended Hangul Jamo support in native lookup
+- Local anime AVIF exports and fallback screenshots failing to open the video file
+- Panel-by-panel navigation crashing when leaving the reader while panel detection is still running
+- Secondary subtitles near the top of the player ignoring taps
+- Novel reader taps selecting the wrong word on scaled pages
+- Novel reader paged text overflowing or clipping on open, resize, and settings changes
+- Custom external downloader packages failing to launch
+- Russian dictionary lookup failing on uppercase words
+- WebView dictionary popup briefly flashing the previous lookup when reopened
+- Native dictionary renderer ignoring the selected system serif font and system script fallbacks
+- Native dictionary frequency chips and Anki `{frequency-average-rank}` differing from the WebView
+
 ## [v2.5.4]
 
 ### Fixed
