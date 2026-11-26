@@ -110,6 +110,7 @@ fun ReaderAppBars(
     mokuroAvailable: Boolean = false,
     onToggleOcr: (() -> Unit)? = null,
     onSelectOcrSource: (ReaderOcrSource) -> Unit = {},
+    onSearchOcr: (() -> Unit)? = null,
     // Chimahon <--
 ) {
     val isRtl = viewer is R2LPagerViewer
@@ -149,6 +150,7 @@ fun ReaderAppBars(
                     mokuroAvailable = mokuroAvailable,
                     onToggleOcr = onToggleOcr,
                     onSelectOcrSource = onSelectOcrSource,
+                    onSearchOcr = onSearchOcr,
                     // Chimahon <--
                 )
                 // SY -->

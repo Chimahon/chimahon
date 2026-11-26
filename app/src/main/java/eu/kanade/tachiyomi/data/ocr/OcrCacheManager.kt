@@ -156,6 +156,40 @@ class OcrCacheManager(
     }
 
     /**
+     * Load all cached OCR blocks for a chapter in a single pass.
+     */
+    suspend fun loadChapterOcrBlocks(
+        manga: Manga,
+        chapter: Chapter,
+        source: Source,
+        cacheVariant: String? = null,
+    ): Map<Int, List<OcrTextBlock>> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val chapterLocation = findChapterLocation(manga, chapter, source)
+            val isDownloaded = isChapterDownloaded(manga, chapter, source)
+            val cacheFile = if (chapterLocation != null && isDownloaded) {
+                when (chapterLocation) {
+                    is ChapterLocation.Directory -> findDirectoryCacheFile(chapterLocation.dir)
+                    is ChapterLocation.Cbz -> findSidecarFile(chapterLocation.file)
+                }
+            } else {
+                null
+            } ?: getInternalCacheFile(manga, chapter, source)
+                .takeIf { it.exists() }
+                ?.let { UniFile.fromFile(it) }
+                ?: return@withLock emptyMap()
+
+            val chapterData = readOcrData(cacheFile)
+            val rawPages = if (cacheVariant == null) {
+                chapterData.pages
+            } else {
+                chapterData.variants[cacheVariant].orEmpty()
+            }
+            rawPages.mapValues { (_, pageData) -> pageData.blocks.map { it.toTextBlock() } }
+        }
+    }
+
+    /**
      * Check if OCR data exists for a chapter.
      */
     suspend fun hasOcrData(

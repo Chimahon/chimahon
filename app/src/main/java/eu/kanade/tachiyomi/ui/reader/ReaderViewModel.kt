@@ -66,6 +66,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
 import eu.kanade.tachiyomi.ui.reader.viewer.fullText
+import eu.kanade.tachiyomi.ui.reader.viewer.orderedDisplayText
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.R2LPagerViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
@@ -1273,6 +1274,10 @@ class ReaderViewModel @JvmOverloads constructor(
 
     fun openChapterListDialog() {
         mutableState.update { it.copy(dialog = Dialog.ChapterList) }
+    }
+
+    fun openOcrSearchDialog() {
+        mutableState.update { it.copy(dialog = Dialog.OcrSearch) }
     }
 
     fun openMangaStatsSheet() {
@@ -2882,6 +2887,76 @@ class ReaderViewModel @JvmOverloads constructor(
             get() = currentChapter?.pages?.size ?: -1
     }
 
+    @Immutable
+    data class OcrSearchPage(
+        val pageIndex: Int,
+        val texts: List<String>,
+    )
+
+    suspend fun loadCurrentChapterOcrSearchPages(): List<OcrSearchPage> = withContext(Dispatchers.IO) {
+        val currentChapter = state.value.currentChapter ?: return@withContext emptyList()
+        val domainChapter = currentChapter.chapter.toDomainChapter() ?: return@withContext emptyList()
+        val chapterId = domainChapter.id ?: return@withContext emptyList()
+        val manga = state.value.manga ?: return@withContext emptyList()
+        val source = sourceManager.getOrStub(manga.source)
+        val ocrSource = state.value.ocrSource
+        val totalPages = currentChapter.pages?.size ?: 0
+
+        val blocksByPage = mutableMapOf<Int, List<OcrTextBlock>>()
+
+        if (ocrSource.persistsOcrResults) {
+            ocrCacheManager.loadChapterOcrBlocks(
+                manga = manga,
+                chapter = domainChapter,
+                source = source,
+                cacheVariant = ocrSource.persistentCacheVariant,
+            ).forEach { (pageIndex, blocks) ->
+                blocksByPage[pageIndex] = blocks.map { it.toViewerBlock() }
+            }
+        }
+
+        if (ocrSource.usesMokuro) {
+            val mokuroData = mokuroChapterCache[chapterId] ?: if (
+                source.isLocal() ||
+                downloadProvider.findChapterDir(
+                    domainChapter.name,
+                    domainChapter.scanlator,
+                    domainChapter.url,
+                    manga.ogTitle,
+                    source,
+                ) != null
+            ) {
+                loadMokuroChapter(domainChapter, source)
+            } else {
+                null
+            }
+            if (mokuroData != null) {
+                for (pageIndex in 0 until totalPages) {
+                    if (pageIndex !in blocksByPage) {
+                        getMokuroBlocksForPage(mokuroData, pageIndex)?.let { blocks ->
+                            blocksByPage[pageIndex] = blocks
+                        }
+                    }
+                }
+            }
+        }
+
+        ocrCacheMutex.withLock {
+            for ((key, blocks) in ocrCache) {
+                if (key.chapterId == chapterId && key.ocrSource == ocrSource) {
+                    blocksByPage[key.pageIndex] = blocks
+                }
+            }
+        }
+
+        blocksByPage.entries
+            .sortedBy { it.key }
+            .mapNotNull { (pageIndex, blocks) ->
+                val texts = blocks.map { it.orderedDisplayText.trim() }.filter { it.isNotEmpty() }
+                if (texts.isEmpty()) null else OcrSearchPage(pageIndex = pageIndex, texts = texts)
+            }
+    }
+
     sealed interface Dialog {
         data object Loading : Dialog
         data object Settings : Dialog
@@ -2891,6 +2966,10 @@ class ReaderViewModel @JvmOverloads constructor(
         // SY -->
         data object ChapterList : Dialog
         // SY <--
+
+        // Chimahon -->
+        data object OcrSearch : Dialog
+        // Chimahon <--
 
         data class PageActions(
             val page: ReaderPage,

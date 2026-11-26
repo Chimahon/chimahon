@@ -96,6 +96,7 @@ import eu.kanade.domain.manga.model.readingMode
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.reader.ChapterListDialog
 import eu.kanade.presentation.reader.DisplayRefreshHost
+import eu.kanade.presentation.reader.OcrSearchDialog
 import eu.kanade.presentation.reader.OrientationSelectDialog
 import eu.kanade.presentation.reader.OcrRegionSelector
 import eu.kanade.presentation.reader.ReaderContentOverlay
@@ -691,6 +692,19 @@ class ReaderActivity : BaseActivity() {
                             viewModel.handleDownloadAction(chapter, action)
                         },
                         // KMK <--
+                    )
+                }
+
+                ReaderViewModel.Dialog.OcrSearch -> {
+                    OcrSearchDialog(
+                        onDismissRequest = onDismissRequest,
+                        totalPages = state.totalPages.coerceAtLeast(0),
+                        loadPages = viewModel::loadCurrentChapterOcrSearchPages,
+                        onSelectPage = { pageIndex ->
+                            onDismissRequest()
+                            viewModel.showMenus(false)
+                            moveToPageIndex(pageIndex)
+                        },
                     )
                 }
 
@@ -1616,6 +1630,7 @@ class ReaderActivity : BaseActivity() {
             mokuroAvailable = viewModel.isMokuroAvailable(),
             onToggleOcr = ::toggleOcrFromReader,
             onSelectOcrSource = ::selectOcrSourceFromReader,
+            onSearchOcr = viewModel::openOcrSearchDialog,
             onClickSettings = viewModel::openSettingsDialog,
             onClickMangaStats = viewModel::openMangaStatsSheet,
             // SY -->

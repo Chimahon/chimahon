@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -51,6 +52,7 @@ fun ReaderTopBar(
     mokuroAvailable: Boolean = false,
     onToggleOcr: (() -> Unit)? = null,
     onSelectOcrSource: (ReaderOcrSource) -> Unit = {},
+    onSearchOcr: (() -> Unit)? = null,
 ) {
     AppBar(
         modifier = modifier,
@@ -72,6 +74,15 @@ fun ReaderTopBar(
             AppBarActions(
                 actions = persistentListOf<AppBar.AppBarAction>().builder()
                     .apply {
+                        if (ocrEnabled && onSearchOcr != null) {
+                            add(
+                                AppBar.Action(
+                                    title = stringResource(MR.strings.action_search),
+                                    icon = Icons.Outlined.Search,
+                                    onClick = onSearchOcr,
+                                ),
+                            )
+                        }
                         add(
                             AppBar.Action(
                                 title = stringResource(
