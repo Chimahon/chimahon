@@ -10,6 +10,7 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
@@ -100,7 +101,14 @@ object DictionaryBackupManager {
             }
 
             val manifest = readManifest(tempZip)
-                ?: return ImportResult.Failure("No manifest.json found - not a dictionary backup")
+                ?: return if (isYomitanDictionaryZip(tempZip)) {
+                    ImportResult.Failure(
+                        "This is a standard Yomitan/Yomichan dictionary (index.json), not a backup. " +
+                            "Import dictionaries in Settings → Dictionary → Dictionaries.",
+                    )
+                } else {
+                    ImportResult.Failure("No manifest.json found - not a dictionary backup")
+                }
             if (manifest.format != FORMAT_VERSION) {
                 return ImportResult.Failure(
                     "Unsupported backup format (${manifest.format}). Expected $FORMAT_VERSION.",
@@ -155,6 +163,19 @@ object DictionaryBackupManager {
     }
 
     // ---- Internals --------------------------------------------------------
+
+    private fun isYomitanDictionaryZip(zipFile: File): Boolean = try {
+        ZipFile(zipFile).use { zip ->
+            zip.entries().asSequence().any { entry ->
+                !entry.isDirectory && (
+                    entry.name == "index.json" ||
+                        (entry.name.endsWith("/index.json") && entry.name.count { it == '/' } == 1)
+                    )
+            }
+        }
+    } catch (_: Exception) {
+        false
+    }
 
     private fun scanDictionaryEntries(dictionariesDir: File): List<DictionaryEntry> {
         if (!dictionariesDir.isDirectory) return emptyList()
