@@ -57,6 +57,7 @@ import eu.kanade.tachiyomi.animesource.model.SerializableHoster.Companion.serial
 import eu.kanade.tachiyomi.animesource.model.SerializableHoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.TimeStamp
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.data.cache.AnimeCoverCache
 import eu.kanade.tachiyomi.data.database.models.Episode
 import eu.kanade.tachiyomi.data.database.models.toDomainEpisode
 import eu.kanade.tachiyomi.data.download.DownloadManager
@@ -1029,6 +1030,14 @@ class PlayerViewModel @JvmOverloads constructor(
         }
     }
 
+
+    suspend fun loadCurrentAnimeCoverBytes(): ByteArray? = withIOContext {
+        val anime = currentAnime.value ?: return@withIOContext null
+        val animeCoverCache = Injekt.get<AnimeCoverCache>()
+        val coverFile = animeCoverCache.getCustomCoverFile(anime.id).takeIf { it.isFile }
+            ?: animeCoverCache.getCoverFile(anime.thumbnailUrl)?.takeIf { it.isFile }
+        coverFile?.let { runCatching { it.readBytes() }.getOrNull() }
+    }
     fun updateReadAhead(value: Long) {
         _readAhead.update { value.toFloat() }
     }

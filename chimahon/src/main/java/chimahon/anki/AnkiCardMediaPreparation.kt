@@ -17,6 +17,7 @@ internal data class PreparedDictionaryMedia(
 
 internal data class PreparedAnkiCardMedia(
     val screenshot: PreparedAnkiMediaPayload?,
+    val cover: PreparedAnkiMediaPayload? = null,
     val wordAudio: PreparedAnkiMediaPayload?,
     val dictionaryMedia: List<PreparedDictionaryMedia>,
     val sentenceAudio: AnkiSentenceAudioPreparation?,
@@ -24,6 +25,7 @@ internal data class PreparedAnkiCardMedia(
 
 internal data class CommittedAnkiCardMedia(
     val screenshotFilename: String?,
+    val coverFilename: String? = null,
     val wordAudioFilename: String?,
     val dictionaryReplacementByPlaceholder: Map<String, String>,
     val sentenceAudio: StoredSentenceAudio,
@@ -37,11 +39,15 @@ internal suspend fun commitPreparedAnkiCardMedia(
     prepared: PreparedAnkiCardMedia,
     storeBytes: suspend (filename: String, data: ByteArray) -> String,
     storeSentenceAudio: suspend (AnkiSentenceAudioSource) -> String,
+    storeCover: suspend (filename: String, data: ByteArray) -> String = storeBytes,
 ): CommittedAnkiCardMedia {
-    suspend fun storeOptional(payload: PreparedAnkiMediaPayload?): String? {
+    suspend fun storeOptional(
+        payload: PreparedAnkiMediaPayload?,
+        writer: suspend (String, ByteArray) -> String = storeBytes,
+    ): String? {
         if (payload == null) return null
         return try {
-            storeBytes(payload.filename, payload.data)
+            writer(payload.filename, payload.data)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -55,6 +61,7 @@ internal suspend fun commitPreparedAnkiCardMedia(
     }
     return CommittedAnkiCardMedia(
         screenshotFilename = storeOptional(prepared.screenshot),
+        coverFilename = storeOptional(prepared.cover, storeCover),
         wordAudioFilename = storeOptional(prepared.wordAudio),
         dictionaryReplacementByPlaceholder = dictionaryReplacements,
         sentenceAudio = AnkiSentenceAudioCommitter(storeSentenceAudio).store(prepared.sentenceAudio),

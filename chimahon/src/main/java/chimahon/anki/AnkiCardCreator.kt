@@ -1,6 +1,10 @@
 package chimahon.anki
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Build
+import java.io.ByteArrayOutputStream
 import chimahon.Cloze
 import chimahon.DictionaryRepository
 import chimahon.HoshiDicts
@@ -84,6 +88,7 @@ object Marker {
     const val PITCH_ACCENT_POSITIONS = "pitch-accent-positions"
     const val PITCH_ACCENT_CATEGORIES = "pitch-accent-categories"
     const val SCREENSHOT = "screenshot"
+    const val COVER = "cover"
     const val SEARCH_QUERY = "search-query"
     const val URL = "url"
     const val CHAPTER = "chapter"
@@ -107,7 +112,7 @@ object Marker {
 
     val ALL: List<String> = listOf(
         // Core/Common
-        EXPRESSION, READING, GLOSSARY, SENTENCE, SCREENSHOT, WORD_AUDIO, AUDIO,
+        EXPRESSION, READING, GLOSSARY, SENTENCE, SCREENSHOT, COVER, WORD_AUDIO, AUDIO,
         SELECTED_GLOSSARY, SELECTED_GLOSSARY_NO_FALLBACK, SINGLE_GLOSSARY,
 
         // Furigana
@@ -167,6 +172,7 @@ object Marker {
         MEDIA_NAME to listOf("media-name", "medianame", "book", "manga", "series", "title", "miscinfo", "document-title", "documenttitle"),
         SEARCH_QUERY to listOf("search-query", "query"),
         SCREENSHOT to listOf("screenshot"),
+        COVER to listOf("cover", "book-cover", "bookcover"),
         TAGS to listOf("tags", "tag"),
         PART_OF_SPEECH to listOf("part-of-speech", "pos", "part"),
         CONJUGATION to listOf("conjugation", "inflection"),
@@ -217,6 +223,7 @@ object AnkiCardCreator {
 
     private const val TAG = "AnkiCardCreator"
     private const val SCREENSHOT_MEDIA_PLACEHOLDER = "chimahon_screenshot_pending.webp"
+    private const val COVER_MEDIA_PLACEHOLDER = "chimahon_cover_pending.webp"
     private const val WORD_AUDIO_MEDIA_PLACEHOLDER = "chimahon_word_audio_pending.mp3"
     private const val SENTENCE_AUDIO_MEDIA_PLACEHOLDER = "chimahon_sentence_audio_pending.m4a"
     private val duplicateGate = AnkiDuplicateGate()
@@ -276,6 +283,7 @@ object AnkiCardCreator {
         offset: Int = -1,
         media: MediaInfo? = null,
         screenshotBytes: ByteArray? = null,
+        coverBytes: ByteArray? = null,
         sentenceAudioBytes: ByteArray? = null,
         sentenceAudioExtension: String = "m4a",
         glossaryIndex: Int? = null,
@@ -333,6 +341,7 @@ object AnkiCardCreator {
             }
             val hasSentenceAudioMarker = fieldMap.values.any { it.contains("{${Marker.SENTENCE_AUDIO}}") }
             val hasScreenshotMarker = fieldMap.values.any { it.contains("{${Marker.SCREENSHOT}}") }
+            val hasCoverMarker = fieldMap.values.any { it.contains("{${Marker.COVER}}") }
             val lockKey = "${dupScope.lowercase()}|${if (dupScope == "deck") effectiveDeck else ""}|${result.term.expression}"
             suspend fun duplicateDecision(): AnkiDuplicateDecision {
                 if (!dupCheck && !forceOpen) return AnkiDuplicateDecision.Insert
@@ -386,6 +395,7 @@ object AnkiCardCreator {
                     glossaryIndex,
                     styles,
                     exportMedia,
+                    coverFilename = COVER_MEDIA_PLACEHOLDER.takeIf { hasCoverMarker },
                 )
             }
             val tagsWithPlaceholders = withContext(Dispatchers.Default) {
@@ -405,12 +415,14 @@ object AnkiCardCreator {
                             popupSelection,
                             glossaryIndex,
                             styles, exportMedia,
+                            coverFilename = COVER_MEDIA_PLACEHOLDER.takeIf { hasCoverMarker },
                         )
                     }
             }
             val preparedMedia = PreparedAnkiCardMedia(
                 screenshot = screenshotBytes
                     ?.let { PreparedAnkiMediaPayload(generateScreenshotFilename(it), it) },
+                cover = if (hasCoverMarker && coverBytes != null) prepareCoverPayload(coverBytes) else null,
                 wordAudio = if (hasWordAudioMarker) prepareWordAudioPayload(result) else null,
                 dictionaryMedia = prepareDictionaryMedia(exportMedia),
                 sentenceAudio = sentenceAudioPreparation,
@@ -424,6 +436,7 @@ object AnkiCardCreator {
                     prepared = preparedMedia,
                     storeBytes = bridge::storeMedia,
                     storeSentenceAudio = bridge::storeMedia,
+                    storeCover = bridge::storeDeduplicatedMedia,
                 )
                 val fields = resolveMediaPlaceholders(
                     resolveDictionaryMediaPlaceholders(fieldsWithPlaceholders, committedMedia.dictionaryReplacementByPlaceholder),
@@ -610,8 +623,9 @@ object AnkiCardCreator {
         glossaryIndex: Int? = null,
         styles: List<DictionaryStyle> = emptyList(),
         exportMedia: ExportMediaContext? = null,
+        coverFilename: String? = null,
     ): Map<String, String> = fieldMap.mapValues { (_, template) ->
-        formatField(template, result, cloze, media, screenshotFilename, wordAudioFilename, sentenceAudioFilename, selectedDict, popupSelection, glossaryIndex, styles, exportMedia)
+        formatField(template, result, cloze, media, screenshotFilename, wordAudioFilename, sentenceAudioFilename, selectedDict, popupSelection, glossaryIndex, styles, exportMedia, coverFilename)
     }
 
     private fun formatField(
@@ -627,6 +641,7 @@ object AnkiCardCreator {
         glossaryIndex: Int?,
         styles: List<DictionaryStyle>,
         exportMedia: ExportMediaContext?,
+        coverFilename: String? = null,
     ): String {
         if (template.isBlank()) return ""
         return MARKER_PATTERN.replace(template) { match ->
@@ -643,6 +658,7 @@ object AnkiCardCreator {
                 glossaryIndex = glossaryIndex,
                 styles = styles,
                 exportMedia = exportMedia,
+                coverFilename = coverFilename,
             )
         }
     }
@@ -710,6 +726,7 @@ object AnkiCardCreator {
     ): String =
         value
             .resolveImagePlaceholder(SCREENSHOT_MEDIA_PLACEHOLDER, media.screenshotFilename)
+            .resolveImagePlaceholder(COVER_MEDIA_PLACEHOLDER, media.coverFilename)
             .resolveSoundPlaceholder(WORD_AUDIO_MEDIA_PLACEHOLDER, media.wordAudioFilename)
             .resolveSoundPlaceholder(SENTENCE_AUDIO_MEDIA_PLACEHOLDER, media.sentenceAudio.filename)
 
@@ -739,6 +756,46 @@ object AnkiCardCreator {
             System.currentTimeMillis().toString()
         }
         return "chimahon_dict_$hash.$extension"
+    }
+
+    private fun prepareCoverPayload(rawBytes: ByteArray): PreparedAnkiMediaPayload {
+        val encoded = try {
+            val decoded = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+            if (decoded != null) {
+                val maxDim = maxOf(decoded.width, decoded.height)
+                val scaled = if (maxDim > 400) {
+                    val scale = 400f / maxDim
+                    val targetW = (decoded.width * scale).toInt().coerceAtLeast(1)
+                    val targetH = (decoded.height * scale).toInt().coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(decoded, targetW, targetH, true).also {
+                        if (it !== decoded) decoded.recycle()
+                    }
+                } else {
+                    decoded
+                }
+                val out = ByteArrayOutputStream()
+                val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    Bitmap.CompressFormat.WEBP_LOSSY
+                } else {
+                    @Suppress("DEPRECATION")
+                    Bitmap.CompressFormat.WEBP
+                }
+                scaled.compress(format, 80, out)
+                scaled.recycle()
+                out.toByteArray().takeIf { it.isNotEmpty() } ?: rawBytes
+            } else {
+                rawBytes
+            }
+        } catch (_: Exception) {
+            rawBytes
+        }
+        val hash = try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(encoded)
+            digest.joinToString("") { "%02x".format(it) }.take(12)
+        } catch (_: Exception) {
+            System.currentTimeMillis().toString()
+        }
+        return PreparedAnkiMediaPayload("chimahon_cover_$hash.webp", encoded)
     }
 
     // =============================================================================
@@ -813,6 +870,7 @@ object AnkiCardCreator {
         glossaryIndex: Int? = null,
         styles: List<DictionaryStyle> = emptyList(),
         exportMedia: ExportMediaContext? = null,
+        coverFilename: String? = null,
     ): String = when (marker) {
         Marker.EXPRESSION -> escapeHtml(result.term.expression)
         Marker.READING -> escapeHtml(result.term.reading)
@@ -917,6 +975,7 @@ object AnkiCardCreator {
         Marker.MORAE -> buildMorae(result.term.reading)
         Marker.PITCH_ACCENT_GRAPHS, Marker.PITCH_ACCENT_GRAPHS_JJ -> buildPitchAccentGraphs(result.term.reading, result.term.pitches)
         Marker.SCREENSHOT -> screenshotFilename?.let { "<img src=\"$it\">" } ?: ""
+        Marker.COVER -> coverFilename?.let { "<img src=\"$it\">" } ?: ""
         Marker.SEARCH_QUERY -> escapeHtml(result.term.expression)
         Marker.URL -> ""
         Marker.MEDIA_NAME -> media?.mangaTitle?.let { escapeHtml(it) } ?: ""

@@ -226,6 +226,7 @@ internal fun PlayerVideoOcrOverlay(
                         chapterName = episode?.name.orEmpty(),
                     ),
                     onRequestAnimatedScene = { viewModel.captureVideoOcrAnimatedForAnki() },
+                    onRequestCover = viewModel::loadCurrentAnimeCoverBytes,
                     mediaRequest = mediaRequest,
                     onAnkiMediaWarnings = context::showPlayerAnkiMediaWarnings,
                     usePopup = false,

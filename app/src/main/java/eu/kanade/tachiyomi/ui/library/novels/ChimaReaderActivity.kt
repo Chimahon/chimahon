@@ -1,7 +1,9 @@
 package eu.kanade.tachiyomi.ui.library.novels
 
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Bundle
+import java.io.File
 import android.os.SystemClock
 import android.util.Log
 import chimahon.novel.data.BookStorage
@@ -543,6 +545,24 @@ class ChimaReaderActivity : NovelReaderActivity() {
                         { popupState.screenshot }
                     } else {
                         null
+                    },
+                    onRequestCover = {
+                        withContext(Dispatchers.IO) {
+                            val cover = bookMetadata?.cover?.takeIf { it.isNotBlank() }
+                            val rawFile = cover?.removePrefix("file://")?.let { path ->
+                                val f = File(path)
+                                if (f.isAbsolute) f else intent.getStringExtra("extra_book_dir")?.let { File(it, path) }
+                            }
+                            if (rawFile != null && rawFile.isFile) {
+                                runCatching { rawFile.readBytes() }.getOrNull()
+                            } else if (cover != null && cover.startsWith("content://")) {
+                                runCatching {
+                                    contentResolver.openInputStream(Uri.parse(cover))?.use { it.readBytes() }
+                                }.getOrNull()
+                            } else {
+                                null
+                            }
+                        }
                     },
                     onCropTriggered = null,
                     usePopup = false,

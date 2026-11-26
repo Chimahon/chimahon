@@ -108,6 +108,7 @@ import eu.kanade.presentation.reader.appbars.ReaderAppBars
 import eu.kanade.presentation.reader.settings.ReaderSettingsDialog
 import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.R
+import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.coil.TachiyomiImageDecoder
 import eu.kanade.tachiyomi.data.connections.discord.DiscordRPCService
 import eu.kanade.tachiyomi.data.connections.discord.ReaderData
@@ -196,6 +197,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlin.time.Duration.Companion.seconds
 import androidx.compose.ui.graphics.Color as ComposeColor
 
@@ -813,6 +815,19 @@ class ReaderActivity : BaseActivity() {
                         }
                     } else {
                         bitmap
+                    }
+                },
+                onRequestCover = {
+                    withContext(Dispatchers.IO) {
+                        val m = viewModel.state.value.manga ?: return@withContext null
+                        val coverCache = Injekt.get<CoverCache>()
+                        val customFile = coverCache.getCustomCoverFile(m.id).takeIf { it.isFile }
+                        val cacheFile = customFile
+                            ?: coverCache.getCoverFile(m.thumbnailUrl)?.takeIf { it.isFile }
+                        cacheFile?.let { runCatching { it.readBytes() }.getOrNull() }
+                            ?: m.thumbnailUrl?.removePrefix("file://")?.let { path ->
+                                File(path).takeIf { it.isFile }?.let { f -> runCatching { f.readBytes() }.getOrNull() }
+                            }
                     }
                 },
                 onCropTriggered = { noteId, glossaryIndex ->

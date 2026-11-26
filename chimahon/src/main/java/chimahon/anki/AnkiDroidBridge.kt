@@ -28,6 +28,7 @@ interface AnkiCardBridge {
     suspend fun addNote(deckName: String, modelName: String, fields: Map<String, String>, tags: List<String>): Long
     suspend fun updateNoteFields(noteId: Long, fields: Map<String, String>): Any?
     suspend fun storeMedia(filename: String, data: ByteArray): String
+    suspend fun storeDeduplicatedMedia(filename: String, data: ByteArray): String = storeMedia(filename, data)
     suspend fun storeMedia(source: AnkiSentenceAudioSource): String
     fun triggerSync()
 }
@@ -323,6 +324,31 @@ class AnkiDroidBridge(
 
     override suspend fun storeMedia(filename: String, data: ByteArray): String =
         withContext(Dispatchers.IO) {
+            saveMediaBytes(filename, data)
+        }
+
+    override suspend fun storeDeduplicatedMedia(filename: String, data: ByteArray): String =
+        withContext(Dispatchers.IO) {
+            val prefix = filename.substringBeforeLast('.')
+            if (prefix.isNotBlank() && hasPermission()) {
+                val extractRegex = Regex("${Regex.escape(prefix)}[^\"'<>\\s\\u001f]*")
+                try {
+                    context.contentResolver.query(
+                        notesV2Uri,
+                        arrayOf(NOTE_FLDS),
+                        "$NOTE_FLDS LIKE ?",
+                        arrayOf("%$prefix%"),
+                        null,
+                    )?.use { c ->
+                        if (c.moveToFirst()) {
+                            val match = extractRegex.find(c.getString(0).orEmpty())?.value
+                            if (!match.isNullOrBlank()) return@withContext match
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "storeDeduplicatedMedia lookup failed for $prefix", e)
+                }
+            }
             saveMediaBytes(filename, data)
         }
 

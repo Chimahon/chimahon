@@ -58,6 +58,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.text.style.TextOverflow
 import eu.kanade.domain.ui.UiPreferences
 import chimahon.DictionaryRepository
+import chimahon.anki.Marker
+import org.json.JSONObject
 import chimahon.KanjiEntry
 import chimahon.KanjiResult
 import chimahon.LookupResult
@@ -164,6 +166,7 @@ fun OcrLookupPopup(
     mediaInfo: MediaInfo? = null,
     screenshot: Bitmap? = null,
     onRequestScreenshot: (suspend () -> Bitmap?)? = null,
+    onRequestCover: (suspend () -> ByteArray?)? = null,
     onRequestAnimatedScene: (suspend () -> ByteArray?)? = null,
     onRequestSentenceAudio: (suspend () -> ByteArray?)? = null,
     mediaRequest: AnkiMediaRequest? = null,
@@ -678,27 +681,15 @@ fun OcrLookupPopup(
     val minShrinkWidthPx = with(density) { 160.dp.toPx() }
 
     val screenshotFieldMapped = remember(ankiFieldMap) {
-        try {
-            val fieldMap = org.json.JSONObject(ankiFieldMap)
-            fieldMap.keys().asSequence().any { key ->
-                val value = fieldMap.getString(key)
-                value.contains(chimahon.anki.Marker.SCREENSHOT)
-            }
-        } catch (e: Exception) {
-            false
-        }
+        hasAnkiFieldMarker(ankiFieldMap, Marker.SCREENSHOT)
+    }
+
+    val coverFieldMapped = remember(ankiFieldMap) {
+        hasAnkiFieldMarker(ankiFieldMap, Marker.COVER)
     }
 
     val sentenceAudioFieldMapped = remember(ankiFieldMap) {
-        try {
-            val fieldMap = org.json.JSONObject(ankiFieldMap)
-            fieldMap.keys().asSequence().any { key ->
-                val value = fieldMap.getString(key)
-                value.contains(chimahon.anki.Marker.SENTENCE_AUDIO)
-            }
-        } catch (e: Exception) {
-            false
-        }
+        hasAnkiFieldMarker(ankiFieldMap, Marker.SENTENCE_AUDIO)
     }
 
     fun performAnkiLookup(
@@ -756,6 +747,7 @@ fun OcrLookupPopup(
 
         if (shouldUseCropMode) {
             miningScope.launch {
+                val coverBytes = if (coverFieldMapped) onRequestCover?.invoke() else null
                 val sentenceAudioBytes = if (sentenceAudioFieldMapped && mediaRequest == null) {
                     onRequestSentenceAudio?.invoke()
                 } else {
@@ -774,6 +766,7 @@ fun OcrLookupPopup(
                     sentence = miningSentence,
                     offset = miningOffset,
                     media = mediaInfo,
+                    coverBytes = coverBytes,
                     sentenceAudioBytes = sentenceAudioBytes,
                     glossaryIndex = glossaryIndex,
                     selection = result.matched,
@@ -835,6 +828,7 @@ fun OcrLookupPopup(
                 } else {
                     encoding?.bytes
                 }
+                val coverBytes = if (coverFieldMapped) onRequestCover?.invoke() else null
                 val sentenceAudioBytes = if (sentenceAudioFieldMapped && mediaRequest == null) {
                     onRequestSentenceAudio?.invoke()
                 } else {
@@ -855,6 +849,7 @@ fun OcrLookupPopup(
                     media = mediaInfo,
                     glossaryIndex = glossaryIndex,
                     screenshotBytes = screenshotBytes,
+                    coverBytes = coverBytes,
                     sentenceAudioBytes = sentenceAudioBytes,
                     selection = result.matched,
                     selectedDict = selectedDict,
@@ -1849,6 +1844,7 @@ fun OcrLookupPopup(
             mediaInfo = mediaInfo,
             screenshot = screenshot,
             onRequestScreenshot = onRequestScreenshot,
+            onRequestCover = onRequestCover,
             onRequestSentenceAudio = onRequestSentenceAudio,
             mediaRequest = mediaRequest,
             onAnkiMediaWarnings = onAnkiMediaWarnings,
@@ -1861,5 +1857,16 @@ fun OcrLookupPopup(
             isRecursiveChild = true,
             titleId = titleId,
         )
+    }
+}
+
+private fun hasAnkiFieldMarker(fieldMapJson: String, marker: String): Boolean {
+    return try {
+        val fieldMap = JSONObject(fieldMapJson)
+        fieldMap.keys().asSequence().any { key ->
+            fieldMap.getString(key).contains(marker)
+        }
+    } catch (_: Exception) {
+        false
     }
 }
