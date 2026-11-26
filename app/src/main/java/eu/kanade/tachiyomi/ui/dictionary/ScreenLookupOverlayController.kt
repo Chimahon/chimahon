@@ -331,6 +331,7 @@ internal fun ScreenLookupOverlay(
             activeMatchOffset = matchOffset,
             selection = selection,
             onBlockTapped = { tapped, tapX, tapY ->
+                val lineHit = tapped.screenLookupLineHit(tapX, tapY, widthPx, heightPx)
                 val charOffset = tapped.toOrderedOffset(tapped.screenLookupCharOffset(tapX, tapY, widthPx, heightPx))
                 val text = tapped.orderedFullText
                 if (selection?.block == tapped && selection?.sentenceOffset == charOffset) {
@@ -341,6 +342,11 @@ internal fun ScreenLookupOverlay(
                 } else if (charOffset in text.indices && isLookupStartChar(text[charOffset])) {
                     val lookupString = extractOcrLookupString(text, charOffset)
                     if (lookupString.isNotBlank()) {
+                        val anchorGeo = lineHit?.let { tapped.lineGeometries?.getOrNull(it.value) }
+                        val anchorMinX = anchorGeo?.xmin ?: tapped.xmin
+                        val anchorMinY = anchorGeo?.ymin ?: tapped.ymin
+                        val anchorMaxX = anchorGeo?.xmax ?: tapped.xmax
+                        val anchorMaxY = anchorGeo?.ymax ?: tapped.ymax
                         lookupNonce++
                         showTapHint = false
                         matchedCharCount = 0
@@ -350,10 +356,10 @@ internal fun ScreenLookupOverlay(
                             lookupString = lookupString,
                             sentence = text,
                             sentenceOffset = charOffset,
-                            anchorX = tapped.xmin * widthPx,
-                            anchorY = tapped.ymin * heightPx,
-                            anchorWidth = (tapped.xmax - tapped.xmin) * widthPx,
-                            anchorHeight = (tapped.ymax - tapped.ymin) * heightPx,
+                            anchorX = anchorMinX * widthPx,
+                            anchorY = anchorMinY * heightPx,
+                            anchorWidth = (anchorMaxX - anchorMinX) * widthPx,
+                            anchorHeight = (anchorMaxY - anchorMinY) * heightPx,
                         )
                     } else {
                         selection = null

@@ -18,6 +18,8 @@ class DictionaryPreferences(
     fun popupHeight() = preferenceStore.getInt("pref_dictionary_popup_height", 360)
 
     fun popupMode() = preferenceStore.getString("pref_dictionary_popup_mode", "floating")
+    fun popupAvoidCoveringText() = preferenceStore.getBoolean("pref_dictionary_popup_avoid_covering", true)
+    fun popupGap() = preferenceStore.getInt("pref_dictionary_popup_gap", 8)
     fun fontSize() = preferenceStore.getInt("pref_dictionary_font_size", 16)
     fun fontFamily() = preferenceStore.getString("pref_dictionary_font_family", "")
 

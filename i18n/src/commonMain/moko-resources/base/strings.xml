@@ -411,6 +411,9 @@
     <string name="pref_dict_recursive_mode_popup">Popup</string>
     <string name="pref_dict_popup_swipe_to_dismiss">Swipe to dismiss popup</string>
     <string name="pref_dict_popup_swipe_threshold">Swipe-to-dismiss distance</string>
+    <string name="pref_dict_popup_avoid_covering">Avoid covering selected text</string>
+    <string name="pref_dict_popup_avoid_covering_summary">Shrink popup size when needed so it stays clear of the tapped word</string>
+    <string name="pref_dict_popup_gap">Popup offset from text</string>
     <string name="pref_dict_korean_parser">Korean parser</string>
     <string name="pref_dict_korean_parser_summary">Choose the parser used for Korean dictionary lookups</string>
     <string name="pref_dict_korean_parser_legacy">Legacy parser</string>

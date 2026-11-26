@@ -603,6 +603,9 @@ object SettingsDictionaryScreen : SearchableSettings {
         val heightPref = dictionaryPreferences.popupHeight()
         val height by heightPref.collectAsState()
 
+        val popupGapPref = dictionaryPreferences.popupGap()
+        val popupGap by popupGapPref.collectAsState()
+
         val popupSwipeThresholdPref = dictionaryPreferences.popupSwipeThreshold()
         val popupSwipeThreshold by popupSwipeThresholdPref.collectAsState()
         val popupSwipeToDismiss by dictionaryPreferences.popupSwipeToDismiss().collectAsState()
@@ -673,6 +676,23 @@ object SettingsDictionaryScreen : SearchableSettings {
                         "full_height" to "Full-height",
                     ).associate { it.first to it.second }.toPersistentMap(),
                     title = "Popup mode",
+                ),
+            )
+            add(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = dictionaryPreferences.popupAvoidCoveringText(),
+                    title = stringResource(MR.strings.pref_dict_popup_avoid_covering),
+                    subtitle = stringResource(MR.strings.pref_dict_popup_avoid_covering_summary),
+                ),
+            )
+            add(
+                Preference.PreferenceItem.SliderPreference(
+                    value = popupGap,
+                    title = stringResource(MR.strings.pref_dict_popup_gap),
+                    subtitle = "${popupGap}dp",
+                    valueRange = 0..48 step 2,
+                    steps = 23,
+                    onValueChanged = { popupGapPref.set(it) },
                 ),
             )
             add(

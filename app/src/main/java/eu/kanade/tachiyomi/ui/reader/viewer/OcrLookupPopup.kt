@@ -295,6 +295,8 @@ fun OcrLookupPopup(
     val popupWidthPref by dictionaryPreferences.popupWidth().collectAsState()
     val popupHeightPref by dictionaryPreferences.popupHeight().collectAsState()
     val popupModePref by dictionaryPreferences.popupMode().collectAsState()
+    val popupGapPref by dictionaryPreferences.popupGap().collectAsState()
+    val avoidCoveringText by dictionaryPreferences.popupAvoidCoveringText().collectAsState()
     val popupFontSizePref by dictionaryPreferences.fontSize().collectAsState()
     val compactGlossary by dictionaryPreferences.compactGlossary().collectAsState()
     val compactTags by dictionaryPreferences.compactTags().collectAsState()
@@ -671,7 +673,9 @@ fun OcrLookupPopup(
     val popupHeightPx = with(density) { maxHeightDp.toPx() }
 
     val paddingPx = with(density) { 8.dp.toPx() }
-    val gapPx = with(density) { 8.dp.toPx() }
+    val gapPx = with(density) { popupGapPref.coerceIn(0, 48).dp.toPx() }
+    val minShrinkHeightPx = with(density) { 140.dp.toPx() }
+    val minShrinkWidthPx = with(density) { 160.dp.toPx() }
 
     val screenshotFieldMapped = remember(ankiFieldMap) {
         try {
@@ -915,98 +919,214 @@ fun OcrLookupPopup(
     val layoutResult = remember(
         anchorX, anchorY, anchorWidth, anchorHeight,
         screenWidthPx, screenHeightPx, popupWidthPx, popupHeightPx, isVertical, popupModePref,
-        isRecursiveChild,
+        gapPx, avoidCoveringText, isRecursiveChild,
     ) {
         val w: Float
         val h: Float
         val bestX: Float
         val bestY: Float
+        val hasAnchor = anchorWidth > 0f && anchorHeight > 0f
 
         when (if (isRecursiveChild) "floating" else popupModePref) {
             "full_width" -> {
                 w = screenWidthPx
-                h = minOf(popupHeightPx, screenHeightPx)
                 bestX = 0f
-                val expH = anchorHeight
-                val bottomY = screenHeightPx - h
-                val overlapsWord = anchorWidth > 0f && anchorHeight > 0f &&
-                    bottomY < anchorY + expH
-                bestY = if (overlapsWord) 0f else bottomY
+                val preferredH = minOf(popupHeightPx, screenHeightPx)
+                if (avoidCoveringText && hasAnchor) {
+                    val spaceAbove = (anchorY - gapPx).coerceAtLeast(0f)
+                    val spaceBelow = (screenHeightPx - (anchorY + anchorHeight) - gapPx).coerceAtLeast(0f)
+                    when {
+                        spaceBelow >= preferredH -> {
+                            h = preferredH
+                            bestY = screenHeightPx - h
+                        }
+                        spaceAbove >= preferredH -> {
+                            h = preferredH
+                            bestY = 0f
+                        }
+                        maxOf(spaceBelow, spaceAbove) >= minShrinkHeightPx -> {
+                            if (spaceBelow >= spaceAbove) {
+                                h = minOf(preferredH, spaceBelow)
+                                bestY = screenHeightPx - h
+                            } else {
+                                h = minOf(preferredH, spaceAbove)
+                                bestY = 0f
+                            }
+                        }
+                        else -> {
+                            h = preferredH
+                            bestY = if (spaceBelow >= spaceAbove) screenHeightPx - h else 0f
+                        }
+                    }
+                } else {
+                    h = preferredH
+                    val expH = anchorHeight
+                    val bottomY = screenHeightPx - h
+                    val overlapsWord = hasAnchor && bottomY < anchorY + expH
+                    bestY = if (overlapsWord) 0f else bottomY
+                }
             }
             "full_height" -> {
-                w = minOf(popupWidthPx, screenWidthPx * 0.5f, screenWidthPx - paddingPx * 2)
-                h = screenHeightPx - paddingPx * 2
-                val acx = anchorX + anchorWidth / 2f
+                h = (screenHeightPx - paddingPx * 2).coerceAtLeast(0f)
                 bestY = paddingPx
-                bestX = if (acx < screenWidthPx / 2f) {
-                    (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx)
+                val baseW = minOf(popupWidthPx, screenWidthPx * 0.5f, screenWidthPx - paddingPx * 2).coerceAtLeast(0f)
+                val acx = anchorX + anchorWidth / 2f
+                if (avoidCoveringText && hasAnchor) {
+                    val spaceLeft = (anchorX - paddingPx - gapPx).coerceAtLeast(0f)
+                    val spaceRight = (screenWidthPx - (anchorX + anchorWidth) - paddingPx - gapPx).coerceAtLeast(0f)
+                    val preferRight = acx < screenWidthPx / 2f
+                    val placeRight = if (preferRight) {
+                        spaceRight >= baseW || spaceRight >= spaceLeft
+                    } else {
+                        spaceLeft < baseW && spaceRight > spaceLeft
+                    }
+                    val chosenSpace = if (placeRight) spaceRight else spaceLeft
+                    w = if (chosenSpace >= baseW) {
+                        baseW
+                    } else if (chosenSpace >= minShrinkWidthPx) {
+                        minOf(baseW, chosenSpace)
+                    } else {
+                        baseW
+                    }
+                    bestX = if (placeRight) {
+                        (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx)
+                    } else {
+                        paddingPx
+                    }
                 } else {
-                    paddingPx
+                    w = baseW
+                    bestX = if (acx < screenWidthPx / 2f) {
+                        (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx)
+                    } else {
+                        paddingPx
+                    }
                 }
             }
             else -> {
-            w = minOf(popupWidthPx, screenWidthPx)
-            h = minOf(popupHeightPx, screenHeightPx)
+                val prefW = minOf(popupWidthPx, screenWidthPx)
+                val prefH = minOf(popupHeightPx, screenHeightPx)
 
-            val ax = anchorX
-            val ay = anchorY
-            val aw = anchorWidth
-            val ah = anchorHeight
-            val acx = ax + aw / 2f
-            val acy = ay + ah / 2f
+                val ax = anchorX
+                val ay = anchorY
+                val aw = anchorWidth
+                val ah = anchorHeight
+                val acx = ax + aw / 2f
+                val acy = ay + ah / 2f
 
-            val expW = maxOf(aw, 1f)
-            val expH = maxOf(ah, 1f)
+                val expW = maxOf(aw, 1f)
+                val expH = maxOf(ah, 1f)
 
-            // 4 candidate positions (top-left corner of popup)
-            data class Pos(val x: Float, val y: Float)
+                // 4 candidate positions (top-left corner of popup)
+                data class Pos(val x: Float, val y: Float)
 
-            val right  = Pos(ax + expW + gapPx, acy - h / 2f) // Right of full term
-            val left   = Pos(ax - w - gapPx, acy - h / 2f) // Left of anchor
-            val below  = Pos(acx - w / 2f, ay + expH + gapPx) // Below full term
-            val above  = Pos(acx - w / 2f, ay - h - gapPx) // Above anchor
+                val right = Pos(ax + expW + gapPx, acy - prefH / 2f) // Right of full term
+                val left = Pos(ax - prefW - gapPx, acy - prefH / 2f) // Left of anchor
+                val below = Pos(acx - prefW / 2f, ay + expH + gapPx) // Below full term
+                val above = Pos(acx - prefW / 2f, ay - prefH - gapPx) // Above anchor
 
-            val all = listOf(right, left, below, above)
+                val all = listOf(right, left, below, above)
 
-            // Priority order: 0=Right, 1=Left, 2=Below, 3=Above
-            val order = if (isRecursiveChild) {
-                if (acy < screenHeightPx / 2f) listOf(2, 3, 0, 1) else listOf(3, 2, 0, 1)
-            } else if (isVertical) {
-                if (acx < screenWidthPx / 2f) listOf(0, 1, 2, 3) else listOf(1, 0, 2, 3)
-            } else {
-                if (acy < screenHeightPx / 2f) listOf(2, 3, 0, 1) else listOf(3, 2, 0, 1)
-            }
-
-            var bx = paddingPx
-            var by = paddingPx
-            var found = false
-
-            for (idx in order) {
-                val p = all[idx]
-                val maxCx = (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx)
-                val maxCy = (screenHeightPx - h - paddingPx).coerceAtLeast(paddingPx)
-                val cx = p.x.coerceIn(paddingPx, maxCx)
-                val cy = p.y.coerceIn(paddingPx, maxCy)
-
-                val overlaps = cx < ax + expW && cx + w > ax &&
-                    cy < ay + expH && cy + h > ay
-
-                if (!overlaps) {
-                    bx = cx
-                    by = cy
-                    found = true
-                    break
+                // Priority order: 0=Right, 1=Left, 2=Below, 3=Above
+                val order = if (isRecursiveChild) {
+                    if (acy < screenHeightPx / 2f) listOf(2, 3, 0, 1) else listOf(3, 2, 0, 1)
+                } else if (isVertical) {
+                    if (acx < screenWidthPx / 2f) listOf(0, 1, 2, 3) else listOf(1, 0, 2, 3)
+                } else {
+                    if (acy < screenHeightPx / 2f) listOf(2, 3, 0, 1) else listOf(3, 2, 0, 1)
                 }
-            }
 
-            if (!found) {
-                val pref = all[order[0]]
-                bestX = pref.x.coerceIn(paddingPx, (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx))
-                bestY = pref.y.coerceIn(paddingPx, (screenHeightPx - h - paddingPx).coerceAtLeast(paddingPx))
-            } else {
-                bestX = bx
-                bestY = by
-            }
+                var bx = paddingPx
+                var by = paddingPx
+                var found = false
+
+                for (idx in order) {
+                    val p = all[idx]
+                    val maxCx = (screenWidthPx - prefW - paddingPx).coerceAtLeast(paddingPx)
+                    val maxCy = (screenHeightPx - prefH - paddingPx).coerceAtLeast(paddingPx)
+                    val cx = p.x.coerceIn(paddingPx, maxCx)
+                    val cy = p.y.coerceIn(paddingPx, maxCy)
+
+                    val overlaps = cx < ax + expW && cx + prefW > ax &&
+                        cy < ay + expH && cy + prefH > ay
+
+                    if (!overlaps) {
+                        bx = cx
+                        by = cy
+                        found = true
+                        break
+                    }
+                }
+
+                if (found) {
+                    w = prefW
+                    h = prefH
+                    bestX = bx
+                    bestY = by
+                } else if (avoidCoveringText && hasAnchor) {
+                    val spaceRight = (screenWidthPx - (ax + expW) - gapPx - paddingPx).coerceAtLeast(0f)
+                    val spaceLeft = (ax - gapPx - paddingPx).coerceAtLeast(0f)
+                    val spaceBelow = (screenHeightPx - (ay + expH) - gapPx - paddingPx).coerceAtLeast(0f)
+                    val spaceAbove = (ay - gapPx - paddingPx).coerceAtLeast(0f)
+
+                    fun tryVerticalShrink(): PopupLayoutResult? {
+                        val useBelow = spaceBelow >= spaceAbove
+                        val avail = if (useBelow) spaceBelow else spaceAbove
+                        if (avail < minShrinkHeightPx) return null
+                        val fitW = prefW
+                        val fitH = minOf(prefH, avail)
+                        val maxX = (screenWidthPx - fitW - paddingPx).coerceAtLeast(paddingPx)
+                        val maxY = (screenHeightPx - fitH - paddingPx).coerceAtLeast(paddingPx)
+                        val fitX = (acx - fitW / 2f).coerceIn(paddingPx, maxX)
+                        val fitY = if (useBelow) {
+                            (ay + expH + gapPx).coerceIn(paddingPx, maxY)
+                        } else {
+                            (ay - gapPx - fitH).coerceIn(paddingPx, maxY)
+                        }
+                        return PopupLayoutResult(fitX, fitY, fitW, fitH)
+                    }
+
+                    fun tryHorizontalShrink(): PopupLayoutResult? {
+                        val useRight = spaceRight >= spaceLeft
+                        val avail = if (useRight) spaceRight else spaceLeft
+                        if (avail < minShrinkWidthPx) return null
+                        val fitW = minOf(prefW, avail)
+                        val fitH = prefH
+                        val maxX = (screenWidthPx - fitW - paddingPx).coerceAtLeast(paddingPx)
+                        val maxY = (screenHeightPx - fitH - paddingPx).coerceAtLeast(paddingPx)
+                        val fitX = if (useRight) {
+                            (ax + expW + gapPx).coerceIn(paddingPx, maxX)
+                        } else {
+                            (ax - gapPx - fitW).coerceIn(paddingPx, maxX)
+                        }
+                        val fitY = (acy - fitH / 2f).coerceIn(paddingPx, maxY)
+                        return PopupLayoutResult(fitX, fitY, fitW, fitH)
+                    }
+
+                    val shrunk = if (isVertical && !isRecursiveChild) {
+                        tryHorizontalShrink() ?: tryVerticalShrink()
+                    } else {
+                        tryVerticalShrink() ?: tryHorizontalShrink()
+                    }
+
+                    if (shrunk != null) {
+                        w = shrunk.widthPx
+                        h = shrunk.heightPx
+                        bestX = shrunk.x
+                        bestY = shrunk.y
+                    } else {
+                        w = prefW
+                        h = prefH
+                        val pref = all[order[0]]
+                        bestX = pref.x.coerceIn(paddingPx, (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx))
+                        bestY = pref.y.coerceIn(paddingPx, (screenHeightPx - h - paddingPx).coerceAtLeast(paddingPx))
+                    }
+                } else {
+                    w = prefW
+                    h = prefH
+                    val pref = all[order[0]]
+                    bestX = pref.x.coerceIn(paddingPx, (screenWidthPx - w - paddingPx).coerceAtLeast(paddingPx))
+                    bestY = pref.y.coerceIn(paddingPx, (screenHeightPx - h - paddingPx).coerceAtLeast(paddingPx))
+                }
             }
         }
 
