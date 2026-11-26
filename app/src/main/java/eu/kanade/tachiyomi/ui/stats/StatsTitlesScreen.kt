@@ -11,7 +11,11 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import chimahon.novel.interactor.GetLibraryNovels
 import chimahon.novel.interactor.GetReadNovelNotInLibraryView
+import com.canopus.chimareader.data.AnimeStatsStorage
 import com.canopus.chimareader.data.MangaStatsStorage
+import tachiyomi.domain.entries.anime.interactor.GetLibraryAnime
+import tachiyomi.domain.entries.anime.model.Anime
+import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.more.stats.StatsTitlesContent
 import eu.kanade.presentation.more.stats.data.StatsType
@@ -74,6 +78,8 @@ data class StatsTitleItem(
     val readDurationMs: Long,
     val charactersRead: Int,
     val manga: Manga? = null,
+    val anime: Anime? = null,
+    val isAnime: Boolean = false,
     val novelId: String? = null,
     val dateAdded: Long = 0L,
 )
@@ -91,6 +97,8 @@ class StatsTitlesScreenModel(
     private val novelReadingStatsRepository: tachiyomi.domain.novel.repository.NovelReadingStatsRepository = Injekt.get(),
     private val getLibraryNovels: GetLibraryNovels = Injekt.get(),
     private val getReadNovelNotInLibraryView: GetReadNovelNotInLibraryView = Injekt.get(),
+    private val getLibraryAnime: GetLibraryAnime = Injekt.get(),
+    private val animeSourceManager: AnimeSourceManager = Injekt.get(),
 ) : StateScreenModel<StatsTitlesState>(StatsTitlesState.Loading) {
 
     private var rawTitles = emptyList<StatsTitleItem>()
@@ -255,6 +263,45 @@ class StatsTitlesScreenModel(
                 )
             }
 
+            // Process Anime
+            if (statsType == StatsType.All || statsType == StatsType.Anime) {
+                val animeList = getLibraryAnime.await().distinctBy { it.id }.filter { la ->
+                    val dbAnime = la.anime
+                    val source = animeSourceManager.getOrStub(dbAnime.source)
+                    val profileId = resolver.resolve(
+                        animeId = la.id,
+                        sourceId = dbAnime.source,
+                        sourceLang = source.lang,
+                    ).id
+                    activeProfileId == null || profileId == activeProfileId
+                }.map { it.anime }
+                val animeStatsGrouped = AnimeStatsStorage.loadAll(context).groupBy { it.animeId }
+
+                animeList.forEach { anime ->
+                    val stats = animeStatsGrouped[anime.id] ?: emptyList()
+                    val totalDuration = stats.sumOf { it.watchTime }
+                    val lastWatched = stats.mapNotNull {
+                        runCatching { LocalDate.parse(it.dateKey) }.getOrNull()
+                    }.maxOrNull()
+
+                    titleItems.add(
+                        StatsTitleItem(
+                            id = anime.id.toString(),
+                            title = anime.title,
+                            author = anime.author,
+                            coverData = anime,
+                            isNovel = false,
+                            isAnime = true,
+                            lastReadDate = lastWatched,
+                            readDurationMs = totalDuration,
+                            charactersRead = 0,
+                            anime = anime,
+                            dateAdded = anime.dateAdded,
+                        ),
+                    )
+                }
+            }
+
             rawTitles = titleItems
         }
     }
@@ -350,6 +397,7 @@ class StatsTitlesScreen(
                                 StatsScreen(
                                     titleId = item.id,
                                     isNovel = item.isNovel,
+                                    isAnime = item.isAnime,
                                     titleName = item.title,
                                 )
                             )

@@ -28,6 +28,7 @@ import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
 import android.media.AudioManager
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.inputmethod.InputMethodManager
@@ -40,6 +41,7 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import dev.icerock.moko.resources.StringResource
+import com.canopus.chimareader.data.AnimeStatsStorage
 import eu.kanade.domain.entries.anime.interactor.SetAnimeViewerFlags
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.source.anime.interactor.GetAnimeIncognitoState
@@ -255,6 +257,10 @@ class PlayerViewModel @JvmOverloads constructor(
     val activeSubtitleCueIndex = _activeSubtitleCueIndex.asStateFlow()
     private val subtitleJson = Json { ignoreUnknownKeys = true }
     private var lastAutoJimakuKey: String? = null
+    private var lastWatchTickMs: Long = 0L
+    private var pendingWatchTimeMs: Long = 0L
+    private var pendingWatchAnimeId: Long = 0L
+    private val watchStatsLock = Any()
 
     private val _audioTracks = MutableStateFlow<List<VideoTrack>>(emptyList())
     val audioTracks = _audioTracks.asStateFlow()
@@ -1023,6 +1029,7 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun updatePlayBackPos(pos: Float) {
         onSecondReached(pos.toInt(), duration.value.toInt())
+        recordAnimeWatchTick()
         val previousSecond = _pos.value.toInt()
         _pos.update { pos }
         if (panelShown.value == Panels.SubtitleSideList) {
@@ -1030,6 +1037,55 @@ class PlayerViewModel @JvmOverloads constructor(
         }
     }
 
+    private fun recordAnimeWatchTick() {
+        val animeId = currentAnime.value?.id ?: 0L
+        if (paused.value || incognitoMode || animeId <= 0L) {
+            flushAnimeWatchStats()
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        var shouldFlush = false
+        synchronized(watchStatsLock) {
+            if (pendingWatchAnimeId != 0L && pendingWatchAnimeId != animeId) {
+                shouldFlush = true
+            } else {
+                if (lastWatchTickMs > 0L) {
+                    val delta = now - lastWatchTickMs
+                    if (delta in 1L..5_000L) {
+                        pendingWatchTimeMs += delta
+                    }
+                }
+                lastWatchTickMs = now
+                pendingWatchAnimeId = animeId
+                if (pendingWatchTimeMs >= 15_000L) {
+                    shouldFlush = true
+                }
+            }
+        }
+        if (shouldFlush) {
+            flushAnimeWatchStats()
+            synchronized(watchStatsLock) {
+                lastWatchTickMs = now
+                pendingWatchAnimeId = animeId
+            }
+        }
+    }
+
+    private fun flushAnimeWatchStats() {
+        val toFlushMs: Long
+        val animeId: Long
+        synchronized(watchStatsLock) {
+            toFlushMs = pendingWatchTimeMs
+            animeId = pendingWatchAnimeId
+            pendingWatchTimeMs = 0L
+            lastWatchTickMs = 0L
+        }
+        if (toFlushMs < 1_000L || animeId <= 0L) return
+        val appContext = activity.applicationContext
+        viewModelScope.launchNonCancellable {
+            AnimeStatsStorage.addStats(appContext, toFlushMs, animeId)
+        }
+    }
 
     suspend fun loadCurrentAnimeCoverBytes(): ByteArray? = withIOContext {
         val anime = currentAnime.value ?: return@withIOContext null
@@ -1038,6 +1094,7 @@ class PlayerViewModel @JvmOverloads constructor(
             ?: animeCoverCache.getCoverFile(anime.thumbnailUrl)?.takeIf { it.isFile }
         coverFile?.let { runCatching { it.readBytes() }.getOrNull() }
     }
+
     fun updateReadAhead(value: Long) {
         _readAhead.update { value.toFloat() }
     }
@@ -1069,6 +1126,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun pause() {
+        flushAnimeWatchStats()
         activity.player.paused = true
         _paused.update { true }
         runCatching {
@@ -1079,6 +1137,9 @@ class PlayerViewModel @JvmOverloads constructor(
     fun unpause() {
         restartIfAtEnd()
         clearEndOfFileState()
+        synchronized(watchStatsLock) {
+            lastWatchTickMs = 0L
+        }
         activity.player.paused = false
         _paused.update { false }
     }
@@ -1564,6 +1625,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        flushAnimeWatchStats()
         if (currentEpisode.value != null) {
             saveWatchingProgress(currentEpisode.value!!)
             episodeToDownload?.let {
@@ -2019,6 +2081,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun loadStandaloneVideo(video: Video) {
+        flushAnimeWatchStats()
         currentHosterList = null
         qualityIndex = Pair(-1, -1)
 

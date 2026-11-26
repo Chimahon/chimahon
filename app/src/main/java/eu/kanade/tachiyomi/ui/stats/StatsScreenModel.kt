@@ -9,6 +9,8 @@ import chimahon.novel.data.Statistics
 import chimahon.novel.interactor.GetLibraryNovels
 import chimahon.novel.interactor.GetReadNovelNotInLibraryView
 import chimahon.anki.AnkiProfile
+import com.canopus.chimareader.data.AnimeStats
+import com.canopus.chimareader.data.AnimeStatsStorage
 import eu.kanade.core.util.fastCountNot
 import eu.kanade.presentation.more.stats.StatsDateScale
 import eu.kanade.presentation.more.stats.StatsScreenState
@@ -34,6 +36,11 @@ import tachiyomi.domain.library.model.LibraryManga
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.interactor.GetLibraryManga
 import tachiyomi.domain.manga.interactor.GetReadMangaNotInLibraryView
+import tachiyomi.domain.entries.anime.interactor.GetLibraryAnime
+import tachiyomi.domain.entries.anime.model.Anime as DomainAnime
+import tachiyomi.domain.library.model.LibraryAnime
+import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.source.local.entries.anime.isLocal as isLocalAnime
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.domain.track.model.Track
 import tachiyomi.source.local.isLocal
@@ -51,9 +58,11 @@ import java.util.Locale
 class StatsScreenModel(
     val titleId: String? = null,
     val isNovel: Boolean = false,
+    val isAnime: Boolean = false,
     val titleName: String? = null,
     private val downloadManager: DownloadManager = Injekt.get(),
     private val getLibraryManga: GetLibraryManga = Injekt.get(),
+    private val getLibraryAnime: GetLibraryAnime = Injekt.get(),
     private val getTotalReadDuration: GetTotalReadDuration = Injekt.get(),
     private val getAllHistory: GetAllHistory = Injekt.get(),
     private val historyRepository: HistoryRepository = Injekt.get(),
@@ -64,6 +73,7 @@ class StatsScreenModel(
     private val context: Application = Injekt.get(),
     private val dictionaryPreferences: DictionaryPreferences = Injekt.get(),
     private val sourceManager: SourceManager = Injekt.get(),
+    private val animeSourceManager: AnimeSourceManager = Injekt.get(),
     private val novelRepository: tachiyomi.domain.novel.repository.NovelRepository = Injekt.get(),
     private val novelReadingStatsRepository: tachiyomi.domain.novel.repository.NovelReadingStatsRepository = Injekt.get(),
     private val getLibraryNovels: GetLibraryNovels = Injekt.get(),
@@ -124,7 +134,7 @@ class StatsScreenModel(
             val activeProfileId = tuple.activeProfileId
 
             val libraryManga = if (titleId != null) {
-                if (!isNovel) {
+                if (!isNovel && !isAnime) {
                     val lm = getLibraryManga.await().find { it.id.toString() == titleId }
                         ?: getReadMangaNotInLibraryView.await().find { it.id.toString() == titleId }
                     if (lm != null) listOf(lm) else emptyList()
@@ -140,6 +150,18 @@ class StatsScreenModel(
             }
 
             val distinctLibraryManga = libraryManga.fastDistinctBy { it.id }
+
+            val libraryAnimeList = if (titleId != null) {
+                if (isAnime) {
+                    getLibraryAnime.await().filter { it.id.toString() == titleId }
+                } else {
+                    emptyList()
+                }
+            } else if (statsType == StatsType.All || statsType == StatsType.Anime) {
+                getLibraryAnime.await().fastDistinctBy { it.id }
+            } else {
+                emptyList()
+            }
             
             val profilesList = dictionaryPreferences.profileStore.getProfiles()
             _profiles.value = profilesList
@@ -167,12 +189,31 @@ class StatsScreenModel(
             val filteredLibraryManga = when (statsType) {
                 StatsType.All -> profileFilteredLibraryManga
                 StatsType.Manga -> profileFilteredLibraryManga
-                StatsType.Novels -> emptyList()
+                StatsType.Novels, StatsType.Anime -> emptyList()
+            }
+
+            val animeProfileMap = libraryAnimeList.associate { la ->
+                val dbAnime = la.anime
+                val source = animeSourceManager.getOrStub(dbAnime.source)
+                la.id to resolver.resolve(
+                    animeId = la.id,
+                    sourceId = dbAnime.source,
+                    sourceLang = source.lang,
+                ).id
+            }
+            val profileFilteredLibraryAnime = if (activeProfileId != null) {
+                libraryAnimeList.filter { animeProfileMap[it.id] == activeProfileId }
+            } else {
+                libraryAnimeList
+            }
+            val filteredLibraryAnime = when (statsType) {
+                StatsType.All, StatsType.Anime -> profileFilteredLibraryAnime
+                StatsType.Manga, StatsType.Novels -> emptyList()
             }
 
             // Build dynamic resolver map for manga
             val allMangaStats = if (titleId != null) {
-                if (!isNovel) {
+                if (!isNovel && !isAnime) {
                     com.canopus.chimareader.data.MangaStatsStorage.loadAll(context).filter { it.mangaId.toString() == titleId }
                 } else {
                     emptyList()
@@ -273,25 +314,56 @@ class StatsScreenModel(
             val allNovelStatsList = profileFilteredNovelStatsMap.values.flatten()
             val filteredNovelStats = filterNovelStatsByScale(allNovelStatsList, dateScale, dateOffset)
 
+            val allAnimeStats = if (titleId != null) {
+                if (isAnime) {
+                    AnimeStatsStorage.loadAll(context).filter { it.animeId.toString() == titleId }
+                } else {
+                    emptyList()
+                }
+            } else {
+                AnimeStatsStorage.loadAll(context)
+            }
+            val profileFilteredAnimeStats = if (activeProfileId != null) {
+                allAnimeStats.filter { stat ->
+                    val mapped = animeProfileMap[stat.animeId]
+                    mapped == activeProfileId || (mapped == null && stat.animeId > 0L && resolver.resolve(animeId = stat.animeId).id == activeProfileId)
+                }
+            } else {
+                allAnimeStats
+            }
+            val libraryAnimeIds = profileFilteredLibraryAnime.map { it.id }.toSet()
+            val libraryFilteredAnimeStats = if (allRead || titleId != null) {
+                profileFilteredAnimeStats
+            } else {
+                profileFilteredAnimeStats.filter { it.animeId in libraryAnimeIds }
+            }
+            val filteredAnimeStats = filterAnimeStatsByScale(libraryFilteredAnimeStats, dateScale, dateOffset)
+
             val mangaReadDuration = filteredMangaStats.sumOf { it.readingTime }
             val novelReadDurationSeconds = filteredNovelStats.sumOf { it.readingTime }
             val novelReadDurationMs = (novelReadDurationSeconds * 1000).toLong()
-            
+            val animeWatchDurationMs = filteredAnimeStats.sumOf { it.watchTime }
+
             val currentStatsType = if (titleId != null) {
-                if (isNovel) StatsType.Novels else StatsType.Manga
+                when {
+                    isAnime -> StatsType.Anime
+                    isNovel -> StatsType.Novels
+                    else -> StatsType.Manga
+                }
             } else {
                 statsType
             }
 
             val totalReadDuration = when (currentStatsType) {
-                StatsType.All -> mangaReadDuration + novelReadDurationMs
+                StatsType.All -> mangaReadDuration + novelReadDurationMs + animeWatchDurationMs
                 StatsType.Manga -> mangaReadDuration
                 StatsType.Novels -> novelReadDurationMs
+                StatsType.Anime -> animeWatchDurationMs
             }
 
             val mangaChars = filteredMangaStats.sumOf { it.charactersRead }
             val mangaTimeMs = filteredMangaStats.sumOf { it.readingTime }
-            
+
             val novelChars = filteredNovelStats.sumOf { it.charactersRead }
             val novelTimeMs = novelReadDurationMs
 
@@ -299,20 +371,25 @@ class StatsScreenModel(
                 StatsType.All -> mangaChars + novelChars
                 StatsType.Manga -> mangaChars
                 StatsType.Novels -> novelChars
+                StatsType.Anime -> 0
             }
 
             val totalTimeMs = when (currentStatsType) {
                 StatsType.All -> mangaTimeMs + novelTimeMs
                 StatsType.Manga -> mangaTimeMs
                 StatsType.Novels -> novelTimeMs
+                StatsType.Anime -> 0L
             }
 
             val charactersPerHour = if (totalTimeMs > 0) {
                 (totalChars.toDouble() / (totalTimeMs / 3600000.0)).toInt()
             } else null
 
-            val streak = calculateStreak(libraryFilteredMangaStats, allNovelStatsList)
-            val historyPoints = calculateHistoryPoints(libraryFilteredMangaStats, allNovelStatsList, dateScale, dateOffset)
+            val streakMangaStats = if (currentStatsType == StatsType.All || currentStatsType == StatsType.Manga) libraryFilteredMangaStats else emptyList()
+            val streakNovelStats = if (currentStatsType == StatsType.All || currentStatsType == StatsType.Novels) allNovelStatsList else emptyList()
+            val streakAnimeStats = if (currentStatsType == StatsType.All || currentStatsType == StatsType.Anime) libraryFilteredAnimeStats else emptyList()
+            val streak = calculateStreak(streakMangaStats, streakNovelStats, streakAnimeStats)
+            val historyPoints = calculateHistoryPoints(streakMangaStats, streakNovelStats, streakAnimeStats, dateScale, dateOffset)
             
             // Calculate avg per day
             val avgDurationPerDay = if (dateScale != StatsDateScale.Day && dateScale != StatsDateScale.AllTime) {
@@ -337,18 +414,20 @@ class StatsScreenModel(
                 filteredAnkiStats
             }
             val totalAnkiCards = when (currentStatsType) {
-                StatsType.All -> profileFilteredAnkiStats.sumOf { it.mangaCards + it.novelCards }
+                StatsType.All -> profileFilteredAnkiStats.sumOf { it.mangaCards + it.novelCards + it.animeCards }
                 StatsType.Manga -> profileFilteredAnkiStats.sumOf { it.mangaCards }
                 StatsType.Novels -> profileFilteredAnkiStats.sumOf { it.novelCards }
+                StatsType.Anime -> profileFilteredAnkiStats.sumOf { it.animeCards }
             }
 
             val overviewStatData = StatsData.Overview(
                 libraryMangaCount = when (currentStatsType) {
-                    StatsType.All -> filteredLibraryManga.size + profileFilteredNovels.size
+                    StatsType.All -> filteredLibraryManga.size + profileFilteredNovels.size + filteredLibraryAnime.size
                     StatsType.Manga -> filteredLibraryManga.size
                     StatsType.Novels -> profileFilteredNovels.size
+                    StatsType.Anime -> filteredLibraryAnime.size
                 },
-                completedMangaCount = calculateCompletedCount(filteredLibraryManga, profileFilteredNovels, currentStatsType),
+                completedMangaCount = calculateCompletedCount(filteredLibraryManga, profileFilteredNovels, filteredLibraryAnime, currentStatsType),
                 totalReadDuration = totalReadDuration,
                 readingStreak = streak,
                 historyPoints = historyPoints,
@@ -359,11 +438,12 @@ class StatsScreenModel(
             )
 
             val titlesStatData = StatsData.Titles(
-                startedMangaCount = calculateStartedCount(filteredLibraryManga, allNovelStatsList, currentStatsType),
+                startedMangaCount = calculateStartedCount(filteredLibraryManga, allNovelStatsList, filteredLibraryAnime, currentStatsType),
                 localMangaCount = when (currentStatsType) {
-                    StatsType.All -> filteredLibraryManga.count { it.manga.isLocal() } + profileFilteredNovels.size
+                    StatsType.All -> filteredLibraryManga.count { it.manga.isLocal() } + profileFilteredNovels.size + filteredLibraryAnime.count { it.anime.isLocalAnime() }
                     StatsType.Manga -> filteredLibraryManga.count { it.manga.isLocal() }
                     StatsType.Novels -> profileFilteredNovels.size
+                    StatsType.Anime -> filteredLibraryAnime.count { it.anime.isLocalAnime() }
                 },
             )
 
@@ -380,21 +460,26 @@ class StatsScreenModel(
                 }
             }
 
+            val animeTotalEpisodes = filteredLibraryAnime.sumOf { it.totalEpisodes }.toInt()
+            val animeSeenEpisodes = filteredLibraryAnime.sumOf { it.seenCount }.toInt()
+
             val chapterStatData = StatsData.Chapters(
                 totalChapterCount = when (currentStatsType) {
-                    StatsType.All -> filteredLibraryManga.sumOf { it.totalChapters }.toInt() + novelTotalChapters
+                    StatsType.All -> filteredLibraryManga.sumOf { it.totalChapters }.toInt() + novelTotalChapters + animeTotalEpisodes
                     StatsType.Manga -> filteredLibraryManga.sumOf { it.totalChapters }.toInt()
                     StatsType.Novels -> novelTotalChapters
+                    StatsType.Anime -> animeTotalEpisodes
                 },
                 readChapterCount = when (currentStatsType) {
-                    StatsType.All -> filteredLibraryManga.sumOf { it.readCount }.toInt() + novelReadChapters
+                    StatsType.All -> filteredLibraryManga.sumOf { it.readCount }.toInt() + novelReadChapters + animeSeenEpisodes
                     StatsType.Manga -> filteredLibraryManga.sumOf { it.readCount }.toInt()
                     StatsType.Novels -> novelReadChapters
+                    StatsType.Anime -> animeSeenEpisodes
                 },
                 downloadCount = when (currentStatsType) {
                     StatsType.All -> filteredLibraryManga.sumOf { downloadManager.getDownloadCount(it.manga) }
                     StatsType.Manga -> filteredLibraryManga.sumOf { downloadManager.getDownloadCount(it.manga) }
-                    StatsType.Novels -> 0
+                    StatsType.Novels, StatsType.Anime -> 0
                 },
             )
 
@@ -488,15 +573,30 @@ class StatsScreenModel(
         return stats.filter { it.dateKey in startStr..endStr }
     }
 
-    private fun calculateStreak(mangaStats: List<com.canopus.chimareader.data.MangaStats>, novelStats: List<Statistics>): Int {
-        val mangaDays = mangaStats.mapNotNull { 
+    private fun filterAnimeStatsByScale(stats: List<AnimeStats>, scale: StatsDateScale, offset: Int): List<AnimeStats> {
+        if (scale == StatsDateScale.AllTime) return stats
+        val (start, end) = getDateRange(scale, offset)
+        val startStr = start.toString()
+        val endStr = end.toString()
+        return stats.filter { it.dateKey in startStr..endStr }
+    }
+
+    private fun calculateStreak(
+        mangaStats: List<com.canopus.chimareader.data.MangaStats>,
+        novelStats: List<Statistics>,
+        animeStats: List<AnimeStats> = emptyList(),
+    ): Int {
+        val mangaDays = mangaStats.mapNotNull {
             try { LocalDate.parse(it.dateKey) } catch (e: Exception) { null }
         }.toSet()
-        val novelDays = novelStats.mapNotNull { 
+        val novelDays = novelStats.mapNotNull {
             try { LocalDate.parse(it.dateKey) } catch (e: Exception) { null }
         }.toSet()
-        
-        val allDays = (mangaDays + novelDays).sortedDescending()
+        val animeDays = animeStats.mapNotNull {
+            try { LocalDate.parse(it.dateKey) } catch (e: Exception) { null }
+        }.toSet()
+
+        val allDays = (mangaDays + novelDays + animeDays).sortedDescending()
         if (allDays.isEmpty()) return 0
         
         var streak = 0
@@ -517,27 +617,43 @@ class StatsScreenModel(
         return streak
     }
 
-    private fun calculateCompletedCount(libraryManga: List<LibraryManga>, novels: List<tachiyomi.domain.novel.model.Novel>, type: StatsType): Int {
+    private fun calculateCompletedCount(
+        libraryManga: List<LibraryManga>,
+        novels: List<tachiyomi.domain.novel.model.Novel>,
+        libraryAnime: List<LibraryAnime>,
+        type: StatsType,
+    ): Int {
         val mangaCompleted = libraryManga.count {
             it.manga.status.toInt() == SManga.COMPLETED && it.unreadCount == 0L
         }
-        val novelCompleted = 0 
-        
+        val novelCompleted = 0
+        val animeCompleted = libraryAnime.count {
+            it.anime.status.toInt() == SManga.COMPLETED && it.unseenCount == 0L
+        }
+
         return when (type) {
-            StatsType.All -> mangaCompleted + novelCompleted
+            StatsType.All -> mangaCompleted + novelCompleted + animeCompleted
             StatsType.Manga -> mangaCompleted
             StatsType.Novels -> novelCompleted
+            StatsType.Anime -> animeCompleted
         }
     }
 
-    private fun calculateStartedCount(libraryManga: List<LibraryManga>, novelStats: List<Statistics>, type: StatsType): Int {
+    private fun calculateStartedCount(
+        libraryManga: List<LibraryManga>,
+        novelStats: List<Statistics>,
+        libraryAnime: List<LibraryAnime>,
+        type: StatsType,
+    ): Int {
         val mangaStarted = libraryManga.count { it.hasStarted }
         val novelStarted = novelStats.map { it.title }.distinct().size
-        
+        val animeStarted = libraryAnime.count { it.hasStarted }
+
         return when (type) {
-            StatsType.All -> (libraryManga.filter { it.hasStarted }.map { it.manga.title } + novelStats.map { it.title }).distinct().size
+            StatsType.All -> (libraryManga.filter { it.hasStarted }.map { it.manga.title } + novelStats.map { it.title } + libraryAnime.filter { it.hasStarted }.map { it.anime.title }).distinct().size
             StatsType.Manga -> mangaStarted
             StatsType.Novels -> novelStarted
+            StatsType.Anime -> animeStarted
         }
     }
 
@@ -595,6 +711,7 @@ class StatsScreenModel(
     private fun calculateHistoryPoints(
         mangaStats: List<com.canopus.chimareader.data.MangaStats>,
         novelStats: List<Statistics>,
+        animeStats: List<AnimeStats>,
         scale: StatsDateScale,
         offset: Int,
     ): List<StatsData.HistoryPoint> {
@@ -607,7 +724,7 @@ class StatsScreenModel(
                 (0..6).map { daysIntoWeek ->
                     val date = weekStart.plusDays(daysIntoWeek.toLong())
                     val label = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                    val value = aggregateForDate(date, mangaStats, novelStats)
+                    val value = aggregateForDate(date, mangaStats, novelStats, animeStats)
                     val pOffset = ChronoUnit.DAYS.between(now, date).toInt()
                     StatsData.HistoryPoint(label, value, pOffset)
                 }
@@ -618,12 +735,12 @@ class StatsScreenModel(
                 val firstMonday = monthStart.with(DayOfWeek.MONDAY)
                 val lastMonday = monthEnd.with(DayOfWeek.MONDAY)
                 val weeksInMonth = (ChronoUnit.WEEKS.between(firstMonday, lastMonday).toInt() + 1).coerceAtLeast(4)
-                
+
                 (0 until weeksInMonth).map { weeksIntoMonth ->
                     val wStart = firstMonday.plusWeeks(weeksIntoMonth.toLong())
                     val wEnd = wStart.plusDays(6)
                     val label = "W${wStart.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR)}"
-                    val value = aggregateForRange(wStart, wEnd, mangaStats, novelStats)
+                    val value = aggregateForRange(wStart, wEnd, mangaStats, novelStats, animeStats)
                     val pOffset = ChronoUnit.WEEKS.between(
                         now.with(DayOfWeek.MONDAY),
                         wStart
@@ -636,7 +753,7 @@ class StatsScreenModel(
                 (0..11).map { monthsIntoYear ->
                     val mDate = yearStart.plusMonths(monthsIntoYear.toLong())
                     val label = mDate.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                    val value = aggregateForMonth(mDate, mangaStats, novelStats)
+                    val value = aggregateForMonth(mDate, mangaStats, novelStats, animeStats)
                     val pOffset = ChronoUnit.MONTHS.between(
                         now.withDayOfMonth(1),
                         mDate.withDayOfMonth(1)
@@ -650,7 +767,7 @@ class StatsScreenModel(
                     val label = yDate.year.toString()
                     val yStart = yDate.withDayOfYear(1)
                     val yEnd = yDate.withDayOfYear(yDate.lengthOfYear())
-                    val value = aggregateForRange(yStart, yEnd, mangaStats, novelStats)
+                    val value = aggregateForRange(yStart, yEnd, mangaStats, novelStats, animeStats)
                     val pOffset = -yearsAgo
                     StatsData.HistoryPoint(label, value, pOffset)
                 }
@@ -662,6 +779,7 @@ class StatsScreenModel(
         date: LocalDate,
         mangaStats: List<com.canopus.chimareader.data.MangaStats>,
         novelStats: List<Statistics>,
+        animeStats: List<AnimeStats>,
     ): Long {
         val dateKey = date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
         val mangaValue = mangaStats
@@ -672,7 +790,11 @@ class StatsScreenModel(
             .filter { it.dateKey == dateKey }
             .sumOf { (it.readingTime * 1000).toLong() }
 
-        return mangaValue + novelValue
+        val animeValue = animeStats
+            .filter { it.dateKey == dateKey }
+            .sumOf { it.watchTime }
+
+        return mangaValue + novelValue + animeValue
     }
 
     private fun aggregateForRange(
@@ -680,10 +802,11 @@ class StatsScreenModel(
         end: LocalDate,
         mangaStats: List<com.canopus.chimareader.data.MangaStats>,
         novelStats: List<Statistics>,
+        animeStats: List<AnimeStats>,
     ): Long {
         val startStr = start.toString()
         val endStr = end.toString()
-        
+
         val mangaValue = mangaStats
             .filter { it.dateKey in startStr..endStr }
             .sumOf { it.readingTime }
@@ -692,16 +815,21 @@ class StatsScreenModel(
             .filter { it.dateKey in startStr..endStr }
             .sumOf { (it.readingTime * 1000).toLong() }
 
-        return mangaValue + novelValue
+        val animeValue = animeStats
+            .filter { it.dateKey in startStr..endStr }
+            .sumOf { it.watchTime }
+
+        return mangaValue + novelValue + animeValue
     }
 
     private fun aggregateForMonth(
         monthDate: LocalDate,
         mangaStats: List<com.canopus.chimareader.data.MangaStats>,
         novelStats: List<Statistics>,
+        animeStats: List<AnimeStats>,
     ): Long {
         val yearMonth = YearMonth.from(monthDate)
-        
+
         val mangaValue = mangaStats
             .filter { s ->
                 try {
@@ -724,6 +852,17 @@ class StatsScreenModel(
             }
             .sumOf { (it.readingTime * 1000).toLong() }
 
-        return mangaValue + novelValue
+        val animeValue = animeStats
+            .filter { s ->
+                try {
+                    val entryDate = LocalDate.parse(s.dateKey)
+                    YearMonth.from(entryDate) == yearMonth
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            .sumOf { it.watchTime }
+
+        return mangaValue + novelValue + animeValue
     }
 }

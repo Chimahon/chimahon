@@ -18,6 +18,7 @@ import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
+import com.canopus.chimareader.data.AnimeStatsStorage
 import com.canopus.chimareader.data.AnkiStatsStorage
 import com.canopus.chimareader.data.MangaStatsStorage
 import eu.kanade.tachiyomi.R
@@ -41,17 +42,19 @@ class ReadingStatsWidget : GlanceAppWidget() {
 
         val today = LocalDate.now().toString()
         val mangaStats = MangaStatsStorage.loadAll(context).filter { it.dateKey == today }
+        val animeStats = AnimeStatsStorage.loadAll(context).filter { it.dateKey == today }
         val ankiStats = AnkiStatsStorage.loadAll(context).filter { it.dateKey == today }
         val novelToday = loadNovelStatsForDay(context, today)
 
         val totalChars = mangaStats.sumOf { it.charactersRead } + novelToday.characters
-        // Manga stats store ms; novel Statistics.readingTime is seconds (same as StatsScreenModel).
-        val totalTimeMs = mangaStats.sumOf { it.readingTime } + novelToday.timeMs
-        val totalCards = ankiStats.sumOf { it.mangaCards + it.novelCards }
+        // Manga & anime stats store ms; novel Statistics.readingTime is seconds (same as StatsScreenModel).
+        val readingTimeMs = mangaStats.sumOf { it.readingTime } + novelToday.timeMs
+        val totalTimeMs = readingTimeMs + animeStats.sumOf { it.watchTime }
+        val totalCards = ankiStats.sumOf { it.mangaCards + it.novelCards + it.animeCards }
 
         val timeString = formatReadingTime(totalTimeMs)
-        val charactersPerHour = if (totalTimeMs > 0) {
-            ((totalChars.toDouble() * MS_PER_HOUR) / totalTimeMs).toInt()
+        val charactersPerHour = if (readingTimeMs > 0) {
+            ((totalChars.toDouble() * MS_PER_HOUR) / readingTimeMs).toInt()
         } else {
             0
         }

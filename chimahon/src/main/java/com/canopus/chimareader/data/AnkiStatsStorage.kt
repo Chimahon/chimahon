@@ -42,21 +42,21 @@ object AnkiStatsStorage {
         val existing = allStats.find { it.dateKey == dateKey && it.profileId == profileId && it.titleId == titleId }
         android.util.Log.d("AnkiStatsStorage", "addCard: type=$type, date=$dateKey, profile=$profileId, titleId=$titleId")
         if (existing != null) {
-            if (type == "manga") {
-                existing.mangaCards++
-            } else {
-                existing.novelCards++
+            when (type) {
+                "manga" -> existing.mangaCards++
+                "anime" -> existing.animeCards++
+                else -> existing.novelCards++
             }
-            android.util.Log.d("AnkiStatsStorage", "Updated existing: manga=${existing.mangaCards}, novel=${existing.novelCards}")
+            android.util.Log.d("AnkiStatsStorage", "Updated existing: manga=${existing.mangaCards}, novel=${existing.novelCards}, anime=${existing.animeCards}")
         } else {
             val stats = AnkiStats(dateKey, profileId = profileId, titleId = titleId)
-            if (type == "manga") {
-                stats.mangaCards = 1
-            } else {
-                stats.novelCards = 1
+            when (type) {
+                "manga" -> stats.mangaCards = 1
+                "anime" -> stats.animeCards = 1
+                else -> stats.novelCards = 1
             }
             allStats.add(stats)
-            android.util.Log.d("AnkiStatsStorage", "Created new: manga=${stats.mangaCards}, novel=${stats.novelCards}")
+            android.util.Log.d("AnkiStatsStorage", "Created new: manga=${stats.mangaCards}, novel=${stats.novelCards}, anime=${stats.animeCards}")
         }
         saveAll(context, allStats)
     }
@@ -74,6 +74,10 @@ object AnkiStatsStorage {
                 }
                 if (remote.novelCards > existing.novelCards) {
                     existing.novelCards = remote.novelCards
+                    changed = true
+                }
+                if (remote.animeCards > existing.animeCards) {
+                    existing.animeCards = remote.animeCards
                     changed = true
                 }
             } else {

@@ -22,6 +22,7 @@ import tachiyomi.presentation.core.screens.LoadingScreen
 class StatsScreen(
     private val titleId: String? = null,
     private val isNovel: Boolean = false,
+    private val isAnime: Boolean = false,
     private val titleName: String? = null,
 ) : Screen() {
 
@@ -30,7 +31,7 @@ class StatsScreen(
         val navigator = LocalNavigator.currentOrThrow
 
         val screenModel = rememberScreenModel {
-            StatsScreenModel(titleId = titleId, isNovel = isNovel, titleName = titleName)
+            StatsScreenModel(titleId = titleId, isNovel = isNovel, isAnime = isAnime, titleName = titleName)
         }
         val state by screenModel.state.collectAsState()
         val allRead by screenModel.allRead.collectAsState()

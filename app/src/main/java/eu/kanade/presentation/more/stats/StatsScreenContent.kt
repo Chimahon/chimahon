@@ -517,12 +517,14 @@ private fun StatsGrid(
                 }
             }
             
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.overview.charactersRead.toCountString(), "Characters read", null, Icons.Outlined.TextFields, iconColor))
-                }
-                Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.overview.charactersPerHour?.toCountString() ?: "0", "Avg speed", "ch/h", Icons.Outlined.Speed, iconColor))
+            if (state.statsType != StatsType.Anime) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        MetricCard(MetricData(state.overview.charactersRead.toCountString(), "Characters read", null, Icons.Outlined.TextFields, iconColor))
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        MetricCard(MetricData(state.overview.charactersPerHour?.toCountString() ?: "0", "Avg speed", "ch/h", Icons.Outlined.Speed, iconColor))
+                    }
                 }
             }
         }
@@ -559,10 +561,10 @@ private fun StatsGrid(
             }
         }
 
-        // Chapters Section
+        // Chapters / Episodes Section
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                text = "Chapters",
+                text = if (state.statsType == StatsType.Anime) "Episodes" else "Chapters",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
@@ -573,10 +575,18 @@ private fun StatsGrid(
                     MetricCard(MetricData(state.chapters.totalChapterCount.toCountString(), "Total", null, Icons.Outlined.MenuBook, iconColor))
                 }
                 Box(modifier = Modifier.weight(1f)) {
-                    MetricCard(MetricData(state.chapters.readChapterCount.toCountString(), "Read", null, Icons.Outlined.History, iconColor))
+                    MetricCard(
+                        MetricData(
+                            state.chapters.readChapterCount.toCountString(),
+                            if (state.statsType == StatsType.Anime) "Watched" else "Read",
+                            null,
+                            Icons.Outlined.History,
+                            iconColor,
+                        ),
+                    )
                 }
             }
-            if (state.statsType != StatsType.Novels && !isSingleTitle) {
+            if (state.statsType != StatsType.Novels && state.statsType != StatsType.Anime && !isSingleTitle) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(modifier = Modifier.weight(1f)) {
                         MetricCard(MetricData(state.chapters.downloadCount.toCountString(), "Downloaded", null, Icons.Outlined.Download, iconColor))
@@ -587,7 +597,7 @@ private fun StatsGrid(
         }
 
         // Trackers Section
-        if (state.statsType != StatsType.Novels && !isSingleTitle) {
+        if ((state.statsType == StatsType.All || state.statsType == StatsType.Manga) && !isSingleTitle) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = "Trackers",

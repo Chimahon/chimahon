@@ -40,5 +40,5 @@ sealed interface StatsData {
 
 
 enum class StatsType {
-    All, Manga, Novels
+    All, Manga, Novels, Anime
 }

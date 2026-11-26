@@ -27,11 +27,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import eu.kanade.presentation.entries.anime.components.AnimeCover
 import eu.kanade.presentation.manga.components.MangaCover
 import eu.kanade.presentation.manga.components.MangaCoverHide
 import eu.kanade.tachiyomi.ui.stats.StatsTitleItem
 import eu.kanade.tachiyomi.ui.stats.StatsTitlesState
 import eu.kanade.tachiyomi.util.lang.toCountString
+import tachiyomi.domain.entries.anime.model.Anime
+import tachiyomi.domain.entries.anime.model.asAnimeCover
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.asMangaCover
 import java.io.File
@@ -63,7 +66,7 @@ fun StatsTitlesContent(
         contentPadding = paddingValues,
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(state.titles, key = { "${it.isNovel}_${it.id}" }) { item ->
+        items(state.titles, key = { "${it.isNovel}_${it.isAnime}_${it.id}" }) { item ->
             StatsTitleListItem(
                 item = item,
                 onClick = { onTitleClick(item) },
@@ -92,34 +95,52 @@ private fun StatsTitleListItem(
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(4.dp))
         ) {
-            if (item.isNovel) {
-                val file = item.coverData as? File
-                if (file != null && file.exists()) {
-                    AsyncImage(
-                        model = file,
-                        contentDescription = item.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else {
-                    MangaCoverHide.Book(
-                        modifier = Modifier.fillMaxSize(),
-                        size = MangaCover.Size.Medium,
-                    )
+            when {
+                item.isNovel -> {
+                    val file = item.coverData as? File
+                    if (file != null && file.exists()) {
+                        AsyncImage(
+                            model = file,
+                            contentDescription = item.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        MangaCoverHide.Book(
+                            modifier = Modifier.fillMaxSize(),
+                            size = MangaCover.Size.Medium,
+                        )
+                    }
                 }
-            } else {
-                val manga = item.coverData as? Manga
-                if (manga != null) {
-                    MangaCover.Book(
-                        modifier = Modifier.fillMaxSize(),
-                        data = manga.asMangaCover(),
-                        size = MangaCover.Size.Medium,
-                    )
-                } else {
-                    MangaCoverHide.Book(
-                        modifier = Modifier.fillMaxSize(),
-                        size = MangaCover.Size.Medium,
-                    )
+                item.isAnime -> {
+                    val anime = item.coverData as? Anime
+                    if (anime != null) {
+                        AnimeCover.Book(
+                            modifier = Modifier.fillMaxSize(),
+                            data = anime.asAnimeCover(),
+                            size = AnimeCover.Size.Medium,
+                        )
+                    } else {
+                        MangaCoverHide.Book(
+                            modifier = Modifier.fillMaxSize(),
+                            size = MangaCover.Size.Medium,
+                        )
+                    }
+                }
+                else -> {
+                    val manga = item.coverData as? Manga
+                    if (manga != null) {
+                        MangaCover.Book(
+                            modifier = Modifier.fillMaxSize(),
+                            data = manga.asMangaCover(),
+                            size = MangaCover.Size.Medium,
+                        )
+                    } else {
+                        MangaCoverHide.Book(
+                            modifier = Modifier.fillMaxSize(),
+                            size = MangaCover.Size.Medium,
+                        )
+                    }
                 }
             }
         }
@@ -153,7 +174,7 @@ private fun StatsTitleListItem(
             val infoText = buildString {
                 if (item.readDurationMs > 0) {
                     append(formatDuration(item.readDurationMs))
-                    append(" read")
+                    append(if (item.isAnime) " watched" else " read")
                     if (item.charactersRead > 0) {
                         append(" • ")
                         append(item.charactersRead.toCountString())
