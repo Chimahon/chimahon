@@ -75,6 +75,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -245,11 +246,15 @@ private fun DictionaryOptionBadge(
 
 @Composable
 private fun DictionaryCategoryBadge(category: DictionaryCategory) {
+    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val (containerColor, contentColor) = when (category) {
         DictionaryCategory.MONOLINGUAL ->
             MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
-        DictionaryCategory.BILINGUAL ->
-            MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        DictionaryCategory.BILINGUAL -> if (isDark) {
+            Color(0xFF004A77) to Color(0xFFC2E7FF)
+        } else {
+            Color(0xFFC2E7FF) to Color(0xFF001D35)
+        }
         DictionaryCategory.EXCLUDE ->
             MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
         DictionaryCategory.NONE ->
