@@ -81,7 +81,7 @@ internal data class NativeSubtitleSpan(val start: Int, val end: Int, val x: Int,
     fun rect(scaleX: Float, scaleY: Float) = Rect(x * scaleX, y * scaleY, (x.toFloat() + w) * scaleX, (y.toFloat() + h) * scaleY)
 }
 
-internal data class NativeSubtitleRectangle(val start: Int, val end: Int, val bounds: Rect)
+data class NativeSubtitleRectangle(val start: Int, val end: Int, val bounds: Rect)
 
 /** Join selected glyph ink into one highlight per visual line, including rotated vertical text. */
 internal fun List<NativeSubtitleRectangle>.mergedHighlightBounds(start: Int, end: Int): List<Rect> {
