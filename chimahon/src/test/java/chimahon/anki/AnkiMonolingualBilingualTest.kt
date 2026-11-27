@@ -63,7 +63,7 @@ class AnkiMonolingualBilingualTest {
     }
 
     @Test
-    fun `monolingual and bilingual markers respect dictionary order categories and variants`() {
+    fun `monolingual and bilingual markers respect dictionary order and categories`() {
         val result = lookupResult(
             GlossaryEntry(dictName = "JMdict", glossary = "translation", definitionTags = "", termTags = ""),
             GlossaryEntry(dictName = "Excluded", glossary = "excluded", definitionTags = "", termTags = ""),
@@ -84,32 +84,8 @@ class AnkiMonolingualBilingualTest {
             dictionaryOrder = order,
             dictionaryCategories = categories,
         )
-        val monoBrief = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.MONOLINGUAL_DEFINITION_BRIEF}}",
-            result = result,
-            dictionaryOrder = order,
-            dictionaryCategories = categories,
-        )
-        val monoNoDict = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.MONOLINGUAL_DEFINITION_NO_DICT}}",
-            result = result,
-            dictionaryOrder = order,
-            dictionaryCategories = categories,
-        )
         val bi = AnkiCardCreator.renderTemplateForTests(
             template = "{${Marker.BILINGUAL_DEFINITION}}",
-            result = result,
-            dictionaryOrder = order,
-            dictionaryCategories = categories,
-        )
-        val biBrief = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.BILINGUAL_DEFINITION_BRIEF}}",
-            result = result,
-            dictionaryOrder = order,
-            dictionaryCategories = categories,
-        )
-        val biNoDict = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.BILINGUAL_DEFINITION_NO_DICT}}",
             result = result,
             dictionaryOrder = order,
             dictionaryCategories = categories,
@@ -122,19 +98,13 @@ class AnkiMonolingualBilingualTest {
         )
 
         assertTrue(mono.contains("<i>(n, 国語辞典)</i> 単語の意味"))
-        assertTrue(!monoBrief.contains("<i>(") && monoBrief.contains("単語の意味"))
-        assertTrue(monoNoDict.contains("<i>(n)</i> 単語の意味"))
-
         assertTrue(bi.contains("<i>(JMdict)</i> translation"))
-        assertTrue(!biBrief.contains("<i>(") && biBrief.contains("translation"))
-        assertTrue(!biNoDict.contains("<i>(") && biNoDict.contains("translation"))
-
         assertTrue(glossaryFirst.contains("<i>(General)</i> general"))
         assertTrue(!glossaryFirst.contains("excluded"))
     }
 
     @Test
-    fun `category fallback only falls back to the opposite category and skips none or excluded`() {
+    fun `category markers return empty when no matching category dictionary is present`() {
         val resultOnlyBilingualAndGeneral = lookupResult(
             GlossaryEntry(dictName = "General", glossary = "general", definitionTags = "", termTags = ""),
             GlossaryEntry(dictName = "Excluded", glossary = "excluded", definitionTags = "", termTags = ""),
@@ -147,28 +117,28 @@ class AnkiMonolingualBilingualTest {
             "JMdict" to DictionaryCategory.BILINGUAL,
         )
 
-        val monoStrict = AnkiCardCreator.renderTemplateForTests(
+        val mono = AnkiCardCreator.renderTemplateForTests(
             template = "{${Marker.MONOLINGUAL_DEFINITION}}",
             result = resultOnlyBilingualAndGeneral,
             dictionaryCategories = categories,
         )
-        val monoFallback = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.MONOLINGUAL_DEFINITION_FALLBACK}}",
+        val bi = AnkiCardCreator.renderTemplateForTests(
+            template = "{${Marker.BILINGUAL_DEFINITION}}",
             result = resultOnlyBilingualAndGeneral,
             dictionaryCategories = categories,
         )
-        assertEquals("", monoStrict)
-        assertTrue(monoFallback.contains("translation"))
+        assertEquals("", mono)
+        assertTrue(bi.contains("<i>(JMdict)</i> translation"))
 
         val resultOnlyGeneral = lookupResult(
             GlossaryEntry(dictName = "General", glossary = "general", definitionTags = "", termTags = ""),
         )
-        val biFallback = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.BILINGUAL_DEFINITION_FALLBACK}}",
+        val biEmpty = AnkiCardCreator.renderTemplateForTests(
+            template = "{${Marker.BILINGUAL_DEFINITION}}",
             result = resultOnlyGeneral,
             dictionaryCategories = categories,
         )
-        assertEquals("", biFallback)
+        assertEquals("", biEmpty)
     }
 
     @Test
@@ -178,7 +148,7 @@ class AnkiMonolingualBilingualTest {
             GlossaryEntry(dictName = "SecondMono", glossary = "second", definitionTags = "", termTags = ""),
         )
         val rendered = AnkiCardCreator.renderTemplateForTests(
-            template = "{${Marker.MONOLINGUAL_DEFINITION_BRIEF}}",
+            template = "{${Marker.MONOLINGUAL_DEFINITION}}",
             result = result,
             dictionaryOrder = listOf("FirstMissingMono", "SecondMono", "ThirdMono"),
             dictionaryCategories = mapOf(
@@ -223,8 +193,8 @@ class AnkiMonolingualBilingualTest {
         AnkiCardCreator.fieldMapParser = {
             mapOf(
                 "Front" to "{expression}",
-                "Mono" to "{monolingual-definition-no-dictionary}",
-                "Bi" to "{bilingual-definition-brief}",
+                "Mono" to "{monolingual-definition}",
+                "Bi" to "{bilingual-definition}",
                 "Glossary" to "{glossary-brief}",
             )
         }
@@ -265,8 +235,8 @@ class AnkiMonolingualBilingualTest {
 
         assertEquals(AnkiResult.Success(1L), result)
         assertEquals("言葉", bridge.lastFields["Front"])
-        assertTrue(bridge.lastFields.getValue("Mono").contains("<i>(名)</i> ことば"))
-        assertTrue(bridge.lastFields.getValue("Bi").contains("word"))
+        assertTrue(bridge.lastFields.getValue("Mono").contains("<i>(名, 大辞林)</i> ことば"))
+        assertTrue(bridge.lastFields.getValue("Bi").contains("<i>(JMdict)</i> word"))
         assertTrue(bridge.lastFields.getValue("Glossary").contains("ことば"))
         assertTrue(bridge.lastFields.getValue("Glossary").contains("word"))
         assertTrue(!bridge.lastFields.getValue("Glossary").contains("skip"))

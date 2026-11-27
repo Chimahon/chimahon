@@ -71,17 +71,7 @@ object Marker {
     const val GLOSSARY_FIRST_NO_DICT = "glossary-first-no-dictionary"
     const val GLOSSARY_FIRST_BRIEF = "glossary-first-brief"
     const val MONOLINGUAL_DEFINITION = "monolingual-definition"
-    const val MONOLINGUAL_DEFINITION_BRIEF = "monolingual-definition-brief"
-    const val MONOLINGUAL_DEFINITION_NO_DICT = "monolingual-definition-no-dictionary"
-    const val MONOLINGUAL_DEFINITION_FALLBACK = "monolingual-definition-fallback"
-    const val MONOLINGUAL_DEFINITION_FALLBACK_BRIEF = "monolingual-definition-fallback-brief"
-    const val MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT = "monolingual-definition-fallback-no-dictionary"
     const val BILINGUAL_DEFINITION = "bilingual-definition"
-    const val BILINGUAL_DEFINITION_BRIEF = "bilingual-definition-brief"
-    const val BILINGUAL_DEFINITION_NO_DICT = "bilingual-definition-no-dictionary"
-    const val BILINGUAL_DEFINITION_FALLBACK = "bilingual-definition-fallback"
-    const val BILINGUAL_DEFINITION_FALLBACK_BRIEF = "bilingual-definition-fallback-brief"
-    const val BILINGUAL_DEFINITION_FALLBACK_NO_DICT = "bilingual-definition-fallback-no-dictionary"
     const val SENTENCE = "sentence"
     const val SENTENCE_BOLD = "sentence-bold"
     const val CLOZE_PREFIX = "cloze-prefix"
@@ -136,12 +126,7 @@ object Marker {
         // Glossary variants
         GLOSSARY_BRIEF, GLOSSARY_PLAIN, GLOSSARY_PLAIN_NO_DICT, GLOSSARY_NO_DICT,
         GLOSSARY_FIRST, GLOSSARY_FIRST_NO_DICT, GLOSSARY_FIRST_BRIEF,
-        MONOLINGUAL_DEFINITION, MONOLINGUAL_DEFINITION_BRIEF, MONOLINGUAL_DEFINITION_NO_DICT,
-        MONOLINGUAL_DEFINITION_FALLBACK, MONOLINGUAL_DEFINITION_FALLBACK_BRIEF,
-        MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT,
-        BILINGUAL_DEFINITION, BILINGUAL_DEFINITION_BRIEF, BILINGUAL_DEFINITION_NO_DICT,
-        BILINGUAL_DEFINITION_FALLBACK, BILINGUAL_DEFINITION_FALLBACK_BRIEF,
-        BILINGUAL_DEFINITION_FALLBACK_NO_DICT,
+        MONOLINGUAL_DEFINITION, BILINGUAL_DEFINITION,
 
         // Sentence/Cloze
         SENTENCE_BOLD, CLOZE_PREFIX, CLOZE_BODY, CLOZE_BODY_KANA, CLOZE_SUFFIX,
@@ -1146,103 +1131,13 @@ object AnkiCardCreator {
         )
         Marker.MONOLINGUAL_DEFINITION -> buildCategoryGlossary(
             exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.MONOLINGUAL,
-            brief = false,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.MONOLINGUAL_DEFINITION_BRIEF -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.MONOLINGUAL,
-            brief = true,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.MONOLINGUAL_DEFINITION_NO_DICT -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.MONOLINGUAL,
-            brief = false,
-            noDictTag = true,
+            category = DictionaryCategory.MONOLINGUAL,
             styles = styles,
             exportMedia = exportMedia,
         )
         Marker.BILINGUAL_DEFINITION -> buildCategoryGlossary(
             exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.BILINGUAL,
-            brief = false,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.BILINGUAL_DEFINITION_BRIEF -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.BILINGUAL,
-            brief = true,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.BILINGUAL_DEFINITION_NO_DICT -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.BILINGUAL,
-            brief = false,
-            noDictTag = true,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.MONOLINGUAL_DEFINITION_FALLBACK -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.MONOLINGUAL,
-            fallbackCategory = DictionaryCategory.BILINGUAL,
-            brief = false,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.MONOLINGUAL_DEFINITION_FALLBACK_BRIEF -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.MONOLINGUAL,
-            fallbackCategory = DictionaryCategory.BILINGUAL,
-            brief = true,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.MONOLINGUAL,
-            fallbackCategory = DictionaryCategory.BILINGUAL,
-            brief = false,
-            noDictTag = true,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.BILINGUAL_DEFINITION_FALLBACK -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.BILINGUAL,
-            fallbackCategory = DictionaryCategory.MONOLINGUAL,
-            brief = false,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.BILINGUAL_DEFINITION_FALLBACK_BRIEF -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.BILINGUAL,
-            fallbackCategory = DictionaryCategory.MONOLINGUAL,
-            brief = true,
-            noDictTag = false,
-            styles = styles,
-            exportMedia = exportMedia,
-        )
-        Marker.BILINGUAL_DEFINITION_FALLBACK_NO_DICT -> buildCategoryGlossary(
-            exportOptions = exportOptions,
-            preferredCategory = DictionaryCategory.BILINGUAL,
-            fallbackCategory = DictionaryCategory.MONOLINGUAL,
-            brief = false,
-            noDictTag = true,
+            category = DictionaryCategory.BILINGUAL,
             styles = styles,
             exportMedia = exportMedia,
         )
@@ -1618,29 +1513,20 @@ object AnkiCardCreator {
 
     private fun buildCategoryGlossary(
         exportOptions: DictionaryExportOptions,
-        preferredCategory: DictionaryCategory,
-        fallbackCategory: DictionaryCategory? = null,
-        brief: Boolean,
-        noDictTag: Boolean,
+        category: DictionaryCategory,
         styles: List<DictionaryStyle>,
         exportMedia: ExportMediaContext?,
     ): String {
-        fun renderFor(category: DictionaryCategory): String {
-            val matching = exportOptions.glossariesForCategory(category)
-            if (matching.isEmpty()) return ""
-            return buildGlossary(
-                matching,
-                brief = brief,
-                noDictTag = noDictTag,
-                firstOnly = true,
-                styles = styles,
-                exportMedia = exportMedia,
-            )
-        }
-
-        val primary = renderFor(preferredCategory)
-        if (primary.isNotEmpty() || fallbackCategory == null) return primary
-        return renderFor(fallbackCategory)
+        val matching = exportOptions.glossariesForCategory(category)
+        if (matching.isEmpty()) return ""
+        return buildGlossary(
+            matching,
+            brief = false,
+            noDictTag = false,
+            firstOnly = true,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
     }
 
     private fun buildGlossary(

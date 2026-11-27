@@ -368,17 +368,7 @@ private val markerSections = listOf(
             Marker.GLOSSARY_FIRST_NO_DICT,
             Marker.GLOSSARY_FIRST_BRIEF,
             Marker.MONOLINGUAL_DEFINITION,
-            Marker.MONOLINGUAL_DEFINITION_BRIEF,
-            Marker.MONOLINGUAL_DEFINITION_NO_DICT,
-            Marker.MONOLINGUAL_DEFINITION_FALLBACK,
-            Marker.MONOLINGUAL_DEFINITION_FALLBACK_BRIEF,
-            Marker.MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT,
             Marker.BILINGUAL_DEFINITION,
-            Marker.BILINGUAL_DEFINITION_BRIEF,
-            Marker.BILINGUAL_DEFINITION_NO_DICT,
-            Marker.BILINGUAL_DEFINITION_FALLBACK,
-            Marker.BILINGUAL_DEFINITION_FALLBACK_BRIEF,
-            Marker.BILINGUAL_DEFINITION_FALLBACK_NO_DICT,
             Marker.SELECTED_GLOSSARY,
             Marker.SELECTED_GLOSSARY_NO_FALLBACK,
             Marker.SINGLE_GLOSSARY,
@@ -448,17 +438,7 @@ private val markerDisplayLabels: Map<String, String> = Marker.ALL_WITH_TODO.asso
         Marker.GLOSSARY_FIRST_NO_DICT -> "${prefix}Glossary First No Dict"
         Marker.GLOSSARY_FIRST_BRIEF -> "${prefix}Glossary First Brief"
         Marker.MONOLINGUAL_DEFINITION -> "${prefix}Monolingual Definition"
-        Marker.MONOLINGUAL_DEFINITION_BRIEF -> "${prefix}Monolingual Definition Brief"
-        Marker.MONOLINGUAL_DEFINITION_NO_DICT -> "${prefix}Monolingual Definition No Dict"
-        Marker.MONOLINGUAL_DEFINITION_FALLBACK -> "${prefix}Monolingual Definition Fallback"
-        Marker.MONOLINGUAL_DEFINITION_FALLBACK_BRIEF -> "${prefix}Monolingual Definition Fallback Brief"
-        Marker.MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT -> "${prefix}Monolingual Definition Fallback No Dict"
         Marker.BILINGUAL_DEFINITION -> "${prefix}Bilingual Definition"
-        Marker.BILINGUAL_DEFINITION_BRIEF -> "${prefix}Bilingual Definition Brief"
-        Marker.BILINGUAL_DEFINITION_NO_DICT -> "${prefix}Bilingual Definition No Dict"
-        Marker.BILINGUAL_DEFINITION_FALLBACK -> "${prefix}Bilingual Definition Fallback"
-        Marker.BILINGUAL_DEFINITION_FALLBACK_BRIEF -> "${prefix}Bilingual Definition Fallback Brief"
-        Marker.BILINGUAL_DEFINITION_FALLBACK_NO_DICT -> "${prefix}Bilingual Definition Fallback No Dict"
         Marker.SENTENCE -> "${prefix}Sentence"
         Marker.SENTENCE_BOLD -> "${prefix}Sentence Bold"
         Marker.CLOZE_PREFIX -> "${prefix}Cloze Prefix"
