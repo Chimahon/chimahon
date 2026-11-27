@@ -1,5 +1,7 @@
 package chimahon.anki
 
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.json.JSONObject
 
 object LapisPreset {
@@ -53,7 +55,7 @@ object LapisPreset {
     )
 
     val defaultFieldMapJson: String
-        get() = JSONObject(defaultFieldMap).toString()
+        get() = Json.encodeToString(defaultFieldMap)
 
     fun isBlankFieldMap(fieldMapJson: String): Boolean =
         fieldMapJson.isBlank() || fieldMapJson.trim() == "{}"

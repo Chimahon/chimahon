@@ -15,7 +15,10 @@ import chimahon.MediaInfo
 import chimahon.PitchEntry
 import chimahon.audio.WordAudioResult
 import chimahon.audio.WordAudioService
+import chimahon.dictionary.findDictionaryFolder
+import chimahon.dictionary.readDictionaryIndex
 import eu.kanade.tachiyomi.network.NetworkHelper
+import java.io.File
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -67,6 +70,18 @@ object Marker {
     const val GLOSSARY_FIRST = "glossary-first"
     const val GLOSSARY_FIRST_NO_DICT = "glossary-first-no-dictionary"
     const val GLOSSARY_FIRST_BRIEF = "glossary-first-brief"
+    const val MONOLINGUAL_DEFINITION = "monolingual-definition"
+    const val MONOLINGUAL_DEFINITION_BRIEF = "monolingual-definition-brief"
+    const val MONOLINGUAL_DEFINITION_NO_DICT = "monolingual-definition-no-dictionary"
+    const val MONOLINGUAL_DEFINITION_FALLBACK = "monolingual-definition-fallback"
+    const val MONOLINGUAL_DEFINITION_FALLBACK_BRIEF = "monolingual-definition-fallback-brief"
+    const val MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT = "monolingual-definition-fallback-no-dictionary"
+    const val BILINGUAL_DEFINITION = "bilingual-definition"
+    const val BILINGUAL_DEFINITION_BRIEF = "bilingual-definition-brief"
+    const val BILINGUAL_DEFINITION_NO_DICT = "bilingual-definition-no-dictionary"
+    const val BILINGUAL_DEFINITION_FALLBACK = "bilingual-definition-fallback"
+    const val BILINGUAL_DEFINITION_FALLBACK_BRIEF = "bilingual-definition-fallback-brief"
+    const val BILINGUAL_DEFINITION_FALLBACK_NO_DICT = "bilingual-definition-fallback-no-dictionary"
     const val SENTENCE = "sentence"
     const val SENTENCE_BOLD = "sentence-bold"
     const val CLOZE_PREFIX = "cloze-prefix"
@@ -121,6 +136,12 @@ object Marker {
         // Glossary variants
         GLOSSARY_BRIEF, GLOSSARY_PLAIN, GLOSSARY_PLAIN_NO_DICT, GLOSSARY_NO_DICT,
         GLOSSARY_FIRST, GLOSSARY_FIRST_NO_DICT, GLOSSARY_FIRST_BRIEF,
+        MONOLINGUAL_DEFINITION, MONOLINGUAL_DEFINITION_BRIEF, MONOLINGUAL_DEFINITION_NO_DICT,
+        MONOLINGUAL_DEFINITION_FALLBACK, MONOLINGUAL_DEFINITION_FALLBACK_BRIEF,
+        MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT,
+        BILINGUAL_DEFINITION, BILINGUAL_DEFINITION_BRIEF, BILINGUAL_DEFINITION_NO_DICT,
+        BILINGUAL_DEFINITION_FALLBACK, BILINGUAL_DEFINITION_FALLBACK_BRIEF,
+        BILINGUAL_DEFINITION_FALLBACK_NO_DICT,
 
         // Sentence/Cloze
         SENTENCE_BOLD, CLOZE_PREFIX, CLOZE_BODY, CLOZE_BODY_KANA, CLOZE_SUFFIX,
@@ -152,6 +173,8 @@ object Marker {
         READING to listOf("reading", "expression-reading", "term-reading", "word-reading"),
         FURIGANA to listOf("furigana", "expression-furigana", "term-furigana", "word-furigana"),
         GLOSSARY to listOf("glossary", "definition", "meaning"),
+        MONOLINGUAL_DEFINITION to listOf("monolingual-definition", "monolingualdefinition", "monolingual"),
+        BILINGUAL_DEFINITION to listOf("bilingual-definition", "bilingualdefinition", "bilingual"),
         WORD_AUDIO to listOf("audio", "sound", "word-audio", "term-audio", "expression-audio", "wordaudio"),
         DICTIONARY to listOf("dictionary", "dict"),
         PITCH_ACCENTS to listOf("pitch-accents", "pitch", "pitch-accent", "pitchaccent", "pitchaccents", "accent", "pitch-pattern"),
@@ -297,6 +320,8 @@ object AnkiCardCreator {
         profileId: String = "",
         titleId: String? = null,
         mediaRequest: AnkiMediaRequest? = null,
+        dictionaryOrder: List<String> = emptyList(),
+        dictionaryCategories: Map<String, DictionaryCategory> = emptyMap(),
     ): AnkiResult {
         android.util.Log.d(TAG, "addToAnki: deck=$deck, model=$model, forceOpen=$forceOpen, glossaryIndex=$glossaryIndex")
 
@@ -381,6 +406,16 @@ object AnkiCardCreator {
                 else -> null
             }
             val exportMedia = ExportMediaContext()
+            val exportOptions = withContext(Dispatchers.IO) {
+                val names = (dictionaryOrder + dictionaryCategories.keys).distinct()
+                val sourceTitleByDirName = resolveSourceTitles(context, names)
+                DictionaryExportOptions.create(
+                    glossaries = result.term.glossaries,
+                    dictionaryOrder = dictionaryOrder,
+                    dictionaryCategories = dictionaryCategories,
+                    sourceTitleByDirName = sourceTitleByDirName,
+                )
+            }
             val fieldsWithPlaceholders = withContext(Dispatchers.Default) {
                 buildFields(
                     result,
@@ -395,6 +430,7 @@ object AnkiCardCreator {
                     glossaryIndex,
                     styles,
                     exportMedia,
+                    exportOptions,
                     coverFilename = COVER_MEDIA_PLACEHOLDER.takeIf { hasCoverMarker },
                 )
             }
@@ -414,7 +450,9 @@ object AnkiCardCreator {
                             selectedDict,
                             popupSelection,
                             glossaryIndex,
-                            styles, exportMedia,
+                            styles,
+                            exportMedia,
+                            exportOptions,
                             coverFilename = COVER_MEDIA_PLACEHOLDER.takeIf { hasCoverMarker },
                         )
                     }
@@ -610,6 +648,135 @@ object AnkiCardCreator {
 
     private val MARKER_PATTERN = Regex("""\{([\w\W]+?)\}""")
 
+    internal class DictionaryExportOptions private constructor(
+        val orderedGlossaries: Array<GlossaryEntry>,
+        private val nonExcludedGlossaries: Array<GlossaryEntry>,
+        private val categoriesByName: Map<String, DictionaryCategory>,
+        private val categoriesByNormalizedName: Map<String, DictionaryCategory>,
+    ) {
+        fun categoryFor(dictName: String): DictionaryCategory {
+            if (dictName.isBlank()) return DictionaryCategory.NONE
+            categoriesByName[dictName]?.let { return it }
+            return categoriesByNormalizedName[normalizeDictionaryName(dictName)] ?: DictionaryCategory.NONE
+        }
+
+        fun glossariesForGeneral(glossaryIndex: Int?, selectedDict: String?): Array<GlossaryEntry> {
+            if (orderedGlossaries.isEmpty()) return emptyArray()
+            if (glossaryIndex != null && glossaryIndex >= 0) {
+                val entry = orderedGlossaries.getOrNull(glossaryIndex)
+                return if (entry != null) arrayOf(entry) else emptyArray()
+            }
+            val selected = selectedDict?.takeIf { it.isNotBlank() }
+            return if (selected != null) {
+                orderedGlossaries.filter { it.dictName.contains(selected, ignoreCase = true) }.toTypedArray()
+            } else {
+                nonExcludedGlossaries
+            }
+        }
+
+        fun glossariesForFirst(glossaryIndex: Int?): Array<GlossaryEntry> {
+            if (orderedGlossaries.isEmpty()) return emptyArray()
+            if (glossaryIndex != null && glossaryIndex >= 0) {
+                val entry = orderedGlossaries.getOrNull(glossaryIndex)
+                return if (entry != null) arrayOf(entry) else emptyArray()
+            }
+            return nonExcludedGlossaries
+        }
+
+        fun glossariesForCategory(category: DictionaryCategory): Array<GlossaryEntry> =
+            orderedGlossaries.filter { categoryFor(it.dictName) == category }.toTypedArray()
+
+        fun firstNonExcludedDictionaryName(): String? =
+            nonExcludedGlossaries.firstOrNull()?.dictName
+
+        companion object {
+            private val REVISION_SUFFIX_REGEX = Regex("""\s*\[[^]]+]\s*$""")
+
+            private fun normalizeDictionaryName(name: String): String =
+                name.trim().replace(REVISION_SUFFIX_REGEX, "")
+
+            fun create(
+                glossaries: Array<GlossaryEntry>,
+                dictionaryOrder: List<String> = emptyList(),
+                dictionaryCategories: Map<String, DictionaryCategory> = emptyMap(),
+                sourceTitleByDirName: Map<String, String> = emptyMap(),
+            ): DictionaryExportOptions {
+                val categoriesByName = linkedMapOf<String, DictionaryCategory>()
+                val categoriesByNormalizedName = linkedMapOf<String, DictionaryCategory>()
+                for ((dirName, category) in dictionaryCategories) {
+                    val sourceTitle = sourceTitleByDirName[dirName]?.takeIf { it.isNotBlank() }
+                    categoriesByName[dirName] = category
+                    categoriesByNormalizedName.putIfAbsent(normalizeDictionaryName(dirName), category)
+                    if (sourceTitle != null) {
+                        categoriesByName[sourceTitle] = category
+                        categoriesByNormalizedName[normalizeDictionaryName(sourceTitle)] = category
+                    }
+                }
+
+                val orderedGlossaries = if (dictionaryOrder.isEmpty() || glossaries.size <= 1) {
+                    glossaries
+                } else {
+                    val priorityByName = linkedMapOf<String, Int>()
+                    val priorityByNormalizedName = linkedMapOf<String, Int>()
+                    dictionaryOrder.forEachIndexed { index, dirName ->
+                        val sourceTitle = sourceTitleByDirName[dirName]?.takeIf { it.isNotBlank() }
+                        priorityByName.putIfAbsent(dirName, index)
+                        priorityByNormalizedName.putIfAbsent(normalizeDictionaryName(dirName), index)
+                        if (sourceTitle != null) {
+                            priorityByName.putIfAbsent(sourceTitle, index)
+                            priorityByNormalizedName.putIfAbsent(normalizeDictionaryName(sourceTitle), index)
+                        }
+                    }
+                    glossaries.withIndex()
+                        .sortedWith(
+                            compareBy<IndexedValue<GlossaryEntry>> { indexed ->
+                                val dictName = indexed.value.dictName
+                                priorityByName[dictName]
+                                    ?: priorityByNormalizedName[normalizeDictionaryName(dictName)]
+                                    ?: Int.MAX_VALUE
+                            }.thenBy { it.index },
+                        )
+                        .map { it.value }
+                        .toTypedArray()
+                }
+
+                val nonExcluded = if (categoriesByName.isEmpty()) {
+                    orderedGlossaries
+                } else {
+                    orderedGlossaries.filter { entry ->
+                        val category = categoriesByName[entry.dictName]
+                            ?: categoriesByNormalizedName[normalizeDictionaryName(entry.dictName)]
+                            ?: DictionaryCategory.NONE
+                        category != DictionaryCategory.EXCLUDE
+                    }.toTypedArray()
+                }
+
+                return DictionaryExportOptions(
+                    orderedGlossaries = orderedGlossaries,
+                    nonExcludedGlossaries = nonExcluded,
+                    categoriesByName = categoriesByName,
+                    categoriesByNormalizedName = categoriesByNormalizedName,
+                )
+            }
+        }
+    }
+
+    private fun resolveSourceTitles(context: Context, names: Collection<String>): Map<String, String> {
+        if (names.isEmpty()) return emptyMap()
+        val dictionariesDir = context.getExternalFilesDir(null)?.let { File(it, "dictionaries") }
+            ?: return emptyMap()
+        if (!dictionariesDir.isDirectory) return emptyMap()
+        return buildMap {
+            for (dirName in names.distinct()) {
+                val title = findDictionaryFolder(dictionariesDir, dirName)
+                    ?.let(::readDictionaryIndex)
+                    ?.title
+                    ?.takeIf { it.isNotBlank() }
+                if (title != null) put(dirName, title)
+            }
+        }
+    }
+
     private fun buildFields(
         result: LookupResult,
         fieldMap: Map<String, String>,
@@ -623,9 +790,58 @@ object AnkiCardCreator {
         glossaryIndex: Int? = null,
         styles: List<DictionaryStyle> = emptyList(),
         exportMedia: ExportMediaContext? = null,
+        exportOptions: DictionaryExportOptions = DictionaryExportOptions.create(result.term.glossaries),
         coverFilename: String? = null,
     ): Map<String, String> = fieldMap.mapValues { (_, template) ->
-        formatField(template, result, cloze, media, screenshotFilename, wordAudioFilename, sentenceAudioFilename, selectedDict, popupSelection, glossaryIndex, styles, exportMedia, coverFilename)
+        formatField(
+            template,
+            result,
+            cloze,
+            media,
+            screenshotFilename,
+            wordAudioFilename,
+            sentenceAudioFilename,
+            selectedDict,
+            popupSelection,
+            glossaryIndex,
+            styles,
+            exportMedia,
+            exportOptions,
+            coverFilename,
+        )
+    }
+
+    internal fun renderTemplateForTests(
+        template: String,
+        result: LookupResult,
+        selectedDict: String? = null,
+        glossaryIndex: Int? = null,
+        styles: List<DictionaryStyle> = emptyList(),
+        dictionaryOrder: List<String> = emptyList(),
+        dictionaryCategories: Map<String, DictionaryCategory> = emptyMap(),
+        sourceTitleByDirName: Map<String, String> = emptyMap(),
+    ): String {
+        val exportOptions = DictionaryExportOptions.create(
+            glossaries = result.term.glossaries,
+            dictionaryOrder = dictionaryOrder,
+            dictionaryCategories = dictionaryCategories,
+            sourceTitleByDirName = sourceTitleByDirName,
+        )
+        return formatField(
+            template = template,
+            result = result,
+            cloze = null,
+            media = null,
+            screenshotFilename = null,
+            wordAudioFilename = null,
+            sentenceAudioFilename = null,
+            selectedDict = selectedDict,
+            popupSelection = null,
+            glossaryIndex = glossaryIndex,
+            styles = styles,
+            exportMedia = null,
+            exportOptions = exportOptions,
+        )
     }
 
     private fun formatField(
@@ -641,6 +857,7 @@ object AnkiCardCreator {
         glossaryIndex: Int?,
         styles: List<DictionaryStyle>,
         exportMedia: ExportMediaContext?,
+        exportOptions: DictionaryExportOptions,
         coverFilename: String? = null,
     ): String {
         if (template.isBlank()) return ""
@@ -658,6 +875,7 @@ object AnkiCardCreator {
                 glossaryIndex = glossaryIndex,
                 styles = styles,
                 exportMedia = exportMedia,
+                exportOptions = exportOptions,
                 coverFilename = coverFilename,
             )
         }
@@ -870,6 +1088,7 @@ object AnkiCardCreator {
         glossaryIndex: Int? = null,
         styles: List<DictionaryStyle> = emptyList(),
         exportMedia: ExportMediaContext? = null,
+        exportOptions: DictionaryExportOptions = DictionaryExportOptions.create(result.term.glossaries),
         coverFilename: String? = null,
     ): String = when (marker) {
         Marker.EXPRESSION -> escapeHtml(result.term.expression)
@@ -878,7 +1097,7 @@ object AnkiCardCreator {
         Marker.FURIGANA_PLAIN -> buildFuriganaPlain(result.term.expression, result.term.reading)
         Marker.AUDIO -> wordAudioFilename?.let { "[sound:$it]" } ?: ""
         Marker.GLOSSARY -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            exportOptions.glossariesForGeneral(glossaryIndex, selectedDict),
             brief = false,
             noDictTag = false,
             firstOnly = false,
@@ -886,7 +1105,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_BRIEF -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            exportOptions.glossariesForGeneral(glossaryIndex, selectedDict),
             brief = true,
             noDictTag = false,
             firstOnly = false,
@@ -894,7 +1113,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_NO_DICT -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            exportOptions.glossariesForGeneral(glossaryIndex, selectedDict),
             brief = false,
             noDictTag = true,
             firstOnly = false,
@@ -902,7 +1121,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex),
+            exportOptions.glossariesForFirst(glossaryIndex),
             brief = false,
             noDictTag = false,
             firstOnly = true,
@@ -910,7 +1129,7 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST_NO_DICT -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex),
+            exportOptions.glossariesForFirst(glossaryIndex),
             brief = false,
             noDictTag = true,
             firstOnly = true,
@@ -918,19 +1137,121 @@ object AnkiCardCreator {
             exportMedia = exportMedia,
         )
         Marker.GLOSSARY_FIRST_BRIEF -> buildGlossary(
-            selectGlossaries(result.term.glossaries, glossaryIndex),
+            exportOptions.glossariesForFirst(glossaryIndex),
             brief = true,
             noDictTag = false,
             firstOnly = true,
             styles = styles,
             exportMedia = exportMedia,
         )
+        Marker.MONOLINGUAL_DEFINITION -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.MONOLINGUAL,
+            brief = false,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.MONOLINGUAL_DEFINITION_BRIEF -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.MONOLINGUAL,
+            brief = true,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.MONOLINGUAL_DEFINITION_NO_DICT -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.MONOLINGUAL,
+            brief = false,
+            noDictTag = true,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.BILINGUAL_DEFINITION -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.BILINGUAL,
+            brief = false,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.BILINGUAL_DEFINITION_BRIEF -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.BILINGUAL,
+            brief = true,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.BILINGUAL_DEFINITION_NO_DICT -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.BILINGUAL,
+            brief = false,
+            noDictTag = true,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.MONOLINGUAL_DEFINITION_FALLBACK -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.MONOLINGUAL,
+            fallbackCategory = DictionaryCategory.BILINGUAL,
+            brief = false,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.MONOLINGUAL_DEFINITION_FALLBACK_BRIEF -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.MONOLINGUAL,
+            fallbackCategory = DictionaryCategory.BILINGUAL,
+            brief = true,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.MONOLINGUAL,
+            fallbackCategory = DictionaryCategory.BILINGUAL,
+            brief = false,
+            noDictTag = true,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.BILINGUAL_DEFINITION_FALLBACK -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.BILINGUAL,
+            fallbackCategory = DictionaryCategory.MONOLINGUAL,
+            brief = false,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.BILINGUAL_DEFINITION_FALLBACK_BRIEF -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.BILINGUAL,
+            fallbackCategory = DictionaryCategory.MONOLINGUAL,
+            brief = true,
+            noDictTag = false,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
+        Marker.BILINGUAL_DEFINITION_FALLBACK_NO_DICT -> buildCategoryGlossary(
+            exportOptions = exportOptions,
+            preferredCategory = DictionaryCategory.BILINGUAL,
+            fallbackCategory = DictionaryCategory.MONOLINGUAL,
+            brief = false,
+            noDictTag = true,
+            styles = styles,
+            exportMedia = exportMedia,
+        )
         Marker.GLOSSARY_PLAIN -> buildGlossaryPlain(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            exportOptions.glossariesForGeneral(glossaryIndex, selectedDict),
             noDictTag = false,
         )
         Marker.GLOSSARY_PLAIN_NO_DICT -> buildGlossaryPlain(
-            selectGlossaries(result.term.glossaries, glossaryIndex, selectedDict),
+            exportOptions.glossariesForGeneral(glossaryIndex, selectedDict),
             noDictTag = true,
         )
         Marker.SENTENCE -> cloze?.let { escapeHtml(it.sentence) } ?: ""
@@ -960,8 +1281,8 @@ object AnkiCardCreator {
         Marker.TAGS -> buildTags(result)
         Marker.PART_OF_SPEECH -> buildPartOfSpeech(result)
         Marker.CONJUGATION -> buildConjugation(result)
-        Marker.DICTIONARY -> result.term.glossaries.firstOrNull()?.let { escapeHtml(it.dictName) } ?: ""
-        Marker.DICTIONARY_ALIAS -> result.term.glossaries.firstOrNull()?.let { escapeHtml(it.dictName) } ?: ""
+        Marker.DICTIONARY -> exportOptions.firstNonExcludedDictionaryName()?.let { escapeHtml(it) } ?: ""
+        Marker.DICTIONARY_ALIAS -> exportOptions.firstNonExcludedDictionaryName()?.let { escapeHtml(it) } ?: ""
         Marker.FREQUENCIES -> buildFrequenciesList(result)
         Marker.FREQUENCY_LOWEST -> selectLowestFrequencyValue(result) ?: ""
         Marker.FREQUENCY_HARMONIC_RANK -> buildFrequencyHarmonicRank(result)
@@ -996,7 +1317,7 @@ object AnkiCardCreator {
             val selected = selectedDict?.takeIf { it.isNotBlank() }
             if (selected != null) {
                 buildGlossary(
-                    result.term.glossaries,
+                    exportOptions.orderedGlossaries,
                     brief = false,
                     noDictTag = false,
                     firstOnly = false,
@@ -1005,14 +1326,21 @@ object AnkiCardCreator {
                     exportMedia = exportMedia,
                 )
             } else {
-                renderMarker(Marker.GLOSSARY_FIRST, result, glossaryIndex = glossaryIndex, styles = styles, exportMedia = exportMedia)
+                renderMarker(
+                    Marker.GLOSSARY_FIRST,
+                    result,
+                    glossaryIndex = glossaryIndex,
+                    styles = styles,
+                    exportMedia = exportMedia,
+                    exportOptions = exportOptions,
+                )
             }
         }
         Marker.SELECTED_GLOSSARY_NO_FALLBACK -> {
             val selected = selectedDict?.takeIf { it.isNotBlank() }
             if (selected != null) {
                 buildGlossary(
-                    result.term.glossaries,
+                    exportOptions.orderedGlossaries,
                     brief = false,
                     noDictTag = false,
                     firstOnly = false,
@@ -1024,7 +1352,7 @@ object AnkiCardCreator {
                 ""
             }
         }
-        else -> parseDynamicMarker(marker, result, styles, exportMedia)
+        else -> parseDynamicMarker(marker, result, styles, exportMedia, exportOptions)
     }
 
     // =============================================================================
@@ -1036,15 +1364,16 @@ object AnkiCardCreator {
         result: LookupResult,
         styles: List<DictionaryStyle>,
         exportMedia: ExportMediaContext?,
+        exportOptions: DictionaryExportOptions,
     ): String {
-        return parseSingleGlossaryMarker(marker, result, styles, exportMedia)
+        return parseSingleGlossaryMarker(marker, exportOptions.orderedGlossaries, styles, exportMedia)
             ?: parseSingleFrequencyMarker(marker, result)
             ?: ""
     }
 
     private fun parseSingleGlossaryMarker(
         marker: String,
-        result: LookupResult,
+        glossaries: Array<GlossaryEntry>,
         styles: List<DictionaryStyle>,
         exportMedia: ExportMediaContext?,
     ): String? {
@@ -1091,16 +1420,16 @@ object AnkiCardCreator {
 
         if (hasPlain) {
             val filtered = if (dictionaryFilter == null) {
-                result.term.glossaries
+                glossaries
             } else {
-                result.term.glossaries.filter { it.dictName.contains(dictionaryFilter, ignoreCase = true) }.toTypedArray()
+                glossaries.filter { it.dictName.contains(dictionaryFilter, ignoreCase = true) }.toTypedArray()
             }
             val entries = if (hasFirst) firstDictionaryGlossaries(filtered) else filtered
             return buildGlossaryPlain(entries, noDictTag = noDictTag)
         }
 
         return buildGlossary(
-            result.term.glossaries,
+            glossaries,
             brief = hasBrief,
             noDictTag = noDictTag,
             firstOnly = hasFirst,
@@ -1287,6 +1616,33 @@ object AnkiCardCreator {
     // Glossary
     // =============================================================================
 
+    private fun buildCategoryGlossary(
+        exportOptions: DictionaryExportOptions,
+        preferredCategory: DictionaryCategory,
+        fallbackCategory: DictionaryCategory? = null,
+        brief: Boolean,
+        noDictTag: Boolean,
+        styles: List<DictionaryStyle>,
+        exportMedia: ExportMediaContext?,
+    ): String {
+        fun renderFor(category: DictionaryCategory): String {
+            val matching = exportOptions.glossariesForCategory(category)
+            if (matching.isEmpty()) return ""
+            return buildGlossary(
+                matching,
+                brief = brief,
+                noDictTag = noDictTag,
+                firstOnly = true,
+                styles = styles,
+                exportMedia = exportMedia,
+            )
+        }
+
+        val primary = renderFor(preferredCategory)
+        if (primary.isNotEmpty() || fallbackCategory == null) return primary
+        return renderFor(fallbackCategory)
+    }
+
     private fun buildGlossary(
         glossaries: Array<GlossaryEntry>,
         brief: Boolean,
@@ -1327,24 +1683,6 @@ object AnkiCardCreator {
         }
         sb.append("</div>")
         return sb.toString()
-    }
-
-    private fun selectGlossaries(
-        glossaries: Array<GlossaryEntry>,
-        glossaryIndex: Int?,
-        selectedDict: String? = null,
-    ): Array<GlossaryEntry> {
-        if (glossaries.isEmpty()) return emptyArray()
-        if (glossaryIndex != null && glossaryIndex >= 0) {
-            val entry = glossaries.getOrNull(glossaryIndex)
-            return if (entry != null) arrayOf(entry) else emptyArray()
-        }
-        val selected = selectedDict?.takeIf { it.isNotBlank() }
-        return if (selected != null) {
-            glossaries.filter { it.dictName.contains(selected, ignoreCase = true) }.toTypedArray()
-        } else {
-            glossaries
-        }
     }
 
     // A dictionary can supply several senses for the same term (for example JMnedict names).

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -54,14 +55,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
@@ -85,7 +84,9 @@ import chimahon.anki.AnkiAppSelection
 import chimahon.anki.AnkiCardCreator
 import chimahon.anki.AnkiDroidBridge
 import chimahon.anki.AnkiProfile
+import chimahon.anki.AnkiProfileStore
 import chimahon.anki.AnkiScreenshotMode
+import chimahon.anki.DictionaryCategory
 import chimahon.anki.KNOWN_ANKI_APPS
 import chimahon.anki.LapisPreset
 import chimahon.anki.Marker
@@ -190,6 +191,151 @@ private fun searchResolutionName(stored: String): String {
     }
 }
 
+private fun updateDictionaryCategory(
+    profileStore: AnkiProfileStore,
+    dictName: String,
+    category: DictionaryCategory,
+) {
+    val currentProfile = profileStore.getActiveProfile()
+    val updatedCategories = if (category == DictionaryCategory.NONE) {
+        currentProfile.dictionaryCategories - dictName
+    } else {
+        currentProfile.dictionaryCategories + (dictName to category.storageValue)
+    }
+    profileStore.updateProfile(currentProfile.copy(dictionaryCategories = updatedCategories))
+}
+
+private data class DictionaryPickerOption<T>(
+    val value: T,
+    val label: String,
+    val description: String,
+)
+
+private fun dictionaryCategoryDescription(category: DictionaryCategory): String = when (category) {
+    DictionaryCategory.NONE -> "Included in {glossary} and {glossary-first}"
+    DictionaryCategory.MONOLINGUAL -> "Used by {monolingual-definition}"
+    DictionaryCategory.BILINGUAL -> "Used by {bilingual-definition}"
+    DictionaryCategory.EXCLUDE -> "Excluded from {glossary}, {glossary-first}, and category markers; still available to {selected-glossary} and {single-glossary-...}"
+}
+
+private fun customCollapseModeDescription(mode: String): String = when (mode) {
+    AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_EXPANDED -> "Always starts open in lookup results"
+    AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_COLLAPSED -> "Always starts collapsed in lookup results"
+    else -> "Opens first only if no higher-priority dictionary opened"
+}
+
+@Composable
+private fun DictionaryOptionBadge(
+    label: String,
+    containerColor: Color,
+    contentColor: Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = containerColor,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = contentColor,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun DictionaryCategoryBadge(category: DictionaryCategory) {
+    val (containerColor, contentColor) = when (category) {
+        DictionaryCategory.MONOLINGUAL ->
+            MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        DictionaryCategory.BILINGUAL ->
+            MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
+        DictionaryCategory.EXCLUDE ->
+            MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
+        DictionaryCategory.NONE ->
+            MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    DictionaryOptionBadge(
+        label = category.label,
+        containerColor = containerColor,
+        contentColor = contentColor,
+    )
+}
+
+@Composable
+private fun CustomCollapseModeBadge(mode: String, label: String) {
+    val (containerColor, contentColor) = when (mode) {
+        AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_EXPANDED ->
+            MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+        AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_COLLAPSED ->
+            MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+        else ->
+            MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    DictionaryOptionBadge(
+        label = label,
+        containerColor = containerColor,
+        contentColor = contentColor,
+    )
+}
+
+@Composable
+private fun <T> DictionaryOptionPickerDialog(
+    title: String,
+    selectedValue: T,
+    options: List<DictionaryPickerOption<T>>,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    val isSelected = option.value == selectedValue
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.small)
+                            .selectable(
+                                selected = isSelected,
+                                onClick = {
+                                    onSelect(option.value)
+                                    onDismiss()
+                                },
+                            )
+                            .padding(vertical = 8.dp)
+                            .minimumInteractiveComponentSize(),
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = null,
+                        )
+                        Column(modifier = Modifier.padding(start = 16.dp)) {
+                            Text(
+                                text = option.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = option.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(MR.strings.action_cancel))
+            }
+        },
+    )
+}
+
 private enum class PopupSizeAxis(val label: String) {
     WIDTH("W"),
     HEIGHT("H"),
@@ -216,6 +362,18 @@ private val markerSections = listOf(
             Marker.GLOSSARY_FIRST,
             Marker.GLOSSARY_FIRST_NO_DICT,
             Marker.GLOSSARY_FIRST_BRIEF,
+            Marker.MONOLINGUAL_DEFINITION,
+            Marker.MONOLINGUAL_DEFINITION_BRIEF,
+            Marker.MONOLINGUAL_DEFINITION_NO_DICT,
+            Marker.MONOLINGUAL_DEFINITION_FALLBACK,
+            Marker.MONOLINGUAL_DEFINITION_FALLBACK_BRIEF,
+            Marker.MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT,
+            Marker.BILINGUAL_DEFINITION,
+            Marker.BILINGUAL_DEFINITION_BRIEF,
+            Marker.BILINGUAL_DEFINITION_NO_DICT,
+            Marker.BILINGUAL_DEFINITION_FALLBACK,
+            Marker.BILINGUAL_DEFINITION_FALLBACK_BRIEF,
+            Marker.BILINGUAL_DEFINITION_FALLBACK_NO_DICT,
             Marker.SELECTED_GLOSSARY,
             Marker.SELECTED_GLOSSARY_NO_FALLBACK,
             Marker.SINGLE_GLOSSARY,
@@ -284,6 +442,18 @@ private val markerDisplayLabels: Map<String, String> = Marker.ALL_WITH_TODO.asso
         Marker.GLOSSARY_FIRST -> "${prefix}Glossary First"
         Marker.GLOSSARY_FIRST_NO_DICT -> "${prefix}Glossary First No Dict"
         Marker.GLOSSARY_FIRST_BRIEF -> "${prefix}Glossary First Brief"
+        Marker.MONOLINGUAL_DEFINITION -> "${prefix}Monolingual Definition"
+        Marker.MONOLINGUAL_DEFINITION_BRIEF -> "${prefix}Monolingual Definition Brief"
+        Marker.MONOLINGUAL_DEFINITION_NO_DICT -> "${prefix}Monolingual Definition No Dict"
+        Marker.MONOLINGUAL_DEFINITION_FALLBACK -> "${prefix}Monolingual Definition Fallback"
+        Marker.MONOLINGUAL_DEFINITION_FALLBACK_BRIEF -> "${prefix}Monolingual Definition Fallback Brief"
+        Marker.MONOLINGUAL_DEFINITION_FALLBACK_NO_DICT -> "${prefix}Monolingual Definition Fallback No Dict"
+        Marker.BILINGUAL_DEFINITION -> "${prefix}Bilingual Definition"
+        Marker.BILINGUAL_DEFINITION_BRIEF -> "${prefix}Bilingual Definition Brief"
+        Marker.BILINGUAL_DEFINITION_NO_DICT -> "${prefix}Bilingual Definition No Dict"
+        Marker.BILINGUAL_DEFINITION_FALLBACK -> "${prefix}Bilingual Definition Fallback"
+        Marker.BILINGUAL_DEFINITION_FALLBACK_BRIEF -> "${prefix}Bilingual Definition Fallback Brief"
+        Marker.BILINGUAL_DEFINITION_FALLBACK_NO_DICT -> "${prefix}Bilingual Definition Fallback No Dict"
         Marker.SENTENCE -> "${prefix}Sentence"
         Marker.SENTENCE_BOLD -> "${prefix}Sentence Bold"
         Marker.CLOZE_PREFIX -> "${prefix}Cloze Prefix"
@@ -517,9 +687,10 @@ object SettingsDictionaryScreen : SearchableSettings {
             )
         }
 
-        // Dictionary tab: profiles + imported dicts + updates + word audio
+        // Dictionary tab: profiles + options + imported dicts + updates + word audio
         return listOf(
             getAnkiProfileGroup(),
+            getDictionaryOptionsGroup(),
             getDictionaryListGroup(importLauncher),
             getDictionaryUpdatesGroup(),
             getWordAudioGroup(pickDb),
@@ -593,6 +764,462 @@ object SettingsDictionaryScreen : SearchableSettings {
         getAnkiProfileGroup(),
         getAnkiGroup(),
     )
+
+    private val collapseModeOptions = listOf(
+        AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_ALL to "Expand all dictionaries",
+        AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE to "Expand first available dictionary",
+        AnkiProfile.DICTIONARY_COLLAPSE_COLLAPSE_ALL to "Collapse all dictionaries",
+        AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM to "Custom",
+    )
+
+    private val customModeOptions = listOf(
+        AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_EXPANDED to "Always expanded",
+        AnkiProfile.DICTIONARY_DISPLAY_FALLBACK to "Fallback",
+        AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_COLLAPSED to "Always collapsed",
+    )
+
+    private fun collapseModeLabel(mode: String): String =
+        collapseModeOptions.firstOrNull { it.first == mode }?.second
+            ?: collapseModeOptions.first().second
+
+    private fun orderedDictionaries(
+        dictionaries: List<String>,
+        dictionaryOrder: List<String>,
+    ): List<String> {
+        val ordered = dictionaryOrder.filter { it in dictionaries }
+        val remaining = dictionaries.filter { it !in dictionaryOrder }
+        return ordered + remaining
+    }
+
+    private fun orderedTermDictionaries(
+        context: Context,
+        dictionaries: List<String>,
+        dictionaryOrder: List<String>,
+    ): List<String> {
+        val dir = File(context.getExternalFilesDir(null), "dictionaries")
+        val termSet = scanDictionaryFolders(dir)
+            .filter { folder -> folder.types.any { it == chimahon.dictionary.DictionaryType.TERM } }
+            .map { it.name }
+            .toSet()
+        return orderedDictionaries(dictionaries, dictionaryOrder).filter { it in termSet }
+    }
+
+    private fun dictionaryCategorySummary(
+        activeProfile: AnkiProfile,
+        termDictionaries: List<String>,
+    ): String {
+        if (termDictionaries.isEmpty()) return "No term dictionaries imported"
+        var monolingual = 0
+        var bilingual = 0
+        var excluded = 0
+        for (dictName in termDictionaries) {
+            when (activeProfile.dictionaryCategory(dictName)) {
+                DictionaryCategory.MONOLINGUAL -> monolingual++
+                DictionaryCategory.BILINGUAL -> bilingual++
+                DictionaryCategory.EXCLUDE -> excluded++
+                DictionaryCategory.NONE -> Unit
+            }
+        }
+        val parts = buildList {
+            if (monolingual > 0) add("$monolingual monolingual")
+            if (bilingual > 0) add("$bilingual bilingual")
+            if (excluded > 0) add("$excluded excluded")
+        }
+        return if (parts.isEmpty()) {
+            "Assign Monolingual, Bilingual, or Exclude"
+        } else {
+            parts.joinToString(", ")
+        }
+    }
+
+    @Composable
+    private fun getDictionaryOptionsGroup(): Preference.PreferenceGroup {
+        val context = LocalContext.current
+        val navigator = LocalNavigator.currentOrThrow
+        val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
+        val dictionaries by dictionaryNames.collectAsState()
+        val rawProfiles by dictionaryPreferences.rawProfiles().collectAsState()
+        val rawActiveProfileId by dictionaryPreferences.rawActiveProfileId().collectAsState()
+        val activeProfile = remember(rawProfiles, rawActiveProfileId) {
+            dictionaryPreferences.profileStore.getActiveProfile()
+        }
+        val termDictionaries = remember(dictionaries, activeProfile.dictionaryOrder) {
+            orderedTermDictionaries(context, dictionaries, activeProfile.dictionaryOrder)
+        }
+
+        return Preference.PreferenceGroup(
+            title = "Dictionary behavior",
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(KMR.strings.pref_dict_collapse_behavior),
+                    subtitle = collapseModeLabel(activeProfile.dictionaryCollapseMode),
+                    onClick = { navigator.push(SettingsDictionaryCollapseScreen) },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(KMR.strings.pref_dict_categorize),
+                    subtitle = dictionaryCategorySummary(activeProfile, termDictionaries),
+                    onClick = { navigator.push(SettingsDictionaryCategoriesScreen) },
+                ),
+            ),
+        )
+    }
+
+    /** Shared by [SettingsDictionaryCollapseScreen] — per-profile collapsible dictionary settings. */
+    @Composable
+    fun collapsePreferences(): List<Preference> {
+        val context = LocalContext.current
+        val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
+        LaunchedEffect(Unit) { loadDictionaryList(context) }
+
+        val dictionaries by dictionaryNames.collectAsState()
+        val rawProfiles by dictionaryPreferences.rawProfiles().collectAsState()
+        val rawActiveProfileId by dictionaryPreferences.rawActiveProfileId().collectAsState()
+        val profileStore = dictionaryPreferences.profileStore
+        val activeProfile = remember(rawProfiles, rawActiveProfileId) { profileStore.getActiveProfile() }
+        val orderedDicts = remember(dictionaries, activeProfile.dictionaryOrder) {
+            orderedDictionaries(dictionaries, activeProfile.dictionaryOrder)
+        }
+        var modeFilter by remember { mutableStateOf<String?>(null) }
+        var editingDict by remember { mutableStateOf<String?>(null) }
+
+        val collapseModeEntries = collapseModeOptions.associate { it.first to it.second }.toPersistentMap()
+        val customModeLabels = remember { customModeOptions.toMap() }
+        val customModePickerOptions = remember {
+            customModeOptions.map { (mode, label) ->
+                DictionaryPickerOption(
+                    value = mode,
+                    label = label,
+                    description = customCollapseModeDescription(mode),
+                )
+            }
+        }
+
+        editingDict?.let { dictName ->
+            val currentMode = activeProfile.dictionaryDisplayModes[dictName]
+                ?: AnkiProfile.DICTIONARY_DISPLAY_FALLBACK
+            DictionaryOptionPickerDialog(
+                title = getDictionaryTitle(context, dictName),
+                selectedValue = currentMode,
+                options = customModePickerOptions,
+                onSelect = { mode ->
+                    val currentProfile = profileStore.getActiveProfile()
+                    val newModes = currentProfile.dictionaryDisplayModes + (dictName to mode)
+                    profileStore.updateProfile(currentProfile.copy(dictionaryDisplayModes = newModes))
+                },
+                onDismiss = { editingDict = null },
+            )
+        }
+
+        val effectiveModeFor = { dictName: String ->
+            activeProfile.dictionaryDisplayModes[dictName] ?: AnkiProfile.DICTIONARY_DISPLAY_FALLBACK
+        }
+        val countsByMode = remember(orderedDicts, activeProfile.dictionaryDisplayModes) {
+            orderedDicts.groupingBy(effectiveModeFor).eachCount()
+        }
+        val filteredDicts = remember(orderedDicts, activeProfile.dictionaryDisplayModes, modeFilter) {
+            if (modeFilter == null) {
+                orderedDicts
+            } else {
+                orderedDicts.filter { effectiveModeFor(it) == modeFilter }
+            }
+        }
+
+        val perDictItems = buildList<Preference.PreferenceItem<*, *>> {
+            when {
+                activeProfile.dictionaryCollapseMode != AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM -> add(
+                    Preference.PreferenceItem.InfoPreference(
+                        title = "Set Default mode to Custom above to choose whether each dictionary starts expanded or collapsed.",
+                    ),
+                )
+                orderedDicts.isEmpty() -> add(
+                    Preference.PreferenceItem.InfoPreference(
+                        title = stringResource(MR.strings.pref_dict_none_imported),
+                    ),
+                )
+                else -> {
+                    add(
+                        Preference.PreferenceItem.CustomPreference(
+                            title = "Display mode filter",
+                            content = {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    FilterChip(
+                                        selected = modeFilter == null,
+                                        onClick = { modeFilter = null },
+                                        label = { Text("All (${orderedDicts.size})") },
+                                    )
+                                    customModeOptions.forEach { (mode, label) ->
+                                        val count = countsByMode[mode] ?: 0
+                                        FilterChip(
+                                            selected = modeFilter == mode,
+                                            onClick = {
+                                                modeFilter = if (modeFilter == mode) null else mode
+                                            },
+                                            label = { Text("$label ($count)") },
+                                        )
+                                    }
+                                }
+                            },
+                        ),
+                    )
+                    if (filteredDicts.isEmpty()) {
+                        add(
+                            Preference.PreferenceItem.InfoPreference(
+                                title = "No dictionaries set to ${customModeLabels[modeFilter] ?: "this mode"}.",
+                            ),
+                        )
+                    } else {
+                        filteredDicts.forEach { dictName ->
+                            val mode = effectiveModeFor(dictName)
+                            val label = customModeLabels[mode] ?: customModeOptions[1].second
+                            val displayTitle = getDictionaryTitle(context, dictName)
+                            add(
+                                Preference.PreferenceItem.CustomPreference(
+                                    title = displayTitle,
+                                    content = {
+                                        TextPreferenceWidget(
+                                            title = displayTitle,
+                                            widget = { CustomCollapseModeBadge(mode = mode, label = label) },
+                                            onPreferenceClick = { editingDict = dictName },
+                                        )
+                                    },
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }.toPersistentList()
+
+        val hasCustomOverrides = remember(orderedDicts, activeProfile.dictionaryDisplayModes) {
+            activeProfile.dictionaryCollapseMode == AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM &&
+                orderedDicts.any {
+                    val mode = activeProfile.dictionaryDisplayModes[it]
+                    mode != null && mode != AnkiProfile.DICTIONARY_DISPLAY_FALLBACK
+                }
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        return buildList {
+            add(
+                Preference.PreferenceGroup(
+                    title = stringResource(KMR.strings.pref_dict_collapse_behavior),
+                    preferenceItems = persistentListOf(
+                        Preference.PreferenceItem.BasicListPreference(
+                            value = activeProfile.dictionaryCollapseMode,
+                            entries = collapseModeEntries,
+                            title = "Default mode",
+                            subtitle = "%s",
+                            onValueChanged = { mode ->
+                                profileStore.updateProfile(
+                                    profileStore.getActiveProfile().copy(dictionaryCollapseMode = mode),
+                                )
+                            },
+                        ),
+                        Preference.PreferenceItem.InfoPreference(
+                            title = "Choose whether dictionary entries start expanded or collapsed when looking up a word.",
+                        ),
+                    ),
+                ),
+            )
+            add(
+                Preference.PreferenceGroup(
+                    title = "Dictionaries",
+                    preferenceItems = perDictItems as kotlinx.collections.immutable.ImmutableList<
+                        Preference.PreferenceItem<out Any, out Any>
+                        >,
+                ),
+            )
+            if (hasCustomOverrides) {
+                add(
+                    Preference.PreferenceGroup(
+                        title = "Actions",
+                        preferenceItems = persistentListOf(
+                            Preference.PreferenceItem.TextPreference(
+                                title = "Reset per-dictionary display",
+                                subtitle = "Set all dictionaries back to Fallback",
+                                onClick = {
+                                    val currentProfile = profileStore.getActiveProfile()
+                                    profileStore.updateProfile(
+                                        currentProfile.copy(dictionaryDisplayModes = emptyMap()),
+                                    )
+                                    modeFilter = null
+                                },
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Shared by [SettingsDictionaryCategoriesScreen] — per-profile dictionary category selector. */
+    @Composable
+    fun categoryPreferences(): List<Preference> {
+        val context = LocalContext.current
+        val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
+        LaunchedEffect(Unit) { loadDictionaryList(context) }
+
+        val dictionaries by dictionaryNames.collectAsState()
+        val rawProfiles by dictionaryPreferences.rawProfiles().collectAsState()
+        val rawActiveProfileId by dictionaryPreferences.rawActiveProfileId().collectAsState()
+        val profileStore = dictionaryPreferences.profileStore
+        val activeProfile = remember(rawProfiles, rawActiveProfileId) { profileStore.getActiveProfile() }
+        val termDictionaries = remember(dictionaries, activeProfile.dictionaryOrder) {
+            orderedTermDictionaries(context, dictionaries, activeProfile.dictionaryOrder)
+        }
+        var categoryFilter by remember { mutableStateOf<DictionaryCategory?>(null) }
+        var editingDict by remember { mutableStateOf<String?>(null) }
+
+        val categoryPickerOptions = remember {
+            DictionaryCategory.entries.map { category ->
+                DictionaryPickerOption(
+                    value = category,
+                    label = category.label,
+                    description = dictionaryCategoryDescription(category),
+                )
+            }
+        }
+
+        editingDict?.let { dictName ->
+            DictionaryOptionPickerDialog(
+                title = getDictionaryTitle(context, dictName),
+                selectedValue = activeProfile.dictionaryCategory(dictName),
+                options = categoryPickerOptions,
+                onSelect = { category ->
+                    updateDictionaryCategory(profileStore, dictName, category)
+                },
+                onDismiss = { editingDict = null },
+            )
+        }
+
+        val countsByCategory = remember(termDictionaries, activeProfile.dictionaryCategories) {
+            termDictionaries.groupingBy { activeProfile.dictionaryCategory(it) }.eachCount()
+        }
+        val filteredTermDictionaries = remember(termDictionaries, activeProfile.dictionaryCategories, categoryFilter) {
+            if (categoryFilter == null) {
+                termDictionaries
+            } else {
+                termDictionaries.filter { activeProfile.dictionaryCategory(it) == categoryFilter }
+            }
+        }
+
+        val dictionaryItems = buildList<Preference.PreferenceItem<*, *>> {
+            if (termDictionaries.isEmpty()) {
+                add(
+                    Preference.PreferenceItem.InfoPreference(
+                        title = stringResource(MR.strings.pref_dict_none_imported),
+                    ),
+                )
+            } else {
+                add(
+                    Preference.PreferenceItem.CustomPreference(
+                        title = "Category filter",
+                        content = {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                FilterChip(
+                                    selected = categoryFilter == null,
+                                    onClick = { categoryFilter = null },
+                                    label = { Text("All (${termDictionaries.size})") },
+                                )
+                                DictionaryCategory.entries.forEach { category ->
+                                    val count = countsByCategory[category] ?: 0
+                                    FilterChip(
+                                        selected = categoryFilter == category,
+                                        onClick = {
+                                            categoryFilter = if (categoryFilter == category) null else category
+                                        },
+                                        label = { Text("${category.label} ($count)") },
+                                    )
+                                }
+                            }
+                        },
+                    ),
+                )
+                if (filteredTermDictionaries.isEmpty()) {
+                    add(
+                        Preference.PreferenceItem.InfoPreference(
+                            title = "No dictionaries in ${categoryFilter?.label ?: "this category"}.",
+                        ),
+                    )
+                } else {
+                    filteredTermDictionaries.forEach { dictName ->
+                        val category = activeProfile.dictionaryCategory(dictName)
+                        val displayTitle = getDictionaryTitle(context, dictName)
+                        add(
+                            Preference.PreferenceItem.CustomPreference(
+                                title = displayTitle,
+                                content = {
+                                    TextPreferenceWidget(
+                                        title = displayTitle,
+                                        widget = { DictionaryCategoryBadge(category) },
+                                        onPreferenceClick = { editingDict = dictName },
+                                    )
+                                },
+                            ),
+                        )
+                    }
+                }
+            }
+        }.toPersistentList()
+
+        val hasAssignedCategories = remember(termDictionaries, activeProfile.dictionaryCategories) {
+            termDictionaries.any { activeProfile.dictionaryCategory(it) != DictionaryCategory.NONE }
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        return buildList {
+            add(
+                Preference.PreferenceGroup(
+                    title = stringResource(KMR.strings.pref_dict_categorize),
+                    preferenceItems = persistentListOf(
+                        Preference.PreferenceItem.InfoPreference(
+                            title = "Assign Monolingual for {monolingual-definition} or Bilingual for {bilingual-definition}. Exclude omits a dictionary from {glossary} and {glossary-first} while keeping it available to {selected-glossary} and {single-glossary-...}.",
+                        ),
+                    ),
+                ),
+            )
+            add(
+                Preference.PreferenceGroup(
+                    title = "Dictionaries",
+                    preferenceItems = dictionaryItems as kotlinx.collections.immutable.ImmutableList<
+                        Preference.PreferenceItem<out Any, out Any>
+                        >,
+                ),
+            )
+            if (hasAssignedCategories) {
+                add(
+                    Preference.PreferenceGroup(
+                        title = "Actions",
+                        preferenceItems = persistentListOf(
+                            Preference.PreferenceItem.TextPreference(
+                                title = "Reset all categories",
+                                subtitle = "Set all dictionaries back to None",
+                                onClick = {
+                                    val currentProfile = profileStore.getActiveProfile()
+                                    profileStore.updateProfile(
+                                        currentProfile.copy(dictionaryCategories = emptyMap()),
+                                    )
+                                    categoryFilter = null
+                                },
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+    }
 
     @Composable
     private fun getAppearanceGroups(): List<Preference> {
@@ -1305,8 +1932,8 @@ object SettingsDictionaryScreen : SearchableSettings {
         val activeProfile = remember(rawProfiles, rawActiveProfileId) { profileStore.getActiveProfile() }
         val currentOrder = activeProfile.dictionaryOrder
         val enabledDicts = activeProfile.enabledDictionaries
-        val collapseMode = activeProfile.dictionaryCollapseMode
         val dictionaryDisplayModes = activeProfile.dictionaryDisplayModes
+        val dictionaryCategories = activeProfile.dictionaryCategories
 
         var dictToDelete by remember { mutableStateOf<String?>(null) }
 
@@ -1318,9 +1945,7 @@ object SettingsDictionaryScreen : SearchableSettings {
         }
 
         val orderedDicts = remember(dictionaries, currentOrder) {
-            val ordered = currentOrder.filter { it in dictionaries }
-            val remaining = dictionaries.filter { it !in currentOrder }
-            ordered + remaining
+            orderedDictionaries(dictionaries, currentOrder)
         }
 
         var typeFilter by remember { mutableStateOf<String?>(null) }
@@ -1333,9 +1958,10 @@ object SettingsDictionaryScreen : SearchableSettings {
 
         val dictListState = rememberLazyListState()
         val dictNamesState = remember(filteredOrderedDicts) { filteredOrderedDicts.toMutableStateList() }
+        val headerItemCount = 2
         val reorderableState = rememberReorderableLazyListState(dictListState) { from, to ->
-            val fromIdx = from.index - 3
-            val toIdx = to.index - 3
+            val fromIdx = from.index - headerItemCount
+            val toIdx = to.index - headerItemCount
             if (fromIdx in dictNamesState.indices && toIdx in dictNamesState.indices) {
                 val item = dictNamesState.removeAt(fromIdx)
                 dictNamesState.add(toIdx, item)
@@ -1360,23 +1986,6 @@ object SettingsDictionaryScreen : SearchableSettings {
             }
         }
 
-        val collapseModeOptions = listOf(
-            AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_ALL to "Expand all dictionaries",
-            AnkiProfile.DICTIONARY_COLLAPSE_EXPAND_FIRST_AVAILABLE to "Expand first available dictionary",
-            AnkiProfile.DICTIONARY_COLLAPSE_COLLAPSE_ALL to "Collapse all dictionaries",
-            AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM to "Custom",
-        )
-        val customModeOptions = listOf(
-            AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_EXPANDED to "Always expanded",
-            AnkiProfile.DICTIONARY_DISPLAY_FALLBACK to "Fallback",
-            AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_COLLAPSED to "Always collapsed",
-        )
-        val collapseModeLabel = collapseModeOptions.firstOrNull { it.first == collapseMode }?.second
-            ?: collapseModeOptions.first().second
-        fun customModeLabel(mode: String): String =
-            customModeOptions.firstOrNull { it.first == mode }?.second
-                ?: customModeOptions[1].second
-
         dictToDelete?.let { dictName ->
             AlertDialog(
                 onDismissRequest = { dictToDelete = null },
@@ -1397,11 +2006,13 @@ object SettingsDictionaryScreen : SearchableSettings {
                             val newOrder = orderedDicts.filter { d -> d != dictName }
                             val newEnabled = enabledDicts - dictName
                             val newDisplayModes = dictionaryDisplayModes - dictName
+                            val newCategories = dictionaryCategories - dictName
                             profileStore.updateProfile(
                                 profileStore.getActiveProfile().copy(
                                     dictionaryOrder = newOrder,
                                     enabledDictionaries = newEnabled,
                                     dictionaryDisplayModes = newDisplayModes,
+                                    dictionaryCategories = newCategories,
                                 ),
                             )
                             loadDictionaryList(context)
@@ -1552,63 +2163,6 @@ object SettingsDictionaryScreen : SearchableSettings {
                                     userScrollEnabled = false,
                                     verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    item(key = "collapse_behavior") {
-                                        Surface(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                                            shape = RoundedCornerShape(12.dp),
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(12.dp),
-                                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                            ) {
-                                                Text(
-                                                    text = "Collapse behavior",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                )
-                                                Text(
-                                                    text = "Controls which dictionary groups open first in lookup results.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-
-                                                var collapseMenuExpanded by remember { mutableStateOf(false) }
-                                                Box {
-                                                    OutlinedButton(
-                                                        onClick = { collapseMenuExpanded = true },
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                    ) {
-                                                        Text(
-                                                            text = collapseModeLabel,
-                                                            modifier = Modifier.weight(1f),
-                                                        )
-                                                        Icon(
-                                                            imageVector = Icons.Outlined.KeyboardArrowDown,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(18.dp),
-                                                        )
-                                                    }
-                                                    DropdownMenu(
-                                                        expanded = collapseMenuExpanded,
-                                                        onDismissRequest = { collapseMenuExpanded = false },
-                                                    ) {
-                                                        collapseModeOptions.forEach { (mode, label) ->
-                                                            DropdownMenuItem(
-                                                                text = { Text(label) },
-                                                                onClick = {
-                                                                    profileStore.updateProfile(
-                                                                        profileStore.getActiveProfile().copy(dictionaryCollapseMode = mode),
-                                                                    )
-                                                                    collapseMenuExpanded = false
-                                                                },
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
                                 item(key = "type_filter") {
                                     Surface(
                                         modifier = Modifier
@@ -1685,61 +2239,17 @@ object SettingsDictionaryScreen : SearchableSettings {
                                                     contentDescription = null,
                                                     modifier = Modifier.draggableHandle(),
                                                 )
-                                                Column(
-                                                    modifier = Modifier.weight(1f),
-                                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                                ) {
-                                                    val displayTitle = getDictionaryTitle(context, dictName)
-                                                    Text(
-                                                        text = displayTitle,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        modifier = Modifier.combinedClickable(
+                                                val displayTitle = getDictionaryTitle(context, dictName)
+                                                Text(
+                                                    text = displayTitle,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .combinedClickable(
                                                             onClick = {},
                                                             onLongClick = { dictToRename = dictName },
                                                         ),
-                                                    )
-                                                    if (collapseMode == AnkiProfile.DICTIONARY_COLLAPSE_CUSTOM) {
-                                                        var dictModeExpanded by remember(dictName) { mutableStateOf(false) }
-                                                        val selectedMode = dictionaryDisplayModes[dictName]
-                                                            ?: AnkiProfile.DICTIONARY_DISPLAY_FALLBACK
-                                                        Box {
-                                                            OutlinedButton(
-                                                                onClick = { dictModeExpanded = true },
-                                                                modifier = Modifier.fillMaxWidth(),
-                                                            ) {
-                                                                Text(
-                                                                    text = customModeLabel(selectedMode),
-                                                                    modifier = Modifier.weight(1f),
-                                                                )
-                                                                Icon(
-                                                                    imageVector = Icons.Outlined.KeyboardArrowDown,
-                                                                    contentDescription = null,
-                                                                    modifier = Modifier.size(18.dp),
-                                                                )
-                                                            }
-                                                            DropdownMenu(
-                                                                expanded = dictModeExpanded,
-                                                                onDismissRequest = { dictModeExpanded = false },
-                                                            ) {
-                                                                customModeOptions.forEach { (mode, label) ->
-                                                                    DropdownMenuItem(
-                                                                        text = { Text(label) },
-                                                                        onClick = {
-                                                                            val currentProfile = profileStore.getActiveProfile()
-                                                                            val newModes = currentProfile.dictionaryDisplayModes + (dictName to mode)
-                                                                            profileStore.updateProfile(
-                                                                                currentProfile.copy(
-                                                                                    dictionaryDisplayModes = newModes,
-                                                                                ),
-                                                                            )
-                                                                            dictModeExpanded = false
-                                                                        },
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
+                                                )
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                 ) {
@@ -1777,7 +2287,7 @@ object SettingsDictionaryScreen : SearchableSettings {
                                                     }
                                                 }
                                             }
-                                    }
+                                        }
                                  }
 
                                 }
@@ -1797,6 +2307,7 @@ object SettingsDictionaryScreen : SearchableSettings {
     private fun getAnkiGroup(): Preference.PreferenceGroup {
         val context = LocalContext.current
         val activity = context as? android.app.Activity
+        val navigator = LocalNavigator.currentOrThrow
         val scope = rememberCoroutineScope()
         val dictionaryPreferences = remember { Injekt.get<DictionaryPreferences>() }
         val ankiAppPackage by dictionaryPreferences.ankiAppPackage().collectAsState()
@@ -1806,12 +2317,19 @@ object SettingsDictionaryScreen : SearchableSettings {
             AnkiAppSelection.packageName = ankiAppPackage
         }
 
+        LaunchedEffect(Unit) {
+            loadDictionaryList(context)
+        }
+
         val dictionaries by dictionaryNames.collectAsState()
 
         val rawProfiles by dictionaryPreferences.rawProfiles().collectAsState()
         val rawActiveProfileId by dictionaryPreferences.rawActiveProfileId().collectAsState()
         val profileStore = dictionaryPreferences.profileStore
         val activeProfile = remember(rawProfiles, rawActiveProfileId) { profileStore.getActiveProfile() }
+        val termDictionaries = remember(dictionaries, activeProfile.dictionaryOrder) {
+            orderedTermDictionaries(context, dictionaries, activeProfile.dictionaryOrder)
+        }
 
         val updateProfile: (chimahon.anki.AnkiProfile.() -> chimahon.anki.AnkiProfile) -> Unit = { transform ->
             profileStore.updateProfile(profileStore.getActiveProfile().transform())
@@ -2264,6 +2782,14 @@ object SettingsDictionaryScreen : SearchableSettings {
                                 }
                             }
                         },
+                    ),
+                )
+
+                add(
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(KMR.strings.pref_dict_categorize),
+                        subtitle = dictionaryCategorySummary(activeProfile, termDictionaries),
+                        onClick = { navigator.push(SettingsDictionaryCategoriesScreen) },
                     ),
                 )
 
