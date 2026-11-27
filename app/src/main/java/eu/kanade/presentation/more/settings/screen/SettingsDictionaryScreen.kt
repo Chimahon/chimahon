@@ -273,7 +273,7 @@ private fun CustomCollapseModeBadge(mode: String, label: String) {
         AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_EXPANDED ->
             MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
         AnkiProfile.DICTIONARY_DISPLAY_ALWAYS_COLLAPSED ->
-            MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
+            MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
         else ->
             MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
     }
