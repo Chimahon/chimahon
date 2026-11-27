@@ -21,7 +21,7 @@ import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-internal data class SubtitleLookupRequest(
+data class SubtitleLookupRequest(
     val lookupString: String,
     val fullText: String,
     val charOffset: Int,

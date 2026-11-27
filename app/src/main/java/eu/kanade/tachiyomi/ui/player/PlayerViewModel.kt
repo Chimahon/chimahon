@@ -89,8 +89,18 @@ import eu.kanade.tachiyomi.ui.player.utils.JimakuApi
 import eu.kanade.tachiyomi.ui.player.utils.JimakuEntry
 import eu.kanade.tachiyomi.ui.player.utils.JimakuFile
 import eu.kanade.tachiyomi.ui.player.utils.JimakuMediaGuess
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleListEmptyReason
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleListTiming
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleListTrack
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleRegexFilterOptions
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
-import eu.kanade.tachiyomi.ui.player.utils.applySubtitleRegexFilters
+import eu.kanade.tachiyomi.ui.player.utils.appendLiveSubtitleCue
+import eu.kanade.tachiyomi.ui.player.utils.computeCueSeekTargetSeconds
+import eu.kanade.tachiyomi.ui.player.utils.decodeSubtitleCues
+import eu.kanade.tachiyomi.ui.player.utils.findActiveSubtitleCueMatch
+import eu.kanade.tachiyomi.ui.player.utils.isImageSubtitleCodec
+import eu.kanade.tachiyomi.ui.player.utils.maxSubtitleCueDuration
+import eu.kanade.tachiyomi.ui.player.utils.prepareSubtitleCues
 import eu.kanade.tachiyomi.ui.player.utils.subtitleRegexFilterOptions
 import eu.kanade.tachiyomi.ui.player.utils.displayName
 import eu.kanade.tachiyomi.ui.player.utils.guessJimakuMedia
@@ -110,7 +120,12 @@ import eu.kanade.tachiyomi.util.storage.cacheImageDir
 import eu.kanade.tachiyomi.util.system.toast
 import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.Utils
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -122,6 +137,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -246,11 +263,26 @@ class PlayerViewModel @JvmOverloads constructor(
     val jimakuState = _jimakuState.asStateFlow()
     private val _subtitlesVisible = MutableStateFlow(true)
     val subtitlesVisible = _subtitlesVisible.asStateFlow()
-    private val _subtitleCues = MutableStateFlow<List<SubtitleCue>>(emptyList())
+    private val _subtitleCues = MutableStateFlow<ImmutableList<SubtitleCue>>(persistentListOf())
     val subtitleCues = _subtitleCues.asStateFlow()
+    private val _activeSubtitleCueIndices = MutableStateFlow<ImmutableSet<Int>>(persistentSetOf())
+    val activeSubtitleCueIndices = _activeSubtitleCueIndices.asStateFlow()
     private val _activeSubtitleCueIndex = MutableStateFlow<Int?>(null)
     val activeSubtitleCueIndex = _activeSubtitleCueIndex.asStateFlow()
+    private val _nearestSubtitleCueIndex = MutableStateFlow<Int?>(null)
+    val nearestSubtitleCueIndex = _nearestSubtitleCueIndex.asStateFlow()
+    private val _subtitleListTrack = MutableStateFlow(SubtitleListTrack.Primary)
+    val subtitleListTrack = _subtitleListTrack.asStateFlow()
+    private val _subtitleListEmptyReason = MutableStateFlow(SubtitleListEmptyReason.WaitingForCues)
+    val subtitleListEmptyReason = _subtitleListEmptyReason.asStateFlow()
+    private val _subtitleListTiming = MutableStateFlow(SubtitleListTiming())
+    val subtitleListTiming = _subtitleListTiming.asStateFlow()
     private val subtitleJson = Json { ignoreUnknownKeys = true }
+    private var subtitleCuesJob: Job? = null
+    private var lastSubtitleLinesKey: SubtitleLinesCacheKey? = null
+    private var maxSubtitleCueDurationSeconds: Double = 0.0
+    private var secondaryLiveCues: List<SubtitleCue> = emptyList()
+    private var secondaryLiveSid: Int = -1
     private var lastAutoJimakuKey: String? = null
 
     private val _audioTracks = MutableStateFlow<List<VideoTrack>>(emptyList())
@@ -391,6 +423,13 @@ class PlayerViewModel @JvmOverloads constructor(
     val primaryButton = _primaryButton.asStateFlow()
 
     init {
+        panelShown
+            .onEach { panel ->
+                if (panel != Panels.SubtitleSideList) {
+                    clearSubtitleListState()
+                }
+            }
+            .launchIn(viewModelScope)
         viewModelScope.launchIO {
             try {
                 val buttons = getCustomButtons.getAll()
@@ -487,6 +526,14 @@ class PlayerViewModel @JvmOverloads constructor(
             null
         }
     }
+    val getTrackCodec: (Int) -> String? = {
+        if (it != -1) {
+            MPVLib.getPropertyString("track-list/$it/codec")
+                ?.takeIf { codec -> codec.isNotBlank() }
+        } else {
+            null
+        }
+    }
 
     private var trackLoadingJob: Job? = null
     fun loadTracks() {
@@ -509,6 +556,7 @@ class PlayerViewModel @JvmOverloads constructor(
                                 name = getTrackTitle(i),
                                 language = getTrackLanguage(i),
                                 externalFilename = getTrackExternalFilename(i),
+                                codec = getTrackCodec(i),
                             )
                             subTracks.add(track)
                         }
@@ -560,6 +608,15 @@ class PlayerViewModel @JvmOverloads constructor(
         val name: String,
         val language: String?,
         val externalFilename: String? = null,
+        val codec: String? = null,
+    )
+
+    private data class SubtitleLinesCacheKey(
+        val track: SubtitleListTrack,
+        val sid: Int,
+        val rawJson: String?,
+        val liveCount: Int,
+        val options: SubtitleRegexFilterOptions,
     )
 
     @Immutable
@@ -924,43 +981,181 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun refreshSubtitleRegexFilters() {
         MPVLib.setPropertyBoolean("sub-text-filter-refresh", true)
+        lastSubtitleLinesKey = null
         refreshSubtitleCues()
     }
 
+    fun setSubtitleListTrack(track: SubtitleListTrack) {
+        val resolved = if (track == SubtitleListTrack.Secondary && selectedSubtitles.value.second != -1) {
+            SubtitleListTrack.Secondary
+        } else {
+            SubtitleListTrack.Primary
+        }
+        if (_subtitleListTrack.value == resolved) return
+        _subtitleListTrack.update { resolved }
+        lastSubtitleLinesKey = null
+        refreshSubtitleCues()
+    }
+
+    fun onSecondarySubtitleTextChanged(rawText: String) {
+        val secondarySid = selectedSubtitles.value.second
+        if (secondarySid == -1) return
+        if (secondarySid != secondaryLiveSid) {
+            secondaryLiveSid = secondarySid
+            secondaryLiveCues = emptyList()
+        }
+        if (rawText.isBlank()) {
+            if (panelShown.value == Panels.SubtitleSideList && _subtitleListTrack.value == SubtitleListTrack.Secondary) {
+                updateActiveSubtitleCue()
+            }
+            return
+        }
+        val start = runCatching { MPVLib.getPropertyDouble("secondary-sub-start") }.getOrNull()
+        val end = runCatching { MPVLib.getPropertyDouble("secondary-sub-end") }.getOrNull()
+        val updated = appendLiveSubtitleCue(
+            existing = secondaryLiveCues,
+            rawText = rawText,
+            startSeconds = start,
+            endSeconds = end,
+            fallbackPositionSeconds = _pos.value.toDouble(),
+        )
+        if (updated !== secondaryLiveCues) {
+            secondaryLiveCues = updated
+            if (panelShown.value == Panels.SubtitleSideList && _subtitleListTrack.value == SubtitleListTrack.Secondary) {
+                refreshSubtitleCues()
+            }
+        } else if (panelShown.value == Panels.SubtitleSideList && _subtitleListTrack.value == SubtitleListTrack.Secondary) {
+            updateActiveSubtitleCue()
+        }
+    }
+
+    private fun clearSubtitleListState() {
+        subtitleCuesJob?.cancel()
+        subtitleCuesJob = null
+        lastSubtitleLinesKey = null
+        maxSubtitleCueDurationSeconds = 0.0
+        _subtitleCues.update { persistentListOf() }
+        _activeSubtitleCueIndices.update { persistentSetOf() }
+        _activeSubtitleCueIndex.update { null }
+        _nearestSubtitleCueIndex.update { null }
+    }
+
     private fun refreshSubtitleCues() {
-        if (panelShown.value != Panels.SubtitleSideList) return
+        if (panelShown.value != Panels.SubtitleSideList) {
+            clearSubtitleListState()
+            return
+        }
+        val selected = selectedSubtitles.value
+        if (selected.second == -1 && _subtitleListTrack.value == SubtitleListTrack.Secondary) {
+            _subtitleListTrack.update { SubtitleListTrack.Primary }
+        }
+        val activeTrack = _subtitleListTrack.value
+        val activeSid = if (activeTrack == SubtitleListTrack.Secondary) selected.second else selected.first
+        if (activeSid == -1) {
+            clearSubtitleListState()
+            _subtitleListEmptyReason.update { SubtitleListEmptyReason.NoTrackSelected }
+            _subtitleListTiming.update { currentSubtitleListTiming(activeTrack) }
+            return
+        }
+        val trackMeta = subtitleTracks.value.firstOrNull { it.id == activeSid }
+        val emptyReason = if (isImageSubtitleCodec(trackMeta?.codec)) {
+            SubtitleListEmptyReason.ImageBasedTrack
+        } else {
+            SubtitleListEmptyReason.WaitingForCues
+        }
+        _subtitleListEmptyReason.update { emptyReason }
+
+        val options = subtitlePreferences.subtitleRegexFilterOptions()
         // MPV_FORMAT_STRING serializes this native node property as JSON.
         // MPV owns decoding and durations; absent ends stay unknown.
-        val lines = MPVLib.getPropertyString("sub-lines")
-        val options = subtitlePreferences.subtitleRegexFilterOptions()
-        val cues = lines?.let {
-            runCatching { subtitleJson.decodeFromString<List<SubtitleCue>>(it) }.getOrNull()
-        }.orEmpty().mapIndexedNotNull { index, cue ->
-            val text = cue.text.applySubtitleRegexFilters(options)
-            if (text.isBlank() || !cue.positionSeconds.isFinite() ||
-                cue.endPositionSeconds?.let { !it.isFinite() || it < cue.positionSeconds } == true
-            ) {
-                null
+        val rawJson = if (activeTrack == SubtitleListTrack.Primary) {
+            MPVLib.getPropertyString("sub-lines")
+        } else {
+            runCatching { MPVLib.getPropertyString("secondary-sub-lines") }.getOrNull()
+        }
+        val liveSnapshot = if (activeTrack == SubtitleListTrack.Secondary && rawJson.isNullOrBlank()) {
+            secondaryLiveCues
+        } else {
+            emptyList()
+        }
+        val cacheKey = SubtitleLinesCacheKey(
+            track = activeTrack,
+            sid = activeSid,
+            rawJson = rawJson,
+            liveCount = liveSnapshot.size,
+            options = options,
+        )
+        if (cacheKey == lastSubtitleLinesKey) {
+            updateActiveSubtitleCue()
+            return
+        }
+
+        subtitleCuesJob?.cancel()
+        subtitleCuesJob = viewModelScope.launch(Dispatchers.Default) {
+            val rawCues = if (!rawJson.isNullOrBlank()) {
+                decodeSubtitleCues(rawJson, subtitleJson)
             } else {
-                cue.copy(index = index, text = text)
+                liveSnapshot
+            }
+            val prepared = prepareSubtitleCues(rawCues, options)
+            val maxDuration = maxSubtitleCueDuration(prepared)
+            val immutableCues = prepared.toImmutableList()
+
+            withContext(Dispatchers.Main) {
+                if (panelShown.value != Panels.SubtitleSideList || _subtitleListTrack.value != activeTrack) {
+                    return@withContext
+                }
+                lastSubtitleLinesKey = cacheKey
+                maxSubtitleCueDurationSeconds = maxDuration
+                if (_subtitleCues.value != immutableCues) {
+                    _subtitleCues.update { immutableCues }
+                }
+                updateActiveSubtitleCue()
             }
         }
-        _subtitleCues.update { cues }
-        updateActiveSubtitleCue()
+    }
+
+    private fun currentSubtitleListTiming(track: SubtitleListTrack = _subtitleListTrack.value): SubtitleListTiming {
+        return if (track == SubtitleListTrack.Secondary) {
+            val delay = runCatching { MPVLib.getPropertyDouble("secondary-sub-delay") }.getOrNull()
+                ?.takeIf { it.isFinite() } ?: 0.0
+            SubtitleListTiming(speed = 1.0, delaySeconds = delay)
+        } else {
+            val speed = MPVLib.getPropertyDouble("sub-speed")?.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+            val delay = MPVLib.getPropertyDouble("sub-delay")?.takeIf { it.isFinite() } ?: 0.0
+            SubtitleListTiming(speed = speed, delaySeconds = delay)
+        }
     }
 
     private fun updateActiveSubtitleCue() {
+        if (panelShown.value != Panels.SubtitleSideList) return
+        val activeTrack = _subtitleListTrack.value
+        val timing = currentSubtitleListTiming(activeTrack)
+        _subtitleListTiming.update { timing }
         // sub-start is in the same raw subtitle timeline as sub-lines. MPV has
         // already selected the active event using its delay/speed settings.
-        val start = MPVLib.getPropertyDouble("sub-start")
-        val cue = start?.takeIf { it.isFinite() }?.let { activeStart ->
-            subtitleCues.value.lastOrNull {
-                it.positionSeconds <= activeStart &&
-                    (it.endPositionSeconds?.let { end -> activeStart < end }
-                        ?: (kotlin.math.abs(it.positionSeconds - activeStart) < 0.001))
-            }
+        val start = if (activeTrack == SubtitleListTrack.Secondary) {
+            runCatching { MPVLib.getPropertyDouble("secondary-sub-start") }.getOrNull()
+        } else {
+            MPVLib.getPropertyDouble("sub-start")
         }
-        _activeSubtitleCueIndex.update { cue?.index }
+        val match = findActiveSubtitleCueMatch(
+            cues = subtitleCues.value,
+            maxCueDuration = maxSubtitleCueDurationSeconds,
+            subStart = start,
+            playbackPosSeconds = _pos.value.toDouble(),
+            timing = timing,
+        )
+        val activeSet = match.activeIndices.toImmutableSet()
+        if (_activeSubtitleCueIndices.value != activeSet) {
+            _activeSubtitleCueIndices.update { activeSet }
+        }
+        if (_activeSubtitleCueIndex.value != match.anchorCueIndex) {
+            _activeSubtitleCueIndex.update { match.anchorCueIndex }
+        }
+        if (_nearestSubtitleCueIndex.value != match.nearestCueIndex) {
+            _nearestSubtitleCueIndex.update { match.nearestCueIndex }
+        }
     }
 
     fun selectSub(id: Int) {
@@ -978,13 +1173,22 @@ class PlayerViewModel @JvmOverloads constructor(
                 }
             }
         }
-        activity.player.secondarySid = _selectedSubtitles.value.second
-        activity.player.sid = _selectedSubtitles.value.first
+        val updated = _selectedSubtitles.value
+        if (updated.second != secondaryLiveSid) {
+            secondaryLiveSid = updated.second
+            secondaryLiveCues = emptyList()
+        }
+        activity.player.secondarySid = updated.second
+        activity.player.sid = updated.first
         refreshSubtitleCues()
         rememberSubtitleSelectionForCurrentEpisode()
     }
 
     fun updateSubtitle(sid: Int, secondarySid: Int) {
+        if (secondarySid != secondaryLiveSid) {
+            secondaryLiveSid = secondarySid
+            secondaryLiveCues = emptyList()
+        }
         _selectedSubtitles.update { Pair(sid, secondarySid) }
         refreshSubtitleCues()
     }
@@ -993,9 +1197,9 @@ class PlayerViewModel @JvmOverloads constructor(
         val cue = subtitleCues.value.firstOrNull { it.index == index } ?: return
         // Unlike lookup geometry, sub-lines exposes raw subtitle timestamps.
         // Convert only here, when seeking to a row chosen from the native list.
-        val speed = MPVLib.getPropertyDouble("sub-speed") ?: 1.0
-        val delay = MPVLib.getPropertyDouble("sub-delay") ?: 0.0
-        seekTo((cue.positionSeconds * speed + delay).coerceAtLeast(0.0))
+        val timing = currentSubtitleListTiming(_subtitleListTrack.value)
+        val durationSeconds = activity.player.duration?.toDouble()
+        seekTo(computeCueSeekTargetSeconds(cue, timing, durationSeconds))
     }
 
     fun seekToAdjacentSubtitle(forward: Boolean) {
@@ -1186,7 +1390,7 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun seekTo(position: Double, precise: Boolean = true) {
         val duration = activity.player.duration?.toDouble() ?: 0.0
-        if (position < 0.0 || position > duration) return
+        if (position < 0.0 || (duration > 0.0 && position > duration)) return
         val target = if (duration > 0.0 && position >= duration) duration - 1.0 else position
         clearEndOfFileState()
         MPVLib.command(arrayOf("seek", target.coerceAtLeast(0.0).toString(), if (precise) "absolute" else "absolute+keyframes"))
@@ -1340,8 +1544,10 @@ class PlayerViewModel @JvmOverloads constructor(
             }
             "show_panel" -> {
                 when (data) {
+                    "subtitle_side_list" -> showPanel(Panels.SubtitleSideList)
                     "subtitle_settings" -> showPanel(Panels.SubtitleSettings)
                     "subtitle_delay" -> showPanel(Panels.SubtitleDelay)
+                    "subtitle_regex" -> showPanel(Panels.SubtitleRegex)
                     "audio_delay" -> showPanel(Panels.AudioDelay)
                     "video_filters" -> showPanel(Panels.VideoFilters)
                 }
@@ -1487,6 +1693,10 @@ class PlayerViewModel @JvmOverloads constructor(
         _hosterList.update { _ -> emptyList() }
         _hosterExpandedList.update { _ -> emptyList() }
         _selectedHosterVideoIndex.update { _ -> Pair(-1, -1) }
+        secondaryLiveCues = emptyList()
+        secondaryLiveSid = -1
+        _subtitleListTrack.update { SubtitleListTrack.Primary }
+        clearSubtitleListState()
     }
 
     fun changeEpisode(previous: Boolean, autoPlay: Boolean = false) {

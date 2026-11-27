@@ -273,6 +273,7 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
 
         "sid" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
         "secondary-sid" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
+        "secondary-sub-text" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
         "aid" to MPVLib.mpvFormat.MPV_FORMAT_STRING,
 
         "speed" to MPVLib.mpvFormat.MPV_FORMAT_DOUBLE,

@@ -181,11 +181,18 @@ fun GestureHandler(
                     var lastTapAt = 0L
                     var lastTapX = 0f
                     var lastTapY = 0f
+                    var dismissedPanelOnPress = false
                     val doubleTapWindowMillis = 220L
                     val doubleTapDistance = viewConfiguration.touchSlop * 4
 
                     detectTapGestures(
                         onTap = { position ->
+                            if (dismissedPanelOnPress) {
+                                dismissedPanelOnPress = false
+                                pendingSingleTap?.cancel()
+                                lastTapAt = 0L
+                                return@detectTapGestures
+                            }
                             if (subtitleTap(
                                     position.x + subtitleOrigin.x,
                                     position.y + subtitleOrigin.y,
@@ -250,8 +257,11 @@ fun GestureHandler(
                         },
                         onPress = {
                             if (viewModel.suppressTap.value) return@detectTapGestures
-                            if (panelShown != Panels.None && !allowGesturesInPanels) {
+                            dismissedPanelOnPress = if (panelShown != Panels.None && !allowGesturesInPanels) {
                                 viewModel.panelShown.update { Panels.None }
+                                true
+                            } else {
+                                false
                             }
                             val press = PressInteraction.Press(
                                 it.copy(x = if (it.x > size.width * 3 / 5) it.x - size.width * 0.6f else it.x),
@@ -281,6 +291,10 @@ fun GestureHandler(
                         onLongPress = {
                             pendingSingleTap?.cancel()
                             lastTapAt = 0L
+                            if (dismissedPanelOnPress) {
+                                dismissedPanelOnPress = false
+                                return@detectTapGestures
+                            }
                             if (areControlsLocked) return@detectTapGestures
                             if (!isLongPressing) {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)

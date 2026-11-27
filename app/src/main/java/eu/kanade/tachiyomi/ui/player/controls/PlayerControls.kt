@@ -133,7 +133,15 @@ fun PlayerControls(
     val currentBrightness by viewModel.currentBrightness.collectAsState()
     val subtitlesVisible by viewModel.subtitlesVisible.collectAsState()
     val subtitleCues by viewModel.subtitleCues.collectAsState()
+    val activeSubtitleCueIndices by viewModel.activeSubtitleCueIndices.collectAsState()
     val activeSubtitleCueIndex by viewModel.activeSubtitleCueIndex.collectAsState()
+    val nearestSubtitleCueIndex by viewModel.nearestSubtitleCueIndex.collectAsState()
+    val subtitleListTrack by viewModel.subtitleListTrack.collectAsState()
+    val subtitleListEmptyReason by viewModel.subtitleListEmptyReason.collectAsState()
+    val subtitleListTiming by viewModel.subtitleListTiming.collectAsState()
+    val subtitles by viewModel.subtitleTracks.collectAsState()
+    val selectedSubtitles by viewModel.selectedSubtitles.collectAsState()
+    val isCasting by viewModel.isCasting.collectAsState()
     val panel by viewModel.panelShown.collectAsState()
 
     val playerTimeToDisappear by playerPreferences.playerTimeToDisappear().collectAsState()
@@ -180,6 +188,18 @@ fun PlayerControls(
         viewModel.pause()
         subtitleLookupRequest = subtitleLookup
     }
+    val openSubtitleListLookup: (SubtitleLookupRequest) -> Unit = openSubtitleListLookup@{ subtitleLookup ->
+        if (
+            viewModel.sheetShown.value != Sheets.None ||
+            viewModel.panelShown.value != Panels.SubtitleSideList ||
+            viewModel.dialogShown.value != Dialogs.None
+        ) {
+            return@openSubtitleListLookup
+        }
+        if (subtitleLookupRequest == null) wasPlayerAlreadyPause = viewModel.paused.value
+        viewModel.pause()
+        subtitleLookupRequest = subtitleLookup
+    }
     val togglePanel: (Panels) -> Unit = { panel ->
         viewModel.showPanel(
             if (viewModel.panelShown.value == panel) {
@@ -218,7 +238,7 @@ fun PlayerControls(
         onSubtitleLongPress = lookupNativeSubtitle,
     )
     Box(Modifier.fillMaxSize()) {
-        if (subtitleLookupRequest != null) {
+        if (subtitleLookupRequest != null && panel == Panels.None) {
             Box(Modifier.fillMaxSize().clickable {
                 subtitleLookupRequest = null
                 if (!wasPlayerAlreadyPause) viewModel.unpause()
@@ -466,7 +486,7 @@ fun PlayerControls(
                     )
                 }
                 AnimatedVisibility(
-                    controlsShown && !areControlsLocked,
+                    controlsShown && !areControlsLocked && !isCasting && subtitles.isNotEmpty(),
                     enter = fadeIn(playerControlsEnterAnimationSpec()),
                     exit = fadeOut(playerControlsExitAnimationSpec()),
                     modifier = Modifier.constrainAs(rightSideSubtitleButtons) {
@@ -671,8 +691,6 @@ fun PlayerControls(
 
         val sheetShown by viewModel.sheetShown.collectAsState()
         val dismissSheet by viewModel.dismissSheet.collectAsState()
-        val subtitles by viewModel.subtitleTracks.collectAsState()
-        val selectedSubtitles by viewModel.selectedSubtitles.collectAsState()
         val jimakuState by viewModel.jimakuState.collectAsState()
         val anime by viewModel.currentAnime.collectAsState()
         val currentEpisode by viewModel.currentEpisode.collectAsState()
@@ -751,11 +769,19 @@ fun PlayerControls(
         )
         PlayerPanels(
             panelShown = panel,
-            subtitleCues = subtitleCues.toImmutableList(),
+            subtitleCues = subtitleCues,
+            activeSubtitleCueIndices = activeSubtitleCueIndices,
             activeSubtitleCueIndex = activeSubtitleCueIndex,
+            nearestSubtitleCueIndex = nearestSubtitleCueIndex,
+            subtitleListTrack = subtitleListTrack,
+            hasSecondarySubtitle = selectedSubtitles.second != -1,
+            subtitleListEmptyReason = subtitleListEmptyReason,
+            subtitleListTiming = subtitleListTiming,
             animeId = anime?.id,
             episodeId = currentEpisode?.id,
+            onSelectSubtitleListTrack = viewModel::setSubtitleListTrack,
             onSelectSubtitleCue = viewModel::selectSubtitleCue,
+            onLookupSubtitleCueWord = openSubtitleListLookup,
             onSubtitleRegexFiltersChanged = viewModel::refreshSubtitleRegexFilters,
             onDismissRequest = { viewModel.showPanel(Panels.None) },
         )
@@ -778,6 +804,21 @@ fun PlayerControls(
             },
             onDismissRequest = { viewModel.showDialog(Dialogs.None) },
         )
+
+        if (subtitleLookupRequest != null && panel != Panels.None) {
+            val lookupBackdropInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = lookupBackdropInteraction,
+                        indication = null,
+                    ) {
+                        subtitleLookupRequest = null
+                        if (!wasPlayerAlreadyPause) viewModel.unpause()
+                    },
+            )
+        }
 
         PlayerSubtitleLookupPopup(
             viewModel = viewModel,

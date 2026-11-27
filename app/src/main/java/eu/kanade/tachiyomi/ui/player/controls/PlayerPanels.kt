@@ -42,7 +42,11 @@ import eu.kanade.tachiyomi.ui.player.controls.components.panels.SubtitleRegexPan
 import eu.kanade.tachiyomi.ui.player.controls.components.panels.SubtitleSettingsPanel
 import eu.kanade.tachiyomi.ui.player.controls.components.panels.VideoFiltersPanel
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleListEmptyReason
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleListTiming
+import eu.kanade.tachiyomi.ui.player.utils.SubtitleListTrack
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -50,10 +54,18 @@ import uy.kohesive.injekt.api.get
 fun PlayerPanels(
     panelShown: Panels,
     subtitleCues: ImmutableList<SubtitleCue>,
+    activeSubtitleCueIndices: ImmutableSet<Int>,
     activeSubtitleCueIndex: Int?,
+    nearestSubtitleCueIndex: Int?,
+    subtitleListTrack: SubtitleListTrack,
+    hasSecondarySubtitle: Boolean,
+    subtitleListEmptyReason: SubtitleListEmptyReason,
+    subtitleListTiming: SubtitleListTiming,
     animeId: Long?,
     episodeId: Long?,
+    onSelectSubtitleListTrack: (SubtitleListTrack) -> Unit,
     onSelectSubtitleCue: (Int) -> Unit,
+    onLookupSubtitleCueWord: (SubtitleLookupRequest) -> Unit,
     onSubtitleRegexFiltersChanged: () -> Unit,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
@@ -75,8 +87,16 @@ fun PlayerPanels(
             Panels.SubtitleSideList -> {
                 SubtitleListPanel(
                     cues = subtitleCues,
+                    activeCueIndices = activeSubtitleCueIndices,
                     activeCueIndex = activeSubtitleCueIndex,
+                    nearestCueIndex = nearestSubtitleCueIndex,
+                    selectedTrack = subtitleListTrack,
+                    hasSecondaryTrack = hasSecondarySubtitle,
+                    emptyReason = subtitleListEmptyReason,
+                    timing = subtitleListTiming,
+                    onSelectTrack = onSelectSubtitleListTrack,
                     onSelectCue = onSelectSubtitleCue,
+                    onLookupWord = onLookupSubtitleCueWord,
                     onDismissRequest = onDismissRequest,
                 )
             }
