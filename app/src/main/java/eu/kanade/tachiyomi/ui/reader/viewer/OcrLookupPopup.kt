@@ -779,6 +779,8 @@ fun OcrLookupPopup(
                     profileId = activeProfile.id,
                     titleId = titleId,
                     mediaRequest = mediaRequest,
+                    dictionaryOrder = activeProfile.dictionaryOrder,
+                    dictionaryCategories = activeProfile.dictionaryCategoryMap(),
                 )
                 if (ankiResult is AnkiResult.Success || ankiResult is AnkiResult.CardExists || ankiResult is AnkiResult.OpenCard) {
                     withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -861,6 +863,8 @@ fun OcrLookupPopup(
                     profileId = activeProfile.id,
                     titleId = titleId,
                     mediaRequest = mediaRequest,
+                    dictionaryOrder = activeProfile.dictionaryOrder,
+                    dictionaryCategories = activeProfile.dictionaryCategoryMap(),
                 )
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     when (ankiResult) {

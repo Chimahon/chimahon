@@ -4,6 +4,26 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * Classification of a term dictionary for Anki card mining.
+ * Matches Hoshi Reader Android's dictionary category selector.
+ */
+enum class DictionaryCategory(
+    val storageValue: String,
+    val label: String,
+) {
+    NONE("none", "None"),
+    MONOLINGUAL("monolingual", "Monolingual"),
+    BILINGUAL("bilingual", "Bilingual"),
+    EXCLUDE("exclude", "Exclude"),
+    ;
+
+    companion object {
+        fun fromStorageValue(value: String?): DictionaryCategory =
+            entries.firstOrNull { it.storageValue.equals(value, ignoreCase = true) } ?: NONE
+    }
+}
+
+/**
  * A named mining configuration that bundles together:
  * - AnkiDroid deck/model/field-map/tag settings
  * - The ordered list of dictionaries to use
@@ -34,6 +54,7 @@ data class AnkiProfile(
     val enabledDictionaries: Set<String> = emptySet(), // empty = all enabled
     val dictionaryCollapseMode: String = DICTIONARY_COLLAPSE_EXPAND_ALL,
     val dictionaryDisplayModes: Map<String, String> = emptyMap(),
+    val dictionaryCategories: Map<String, String> = emptyMap(),
 
     /**
      * BCP-47-style language code for this profile, e.g. "ja", "ko", "ar", "en".
@@ -60,6 +81,12 @@ data class AnkiProfile(
     val searchResolution: String = "",
 ) {
 
+    fun dictionaryCategory(dirName: String): DictionaryCategory =
+        DictionaryCategory.fromStorageValue(dictionaryCategories[dirName])
+
+    fun dictionaryCategoryMap(): Map<String, DictionaryCategory> =
+        dictionaryCategories.mapValues { (_, value) -> DictionaryCategory.fromStorageValue(value) }
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("name", name)
@@ -78,6 +105,7 @@ data class AnkiProfile(
         put("enabledDictionaries", JSONArray(enabledDictionaries.toList()))
         put("dictionaryCollapseMode", dictionaryCollapseMode)
         put("dictionaryDisplayModes", JSONObject(dictionaryDisplayModes))
+        put("dictionaryCategories", JSONObject(dictionaryCategories))
         put("languageCode", languageCode)
         put("scanResolution", scanResolution)
         put("searchResolution", searchResolution)
@@ -137,6 +165,22 @@ data class AnkiProfile(
                         while (keys.hasNext()) {
                             val key = keys.next()
                             put(key, obj.optString(key, DICTIONARY_DISPLAY_FALLBACK))
+                        }
+                    }
+                }
+                ?: emptyMap(),
+            dictionaryCategories = json.optJSONObject("dictionaryCategories")
+                ?.let { obj ->
+                    buildMap {
+                        val keys = obj.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            val category = DictionaryCategory.fromStorageValue(
+                                obj.optString(key, DictionaryCategory.NONE.storageValue),
+                            )
+                            if (category != DictionaryCategory.NONE) {
+                                put(key, category.storageValue)
+                            }
                         }
                     }
                 }

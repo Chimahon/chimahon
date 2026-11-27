@@ -512,6 +512,8 @@ data object DictionaryTab : Tab {
                             type = "novel",
                             syncOnCreate = ankiSyncOnCreate,
                             profileId = activeProfile.id,
+                            dictionaryOrder = activeProfile.dictionaryOrder,
+                            dictionaryCategories = activeProfile.dictionaryCategoryMap(),
                         )
                         if (ankiResult is AnkiResult.Success || ankiResult is AnkiResult.CardExists || ankiResult is AnkiResult.OpenCard) {
                             val frame = lookupStack.getOrNull(frameIndex)

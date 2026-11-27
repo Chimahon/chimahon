@@ -269,6 +269,8 @@
     <string name="pref_dict_layout">Layout</string>
     <string name="pref_dict_typography">Typography</string>
     <string name="pref_dict_content">Content</string>
+    <string name="pref_dict_collapse_behavior">Collapsible dictionaries</string>
+    <string name="pref_dict_categorize">Categorize dictionaries</string>
     <string name="pref_dict_active_profile">Active profile</string>
     <string name="pref_dict_profile_language">Language</string>
     <string name="ocr_source_automatic">Automatic</string>
