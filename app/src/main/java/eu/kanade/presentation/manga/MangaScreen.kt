@@ -84,6 +84,7 @@ import eu.kanade.presentation.manga.components.PagePreviewItems
 import eu.kanade.presentation.manga.components.PagePreviews
 import eu.kanade.presentation.manga.components.RelatedMangasRow
 import eu.kanade.presentation.manga.components.SearchMetadataChips
+import eu.kanade.presentation.manga.components.toEstimatedReadingTime
 import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.source.Source
@@ -455,6 +456,10 @@ private fun MangaScreenSmallImpl(
             third = state.isAnySelected,
         )
     }
+    val context = LocalContext.current
+    val readingTime = remember(chapters, context) {
+        chapters.toEstimatedReadingTime(context)
+    }
     // SY -->
     val metadataDescription = metadataDescription(state.source)
     var maxWidth by remember {
@@ -666,6 +671,7 @@ private fun MangaScreenSmallImpl(
                             onCoverLoaded = onCoverLoaded,
                             coverRatio = coverRatio,
                             // KMK <--
+                            readingTime = readingTime,
                         )
                     }
 
@@ -932,6 +938,10 @@ private fun MangaScreenLargeImpl(
             third = state.isAnySelected,
         )
     }
+    val context = LocalContext.current
+    val readingTime = remember(chapters, context) {
+        chapters.toEstimatedReadingTime(context)
+    }
 
     // SY -->
     val metadataDescription = metadataDescription(state.source)
@@ -1134,6 +1144,7 @@ private fun MangaScreenLargeImpl(
                             onCoverLoaded = onCoverLoaded,
                             coverRatio = coverRatio,
                             // KMK <--
+                            readingTime = readingTime,
                         )
                         MangaActionRow(
                             favorite = state.manga.favorite,

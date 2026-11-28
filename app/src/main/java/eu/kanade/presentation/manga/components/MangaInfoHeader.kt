@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.CallMerge
+import androidx.compose.material.icons.automirrored.outlined.ChromeReaderMode
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.HourglassDisabled
@@ -138,6 +139,7 @@ fun MangaInfoBox(
     onCoverLoaded: (DomainMangaCover) -> Unit,
     coverRatio: MutableFloatState,
     // KMK <--
+    readingTime: String? = null,
 ) {
     // KMK -->
     val usePanoramaCover by Injekt.get<UiPreferences>().usePanoramaCoverMangaInfo().collectAsState()
@@ -191,6 +193,7 @@ fun MangaInfoBox(
                     manga = manga,
                     sourceName = sourceName,
                     isStubSource = isStubSource,
+                    readingTime = readingTime,
                     // KMK -->
                     isSourceIncognito = isSourceIncognito,
                     // KMK <--
@@ -211,6 +214,7 @@ fun MangaInfoBox(
                     manga = manga,
                     sourceName = sourceName,
                     isStubSource = isStubSource,
+                    readingTime = readingTime,
                     // KMK -->
                     isSourceIncognito = isSourceIncognito,
                     // KMK <--
@@ -489,6 +493,7 @@ private fun MangaAndSourceTitlesLarge(
     manga: Manga,
     sourceName: String,
     isStubSource: Boolean,
+    readingTime: String?,
     // KMK -->
     isSourceIncognito: Boolean,
     // KMK <--
@@ -553,6 +558,7 @@ private fun MangaAndSourceTitlesLarge(
             status = manga.status,
             sourceName = sourceName,
             isStubSource = isStubSource,
+            readingTime = readingTime,
             // KMK -->
             isSourceIncognito = isSourceIncognito,
             // KMK <--
@@ -572,6 +578,7 @@ private fun MangaAndSourceTitlesSmall(
     manga: Manga,
     sourceName: String,
     isStubSource: Boolean,
+    readingTime: String?,
     // KMK -->
     isSourceIncognito: Boolean,
     // KMK <--
@@ -648,6 +655,7 @@ private fun MangaAndSourceTitlesSmall(
                 status = manga.status,
                 sourceName = sourceName,
                 isStubSource = isStubSource,
+                readingTime = readingTime,
                 // KMK -->
                 isSourceIncognito = isSourceIncognito,
                 // KMK <--
@@ -670,6 +678,7 @@ private fun ColumnScope.MangaContentInfo(
     status: Long,
     sourceName: String,
     isStubSource: Boolean,
+    readingTime: String?,
     // KMK -->
     isSourceIncognito: Boolean,
     // KMK <--
@@ -869,6 +878,29 @@ private fun ColumnScope.MangaContentInfo(
             )
         }
     }
+
+    // KMK -->
+    if (readingTime != null) {
+        Row(
+            modifier = Modifier.secondaryItemAlpha(),
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ChromeReaderMode,
+                contentDescription = readingTime,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = readingTime,
+                style = MaterialTheme.typography.bodyMedium,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                textAlign = textAlign,
+            )
+        }
+    }
+    // KMK <--
 }
 
 @Composable
