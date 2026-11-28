@@ -24,6 +24,8 @@ import eu.kanade.presentation.library.components.GlobalSearchItem
 import eu.kanade.presentation.library.components.LibraryPagerBoundary
 import eu.kanade.presentation.library.components.libraryPagerBoundarySwipe
 import eu.kanade.tachiyomi.ui.entries.anime.library.AnimeLibraryItem
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.library.model.LibraryAnime
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.i18n.MR
@@ -78,13 +80,17 @@ fun AnimeLibraryPager(
                 return@HorizontalPager
             }
 
-            val displayMode by getDisplayMode(page)
+            // Read as nullable and branch with explicit comparisons + a fallback.
+            // Switching directly on the sealed type used to throw
+            // NoWhenBranchMatchedException for a null/unexpected runtime value and
+            // took down the whole library screen.
+            val displayMode: LibraryDisplayMode? = getDisplayMode(page).value
             val configuration = LocalConfiguration.current
             val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             val columns by remember(isLandscape) { getColumnsForOrientation(isLandscape) }
 
-            when (displayMode) {
-                LibraryDisplayMode.List -> {
+            when {
+                displayMode == LibraryDisplayMode.List -> {
                     AnimeLibraryList(
                         items = library,
                         entries = columns,
@@ -99,10 +105,11 @@ fun AnimeLibraryPager(
                     )
                 }
 
-                LibraryDisplayMode.CompactGrid, LibraryDisplayMode.CoverOnlyGrid -> {
+                displayMode == LibraryDisplayMode.CompactGrid ||
+                    displayMode == LibraryDisplayMode.CoverOnlyGrid -> {
                     AnimeLibraryCompactGrid(
                         items = library,
-                        showTitle = displayMode is LibraryDisplayMode.CompactGrid,
+                        showTitle = displayMode == LibraryDisplayMode.CompactGrid,
                         columns = columns,
                         contentPadding = contentPadding,
                         selection = selectedAnime,
@@ -114,7 +121,8 @@ fun AnimeLibraryPager(
                     )
                 }
 
-                LibraryDisplayMode.ComfortableGrid, LibraryDisplayMode.ComfortableGridPanorama -> {
+                displayMode == LibraryDisplayMode.ComfortableGrid ||
+                    displayMode == LibraryDisplayMode.ComfortableGridPanorama -> {
                     AnimeLibraryComfortableGrid(
                         items = library,
                         columns = columns,
@@ -126,6 +134,25 @@ fun AnimeLibraryPager(
                         searchQuery = searchQuery,
                         onGlobalSearchClicked = onGlobalSearchClicked,
                         usePanoramaCover = displayMode == LibraryDisplayMode.ComfortableGridPanorama,
+                    )
+                }
+
+                else -> {
+                    logcat(LogPriority.WARN) {
+                        "Unexpected anime library display mode: " +
+                            (displayMode?.let { "${it::class.java.name} ($it)" } ?: "null")
+                    }
+                    AnimeLibraryCompactGrid(
+                        items = library,
+                        showTitle = true,
+                        columns = columns,
+                        contentPadding = contentPadding,
+                        selection = selectedAnime,
+                        onClick = onClickAnime,
+                        onClickContinueWatching = onClickContinueWatching,
+                        onLongClick = onLongClickAnime,
+                        searchQuery = searchQuery,
+                        onGlobalSearchClicked = onGlobalSearchClicked,
                     )
                 }
             }

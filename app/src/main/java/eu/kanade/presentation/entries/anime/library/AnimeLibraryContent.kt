@@ -59,7 +59,9 @@ fun AnimeLibraryContent(
             end = contentPadding.calculateEndPadding(LocalLayoutDirection.current),
         ),
     ) {
-        val coercedCurrentPage = remember { currentPage.coerceAtMost(categories.lastIndex) }
+        val coercedCurrentPage = remember {
+            currentPage.coerceIn(0, categories.lastIndex.coerceAtLeast(0))
+        }
         val pagerState = rememberPagerState(coercedCurrentPage) { categories.size }
 
         val scope = rememberCoroutineScope()
